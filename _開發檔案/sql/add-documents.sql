@@ -1,0 +1,1 @@
+ALTER TABLE equipment_cards ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]';

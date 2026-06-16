@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* 木質色主題 */
+    --background: 35 50% 96%;        /* #faf6f0 暖米白 */
+    --foreground: 25 42% 12%;        /* #2c1e12 深木棕 */
+    --card: 30 60% 98%;              /* #fff9f4 暖白 */
+    --card-foreground: 25 42% 12%;
+    --popover: 30 60% 98%;
+    --popover-foreground: 25 42% 12%;
+    --primary: 25 43% 33%;           /* #7a5230 木棕 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 30 25% 86%;         /* #e8ddd0 淺木色 */
+    --secondary-foreground: 25 43% 33%;
+    --muted: 35 30% 91%;             /* #f2ebe0 */
+    --muted-foreground: 28 22% 50%;  /* #a08060 */
+    --accent: 30 25% 86%;
+    --accent-foreground: 25 43% 33%;
+    --destructive: 17 74% 41%;       /* #b5451b 陶磚橘紅 */
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 25% 85%;            /* 暖棕邊框 */
+    --input: 30 25% 85%;
+    --ring: 25 43% 33%;              /* 木棕 focus ring */
+    --radius: 0.5rem;
+  }
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* 木質主題輔助 */
+  .glow-wood {
+    box-shadow: 0 0 6px rgba(122,82,48,.22), 0 2px 10px rgba(122,82,48,.1);
+  }
+  .glow-wood-lg {
+    box-shadow: 0 0 10px rgba(122,82,48,.3), 0 3px 16px rgba(122,82,48,.12);
+  }
+  .badge-admin-pulse {
+    animation: badge-admin-pulse 3.5s ease-in-out infinite;
+  }
+  .badge-new-pulse {
+    animation: badge-new-pulse 2.8s ease-in-out infinite;
+  }
+}
+
+@keyframes badge-admin-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(122,82,48,.22), 0 2px 10px rgba(122,82,48,.1); }
+  50%       { box-shadow: 0 0 10px rgba(122,82,48,.3), 0 3px 16px rgba(122,82,48,.12); }
+}
+
+@keyframes badge-new-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(181,69,27,.2); }
+  50%       { box-shadow: 0 0 10px rgba(181,69,27,.4), 0 0 20px rgba(181,69,27,.12); }
+}
+
+/* 滑鼠點擊時不顯示 focus 外框，鍵盤 Tab 導覽時保留（不移除 box-shadow，避免蓋掉光暈效果）*/
+*:focus:not(:focus-visible) {
+  outline: none !important;
+}
