@@ -10,13 +10,12 @@ interface Props {
   userEmail: string
   isAdmin: boolean
   canWrite: boolean
-  staffConfig: StaffConfig | null   // null if user is not a staff member
+  staffConfig: StaffConfig | null
   allStaff: StaffConfig[]
 }
 
 const MONTHS = getAvailableMonths()
 
-// ── Tiện ích ─────────────────────────────────────────────────
 function sumObj(records: DailyRecord[], key: keyof DailyRecord) {
   const result: Record<string, number> = {}
   for (const r of records) {
@@ -29,7 +28,7 @@ function sumObj(records: DailyRecord[], key: keyof DailyRecord) {
 }
 
 function topEntry(obj: Record<string, number>): [string, number] {
-  let best: [string, number] = ['—', 0]
+  let best: [string, number] = ['--', 0]
   for (const [k, v] of Object.entries(obj)) {
     if (v > best[1]) best = [k, v]
   }
@@ -41,10 +40,7 @@ function pct(part: number, total: number) {
   return Math.round((part / total) * 100)
 }
 
-// ── Mini bar chart (CSS) ─────────────────────────────────────
-function BarChart({
-  data, total, color = 'bg-blue-500', maxBars = 6,
-}: {
+function BarChart({ data, total, color = 'bg-blue-500', maxBars = 6 }: {
   data: Record<string, number>
   total: number
   color?: string
@@ -55,7 +51,9 @@ function BarChart({
     .sort((a, b) => b[1] - a[1])
     .slice(0, maxBars)
 
-  if (!sorted.length) return <p className="text-xs text-gray-400">Không có dữ liệu</p>
+  if (!sorted.length) {
+    return <p className="text-xs text-gray-400">Khong co du lieu</p>
+  }
 
   const max = sorted[0][1]
   return (
@@ -78,10 +76,7 @@ function BarChart({
   )
 }
 
-// ── Summary card ─────────────────────────────────────────────
-function StatCard({
-  icon, label, value, sub, color = 'blue',
-}: {
+function StatCard({ icon, label, value, sub, color = 'blue' }: {
   icon: string
   label: string
   value: string | number
@@ -89,18 +84,18 @@ function StatCard({
   color?: string
 }) {
   const colorMap: Record<string, string> = {
-    blue: 'bg-blue-50 border-blue-200',
-    green: 'bg-green-50 border-green-200',
+    blue:   'bg-blue-50 border-blue-200',
+    green:  'bg-green-50 border-green-200',
     orange: 'bg-orange-50 border-orange-200',
     purple: 'bg-purple-50 border-purple-200',
-    red: 'bg-red-50 border-red-200',
+    red:    'bg-red-50 border-red-200',
   }
   const textMap: Record<string, string> = {
-    blue: 'text-blue-700',
-    green: 'text-green-700',
+    blue:   'text-blue-700',
+    green:  'text-green-700',
     orange: 'text-orange-700',
     purple: 'text-purple-700',
-    red: 'text-red-700',
+    red:    'text-red-700',
   }
   return (
     <div className={`rounded-xl border p-4 ${colorMap[color] ?? colorMap.blue}`}>
@@ -116,14 +111,8 @@ function StatCard({
   )
 }
 
-// ── Main component ───────────────────────────────────────────
-export default function HoTroDashboard({
-  userEmail, isAdmin, canWrite, staffConfig, allStaff,
-}: Props) {
-  // Default: current month
+export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
-  // Admin: which staff tab is active. '' = tổng quan (summary sheet)
-  // Non-admin staff: always their own sheet
   const [selectedSheetId, setSelectedSheetId] = useState<string>(
     isAdmin ? (allStaff[0]?.sheetId ?? SUMMARY_SHEET_ID) : (staffConfig?.sheetId ?? '')
   )
@@ -139,21 +128,15 @@ export default function HoTroDashboard({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(
-        `/api/ho-tro/sheets?sheetId=${sheetId}&month=${month}&year=${year}`
-      )
+      const res = await fetch(`/api/ho-tro/sheets?sheetId=${sheetId}&month=${month}&year=${year}`)
       const json = await res.json()
       setSheetName(json.sheetName ?? '')
 
       if (json.error) {
-        // Show debug snippet if available (parse failures)
-        const msg = json.debug
-          ? `${json.error} — debug: ${json.debug.slice(0, 120)}...`
-          : json.error
-        setError(msg)
+        setError(json.error)
         setRecords([])
       } else if (!json.rows?.length) {
-        setError(`Không có dữ liệu cho "${json.sheetName}". Sheet chưa có dữ liệu hoặc tên sheet không đúng.`)
+        setError(`Chua co du lieu cho "${json.sheetName}"`)
         setRecords([])
       } else {
         setRecords(json.rows)
@@ -177,52 +160,42 @@ export default function HoTroDashboard({
     window.location.href = '/login'
   }
 
-  // ── Computed stats ─────────────────────────────────────────
   const dataRows = records.filter(r => r.total_requests > 0)
   const totalRequests = dataRows.reduce((s, r) => s + r.total_requests, 0)
   const totalDays = dataRows.length
   const avgTime = totalDays
     ? Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / totalDays)
     : 0
-  const totalResolved = dataRows.reduce((s, r) => s + (r.resolution['Ngày 1'] ?? 0), 0)
-  const totalPending = dataRows.reduce((s, r) => s + (r.resolution['Chưa xử lý'] ?? 0), 0)
+  const totalResolved = dataRows.reduce((s, r) => s + (r.resolution['Ngay 1'] ?? r.resolution['Ngày 1'] ?? 0), 0)
+  const totalPending = dataRows.reduce((s, r) => s + (r.resolution['Chua xu ly'] ?? r.resolution['Chưa xử lý'] ?? 0), 0)
   const deviceSum = sumObj(dataRows, 'devices')
   const locationSum = sumObj(dataRows, 'locations')
   const channelSum = sumObj(dataRows, 'channels')
   const errorSum = sumObj(dataRows, 'errors')
-  const [topDevice] = topEntry(deviceSum)
-  const [topLocation] = topEntry(locationSum)
   const resolveRate = pct(totalResolved, totalRequests)
 
-  // Which staff member are we viewing?
   const viewingStaff = isAdmin
     ? allStaff.find(s => s.sheetId === selectedSheetId) ?? null
     : staffConfig
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* ── Header ──────────────────────────────────────────── */}
       <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <a
-              href="/kho"
-              className="text-sm text-gray-500 hover:text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition"
-            >
-              ← Kho
+            <a href="/kho" className="text-sm text-gray-500 hover:text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition">
+              &larr; Kho
             </a>
             <span className="text-gray-200">|</span>
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 bg-teal-600 rounded-xl flex items-center justify-center text-lg">📋</div>
               <div>
-                <h1 className="text-lg font-bold text-gray-900 leading-none">Hỗ trợ kỹ thuật</h1>
+                <h1 className="text-lg font-bold text-gray-900 leading-none">Ho tro ky thuat</h1>
                 <p className="text-xs text-gray-400">{userEmail}</p>
               </div>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
-            {/* Month selector */}
             <select
               value={selectedMonthIdx}
               onChange={e => setSelectedMonthIdx(Number(e.target.value))}
@@ -232,19 +205,15 @@ export default function HoTroDashboard({
                 <option key={i} value={i}>{m.label}</option>
               ))}
             </select>
-
             {isAdmin && (
-              <a
-                href="/admin/users"
-                className="flex items-center gap-1.5 px-3 py-2 text-sm border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-xl transition"
-              >
-                ⚙️ Admin
+              <a href="/admin/users" className="flex items-center gap-1.5 px-3 py-2 text-sm border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-xl transition">
+                Admin
               </a>
             )}
             <button
               onClick={handleLogout}
               className="px-3 py-2 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition"
-              title="Đăng xuất"
+              title="Dang xuat"
             >
               🚪
             </button>
@@ -252,7 +221,6 @@ export default function HoTroDashboard({
         </div>
       </header>
 
-      {/* ── Staff tabs (Admin only) ──────────────────────────── */}
       {isAdmin && (
         <div className="bg-white border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4">
@@ -267,7 +235,7 @@ export default function HoTroDashboard({
                       : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
-                  👤 {staff.name}
+                  {staff.name}
                 </button>
               ))}
               <button
@@ -278,149 +246,83 @@ export default function HoTroDashboard({
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                📊 Tổng quan
+                Tong quan
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Content ─────────────────────────────────────────── */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
-
-        {/* Context bar */}
         <div className="mb-5 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-800 text-lg">
-              {viewingStaff ? `📋 ${viewingStaff.name}` : selectedSheetId === SUMMARY_SHEET_ID ? '📊 Tổng quan nhóm' : '📋 Báo cáo của bạn'}
+              {viewingStaff ? viewingStaff.name : selectedSheetId === SUMMARY_SHEET_ID ? 'Tong quan nhom' : 'Bao cao cua ban'}
             </h2>
             <p className="text-sm text-gray-400">
-              {sheetName || `báo cáo tháng ${selectedMonth.month}/${selectedMonth.yearShort}`}
-              {totalDays > 0 && ` · ${totalDays} ngày làm việc`}
+              {sheetName || `bao cao thang ${selectedMonth.month}/${selectedMonth.yearShort}`}
+              {totalDays > 0 && ` · ${totalDays} ngay lam viec`}
             </p>
           </div>
           {loading && (
             <div className="flex items-center gap-2 text-sm text-teal-600">
               <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
-              Đang tải...
+              Dang tai...
             </div>
           )}
         </div>
 
-        {/* Error state */}
         {error && !loading && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-sm text-amber-700 mb-5">
-            ⚠️ {error}
+            {error}
           </div>
         )}
 
         {!loading && dataRows.length > 0 && (
-          <>
-            {/* ── Summary cards ────────────────────────────── */}
+          <div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <StatCard
-                icon="📞"
-                label="Tổng yêu cầu"
-                value={totalRequests.toLocaleString()}
-                sub={`${totalDays} ngày làm việc`}
-                color="blue"
-              />
-              <StatCard
-                icon="⏱️"
-                label="TG xử lý TB"
-                value={`${avgTime} phút`}
-                sub="Trung bình/ngày"
-                color="purple"
-              />
-              <StatCard
-                icon="✅"
-                label="Xử lý ngay"
-                value={`${resolveRate}%`}
-                sub={`${totalResolved} yêu cầu`}
-                color="green"
-              />
-              <StatCard
-                icon="🔴"
-                label="Còn tồn đọng"
-                value={totalPending}
-                sub="Tiếp nhận chưa xử lý"
-                color="red"
-              />
+              <StatCard icon="📞" label="Tong yeu cau" value={totalRequests.toLocaleString()} sub={`${totalDays} ngay lam viec`} color="blue" />
+              <StatCard icon="⏱️" label="TG xu ly TB" value={`${avgTime} phut`} sub="Trung binh/ngay" color="purple" />
+              <StatCard icon="✅" label="Xu ly ngay" value={`${resolveRate}%`} sub={`${totalResolved} yeu cau`} color="green" />
+              <StatCard icon="🔴" label="Con ton dong" value={totalPending} sub="Chua xu ly" color="red" />
             </div>
 
-            {/* ── Breakdown charts ─────────────────────────── */}
             <div className="grid md:grid-cols-2 gap-5 mb-6">
-              {/* Device breakdown */}
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  📡 Phân loại thiết bị
-                  <span className="text-xs text-gray-400 font-normal">(top 6)</span>
-                </h3>
-                <BarChart
-                  data={deviceSum}
-                  total={totalRequests}
-                  color="bg-blue-500"
-                  maxBars={6}
-                />
+                <h3 className="font-semibold text-gray-700 mb-4">Thiet bi (top 6)</h3>
+                <BarChart data={deviceSum} total={totalRequests} color="bg-blue-500" maxBars={6} />
               </div>
-
-              {/* Location breakdown */}
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  📍 Phân loại địa điểm
-                </h3>
-                <BarChart
-                  data={locationSum}
-                  total={totalRequests}
-                  color="bg-teal-500"
-                  maxBars={6}
-                />
+                <h3 className="font-semibold text-gray-700 mb-4">Dia diem</h3>
+                <BarChart data={locationSum} total={totalRequests} color="bg-teal-500" maxBars={6} />
               </div>
-
-              {/* Channel breakdown */}
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-700 mb-4">📲 Kênh tiếp nhận</h3>
-                <BarChart
-                  data={channelSum}
-                  total={totalRequests}
-                  color="bg-indigo-500"
-                  maxBars={3}
-                />
+                <h3 className="font-semibold text-gray-700 mb-4">Kenh tiep nhan</h3>
+                <BarChart data={channelSum} total={totalRequests} color="bg-indigo-500" maxBars={3} />
               </div>
-
-              {/* Error types */}
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                  🔧 Loại lỗi
-                  <span className="text-xs text-gray-400 font-normal">(top 6)</span>
-                </h3>
-                <BarChart
-                  data={errorSum}
-                  total={totalRequests}
-                  color="bg-orange-400"
-                  maxBars={6}
-                />
+                <h3 className="font-semibold text-gray-700 mb-4">Loai loi (top 6)</h3>
+                <BarChart data={errorSum} total={totalRequests} color="bg-orange-400" maxBars={6} />
               </div>
             </div>
 
-            {/* ── Daily table ──────────────────────────────── */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                <h3 className="font-semibold text-gray-700">📅 Chi tiết theo ngày</h3>
-                <span className="text-xs text-gray-400">{dataRows.length} ngày</span>
+                <h3 className="font-semibold text-gray-700">Chi tiet theo ngay</h3>
+                <span className="text-xs text-gray-400">{dataRows.length} ngay</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngày</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">Yêu cầu</th>
+                      <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngay</th>
+                      <th className="text-right px-3 py-3 text-gray-500 font-medium">YC</th>
                       <th className="text-right px-3 py-3 text-gray-500 font-medium">TG TB</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium whitespace-nowrap">Xử lý ngay</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">Tồn</th>
+                      <th className="text-right px-3 py-3 text-gray-500 font-medium whitespace-nowrap">Xu ly ngay</th>
+                      <th className="text-right px-3 py-3 text-gray-500 font-medium">Ton</th>
                       <th className="text-right px-3 py-3 text-gray-500 font-medium">HN</th>
                       <th className="text-right px-3 py-3 text-gray-500 font-medium">HP</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">ĐN</th>
+                      <th className="text-right px-3 py-3 text-gray-500 font-medium">DN</th>
                       <th className="text-right px-3 py-3 text-gray-500 font-medium">HCM</th>
                       <th className="text-right px-3 py-3 text-gray-500 font-medium">BD</th>
                       <th className="text-right px-3 py-3 text-gray-500 font-medium">Zalo</th>
@@ -429,81 +331,74 @@ export default function HoTroDashboard({
                   </thead>
                   <tbody>
                     {dataRows.map((r, i) => {
-                      const resolveDay1 = r.resolution['Ngày 1'] ?? 0
-                      const pending = r.resolution['Chưa xử lý'] ?? 0
+                      const resolveDay1 = r.resolution['Ngay 1'] ?? r.resolution['Ngày 1'] ?? 0
+                      const pending = r.resolution['Chua xu ly'] ?? r.resolution['Chưa xử lý'] ?? 0
                       return (
-                        <tr
-                          key={r.sortKey}
-                          className={`border-b border-gray-100 last:border-0 hover:bg-gray-50/70 ${i % 2 === 0 ? '' : 'bg-gray-50/30'}`}
-                        >
+                        <tr key={r.sortKey} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50/70 ${i % 2 === 0 ? '' : 'bg-gray-50/30'}`}>
                           <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{r.date}</td>
                           <td className="px-3 py-2.5 text-right font-bold text-blue-700">{r.total_requests}</td>
                           <td className="px-3 py-2.5 text-right text-gray-600">{r.avg_time}p</td>
                           <td className="px-3 py-2.5 text-right">
-                            <span className={`${pct(resolveDay1, r.total_requests) >= 90 ? 'text-green-600' : 'text-amber-600'} font-medium`}>
+                            <span className={pct(resolveDay1, r.total_requests) >= 90 ? 'text-green-600 font-medium' : 'text-amber-600 font-medium'}>
                               {pct(resolveDay1, r.total_requests)}%
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-right">
-                            {pending > 0 ? (
-                              <span className="text-red-600 font-medium">{pending}</span>
-                            ) : (
-                              <span className="text-gray-300">—</span>
-                            )}
+                            {pending > 0 ? <span className="text-red-600 font-medium">{pending}</span> : <span className="text-gray-300">-</span>}
                           </td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Hà Nội'] || '—'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Hải Phòng'] || '—'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Đà Nẵng'] || '—'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['HCM'] || '—'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Bình Dương'] || '—'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Zalo'] || '—'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Hotline'] || '—'}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Ha Noi'] || r.locations['Hà Nội'] || '-'}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Hai Phong'] || r.locations['Hải Phòng'] || '-'}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Da Nang'] || r.locations['Đà Nẵng'] || '-'}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['HCM'] || '-'}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Binh Duong'] || r.locations['Bình Dương'] || '-'}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Zalo'] || '-'}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Hotline'] || '-'}</td>
                         </tr>
                       )
                     })}
                   </tbody>
-                  {/* Monthly totals */}
                   <tfoot className="border-t-2 border-gray-300 bg-blue-50">
                     <tr>
-                      <td className="px-4 py-3 font-bold text-gray-800">Tổng tháng</td>
+                      <td className="px-4 py-3 font-bold text-gray-800">Tong thang</td>
                       <td className="px-3 py-3 text-right font-bold text-blue-800">{totalRequests}</td>
                       <td className="px-3 py-3 text-right text-gray-600">{avgTime}p</td>
                       <td className="px-3 py-3 text-right font-bold">
-                        <span className={resolveRate >= 90 ? 'text-green-700' : 'text-amber-700'}>
-                          {resolveRate}%
-                        </span>
+                        <span className={resolveRate >= 90 ? 'text-green-700' : 'text-amber-700'}>{resolveRate}%</span>
                       </td>
                       <td className="px-3 py-3 text-right">
-                        {totalPending > 0 ? (
-                          <span className="text-red-700 font-bold">{totalPending}</span>
-                        ) : <span className="text-gray-300">—</span>}
+                        {totalPending > 0 ? <span className="text-red-700 font-bold">{totalPending}</span> : <span className="text-gray-300">-</span>}
                       </td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['Hà Nội'] || '—'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['Hải Phòng'] || '—'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['Đà Nẵng'] || '—'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['HCM'] || '—'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['Bình Dương'] || '—'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{channelSum['Zalo'] || '—'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{channelSum['Hotline'] || '—'}</td>
+                      <td className="px-3 py-3 text-right font-medium">{locationSum['Ha Noi'] || locationSum['Hà Nội'] || '-'}</td>
+                      <td className="px-3 py-3 text-right font-medium">{locationSum['Hai Phong'] || locationSum['Hải Phòng'] || '-'}</td>
+                      <td className="px-3 py-3 text-right font-medium">{locationSum['Da Nang'] || locationSum['Đà Nẵng'] || '-'}</td>
+                      <td className="px-3 py-3 text-right font-medium">{locationSum['HCM'] || '-'}</td>
+                      <td className="px-3 py-3 text-right font-medium">{locationSum['Binh Duong'] || locationSum['Bình Dương'] || '-'}</td>
+                      <td className="px-3 py-3 text-right font-medium">{channelSum['Zalo'] || '-'}</td>
+                      <td className="px-3 py-3 text-right font-medium">{channelSum['Hotline'] || '-'}</td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             </div>
-          </>
-        )}
-
-        {/* Empty state */}
-        {!loading && dataRows.length === 0 && !error && (
-          <div className="text-center py-20 text-gray-400">
-            <div className="text-5xl mb-4">📋</div>
-            <p className="text-lg font-medium text-gray-500">Không có dữ liệu</p>
-            <p className="text-sm mt-1">Chưa có báo cáo cho {selectedMonth.label.toLowerCase()}</p>
           </div>
         )}
 
-        {/* No sheet assigned */}
+        {!loading && dataRows.length === 0 && !error && (
+          <div className="text-center py-20 text-gray-400">
+            <div className="text-5xl mb-4">📋</div>
+            <p className="text-lg font-medium text-gray-500">Khong co du lieu</p>
+            <p className="text-sm mt-1">Chua co bao cao cho {selectedMonth.label.toLowerCase()}</p>
+          </div>
+        )}
+
         {!isAdmin && !staffConfig && (
           <div className="text-center py-20 text-gray-400">
             <div className="text-5xl mb-4">🔗</div>
-            <p className="text-lg font-medium text-gra
+            <p className="text-lg font-medium text-gray-500">Chua duoc lien ket</p>
+            <p className="text-sm mt-1">Tai khoan chua duoc gan sheet bao cao. Lien he Admin.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
