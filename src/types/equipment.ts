@@ -8,7 +8,7 @@ export interface BookmarkRecord {
 export interface Document {
   name: string
   url: string
-  type: string  // 改為 string（原本是 'spec' | 'contract' | 'other'）
+  type: string
 }
 
 export interface DetailPhoto {
@@ -17,9 +17,46 @@ export interface DetailPhoto {
   caption?: string
 }
 
+// ── Device Types ──────────────────────────────────────────────
+export type DeviceType = 'GPS Tracker' | 'MDVR' | 'Camera' | 'Accessory' | 'Sensor' | 'Simcard' | 'Storage'
+
+export const DEVICE_TYPES: DeviceType[] = ['GPS Tracker', 'MDVR', 'Camera', 'Accessory', 'Sensor', 'Simcard', 'Storage']
+
+export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
+  'GPS Tracker': 'GPS Tracker',
+  'MDVR':        'MDVR',
+  'Camera':      'Camera',
+  'Accessory':   'Phụ kiện',
+  'Sensor':      'Cảm biến',
+  'Simcard':     'Sim card',
+  'Storage':     'Bộ nhớ',
+}
+
+export const DEVICE_TYPE_COLORS: Record<DeviceType, { bg: string; text: string; border: string }> = {
+  'GPS Tracker': { bg: 'bg-blue-100',   text: 'text-blue-700',   border: 'border-blue-300'   },
+  'MDVR':        { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300' },
+  'Camera':      { bg: 'bg-green-100',  text: 'text-green-700',  border: 'border-green-300'  },
+  'Accessory':   { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300' },
+  'Sensor':      { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300' },
+  'Simcard':     { bg: 'bg-pink-100',   text: 'text-pink-700',   border: 'border-pink-300'   },
+  'Storage':     { bg: 'bg-cyan-100',   text: 'text-cyan-700',   border: 'border-cyan-300'   },
+}
+
+export const DEVICE_TYPE_ICONS: Record<DeviceType, string> = {
+  'GPS Tracker': '📡',
+  'MDVR':        '🎥',
+  'Camera':      '📷',
+  'Accessory':   '🔌',
+  'Sensor':      '🌡️',
+  'Simcard':     '📶',
+  'Storage':     '💾',
+}
+
+// ── Equipment Card ────────────────────────────────────────────
 export interface EquipmentCard {
   equipment_id: string
   name: string
+  device_type: DeviceType | null
   category: string | null
   vendor: string | null
   status: string
@@ -29,9 +66,9 @@ export interface EquipmentCard {
   main_photo_public_id: string | null
   detail_photos: DetailPhoto[]
   net_weight: number | null
-  weight_photos: DetailPhoto[] | null  // 多ảnhẢnh khối lượng；SQL migration 執行前舊dữ liệu為 null，程式碼一律用 `?? []`
-  weight_photo: string | null         // 保留：DB 舊欄位向下相容
-  weight_photo_public_id: string | null  // 保留：DB 舊欄位向下相容
+  weight_photos: DetailPhoto[] | null
+  weight_photo: string | null
+  weight_photo_public_id: string | null
   documents: Document[]
   is_new: boolean
   created_at: string
@@ -42,18 +79,20 @@ export interface EquipmentCard {
 
 export interface AppSettings {
   categories: string[]
-  statuses: string[]        // 第一個為預設「現役」Trạng thái
-  documentTypes: string[]   // Liên kết tài liệuLoại清單
-  issueTypes: string[]      // 追蹤板Vấn đềLoại
-  issueTags: string[]       // 追蹤板Vấn đềTags
+  statuses: string[]
+  documentTypes: string[]
+  issueTypes: string[]
+  issueTags: string[]
+  device_types?: string[]
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  categories: ['主機', '鏡頭', '螢幕', '天線', 'Lưu媒體', '線材', '配件', '耗材', '工具', '國外設備'],
+  categories: ['Máy chủ', 'Camera', 'Màn hình', 'Ăng-ten', 'Thiết bị lưu trữ', 'Cáp', 'Phụ kiện', 'Cảm biến', 'Vật tư', 'Công cụ'],
   statuses: ['Hiện hành', 'Ngừng SX'],
   documentTypes: ['Datasheet', 'Hợp đồng', 'Khác'],
-  issueTypes: ['設備異常', '維修需求', '庫存問題', 'Khác'],
+  issueTypes: ['Thiếu hàng', 'Firmware', 'Sửa chữa', 'Phản hồi khách hàng', 'Khác'],
   issueTags: [],
+  device_types: ['GPS Tracker', 'MDVR', 'Camera', 'Accessory', 'Sensor', 'Simcard', 'Storage'],
 }
 
 export interface GroupItem {
@@ -75,5 +114,5 @@ export interface Role {
   name: string
   is_system: boolean
   created_at: string
-  permissions: string[]  // 由 API JOIN 填入
+  permissions: string[]
 }
