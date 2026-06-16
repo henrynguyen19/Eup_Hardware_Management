@@ -14,11 +14,12 @@ interface Props {
   userEmail: string
   canWrite?: boolean
   isAdmin?: boolean
+  canHoTro?: boolean
 }
 
 const TYPE_TAB_ALL = 'Tất cả'
 
-export default function KhoPhotoWall({ initialCards, userEmail, canWrite = true, isAdmin = false }: Props) {
+export default function KhoPhotoWall({ initialCards, userEmail, canWrite = true, isAdmin = false, canHoTro = false }: Props) {
   const [cards, setCards] = useState<EquipmentCard[]>(initialCards)
 
   async function handleLogout() {
@@ -167,6 +168,15 @@ export default function KhoPhotoWall({ initialCards, userEmail, canWrite = true,
                     + Thêm mới
                   </button>
                 </>
+              )}
+              {/* Hỗ trợ kỹ thuật */}
+              {(canHoTro || isAdmin) && (
+                <a
+                  href="/ho-tro"
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm border border-teal-300 text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-xl transition"
+                >
+                  📋 Hỗ trợ KT
+                </a>
               )}
               {/* Admin & Logout */}
               <div className="h-6 w-px bg-gray-200" />

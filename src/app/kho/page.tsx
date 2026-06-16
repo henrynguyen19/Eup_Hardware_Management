@@ -57,6 +57,7 @@ export default async function KhoPage() {
 
   const isAdmin = permissions.includes('admin:users')
   const canWrite = permissions.includes('kho:write') || isAdmin
+  const canHoTro = permissions.includes('ho_tro:read') || isAdmin
 
   return (
     <main className="min-h-screen bg-[#f8fafc]">
@@ -66,6 +67,7 @@ export default async function KhoPage() {
         userEmail={user.email ?? ''}
         canWrite={canWrite}
         isAdmin={isAdmin}
+        canHoTro={canHoTro}
       />
     </main>
   )
