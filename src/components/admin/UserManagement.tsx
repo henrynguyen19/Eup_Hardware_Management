@@ -103,17 +103,23 @@ export default function UserManagement({ users, roles, currentUserEmail }: Props
   return (
     <div className="flex flex-col min-h-screen">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
+      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 shadow-sm">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/" className="text-gray-400 hover:text-gray-600">← Trang chủ</Link>
-            <h1 className="text-xl font-bold text-gray-900">👥 Quản lý người dùng</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link href="/admin/roles" className="text-sm px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition">
-              ⚙️ Quản lý phân quyền
+            <Link href="/kho" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition">
+              ← Kho
             </Link>
-            <span className="text-sm text-gray-400">{currentUserEmail}</span>
+            <span className="text-gray-200">|</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xl">👥</span>
+              <h1 className="text-lg font-bold text-gray-900">Quản lý tài khoản</h1>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/roles" className="text-sm px-4 py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl text-orange-700 transition font-medium">
+              🔐 Phân quyền vai trò
+            </Link>
+            <span className="text-xs text-gray-400 ml-2">{currentUserEmail}</span>
           </div>
         </div>
       </header>
