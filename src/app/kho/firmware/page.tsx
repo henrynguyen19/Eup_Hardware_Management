@@ -20,8 +20,8 @@ async function getFirmwareWithDevices(): Promise<{
   ])
 
   const devices: Record<string, EquipmentCard> = {}
-  ;(devResult.data ?? []).forEach((d: EquipmentCard) => {
-    devices[d.equipment_id] = d
+  ;(devResult.data ?? []).forEach((d) => {
+    devices[d.equipment_id] = d as unknown as EquipmentCard
   })
 
   return {
