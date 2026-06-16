@@ -143,15 +143,21 @@ export default function HoTroDashboard({
         `/api/ho-tro/sheets?sheetId=${sheetId}&month=${month}&year=${year}`
       )
       const json = await res.json()
-      if (json.error && !json.rows?.length) {
-        setError(json.error)
+      setSheetName(json.sheetName ?? '')
+
+      if (json.error) {
+        // Show debug snippet if available (parse failures)
+        const msg = json.debug
+          ? `${json.error} — debug: ${json.debug.slice(0, 120)}...`
+          : json.error
+        setError(msg)
+        setRecords([])
+      } else if (!json.rows?.length) {
+        setError(`Không có dữ liệu cho "${json.sheetName}". Sheet chưa có dữ liệu hoặc tên sheet không đúng.`)
         setRecords([])
       } else {
-        setRecords(json.rows ?? [])
-        setSheetName(json.sheetName ?? '')
-        if (json.rows?.length === 0) {
-          setError('Không có dữ liệu cho tháng này')
-        }
+        setRecords(json.rows)
+        setError(null)
       }
     } catch (e) {
       setError(String(e))
@@ -500,11 +506,4 @@ export default function HoTroDashboard({
         {!isAdmin && !staffConfig && (
           <div className="text-center py-20 text-gray-400">
             <div className="text-5xl mb-4">🔗</div>
-            <p className="text-lg font-medium text-gray-500">Chưa được liên kết</p>
-            <p className="text-sm mt-1">Tài khoản của bạn chưa được gán sheet báo cáo.<br />Liên hệ Admin để được cấu hình.</p>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
+            <p className="text-lg font-medium text-gra

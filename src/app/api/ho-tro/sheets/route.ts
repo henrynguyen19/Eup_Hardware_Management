@@ -9,112 +9,117 @@ const adminClient = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-// ── Helpers ─────────────────────────────────────────────────
-function parseGviz(text: string) {
-  const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]+?)\);\s*$/)
-  if (!match) throw new Error('Invalid gviz response')
-  return JSON.parse(match[1])
-}
-
-function num(cell: unknown): number {
-  if (!cell || typeof cell !== 'object') return 0
-  const c = cell as { v?: unknown }
-  if (c.v === null || c.v === undefined) return 0
-  return typeof c.v === 'number' ? c.v : parseFloat(String(c.v)) || 0
-}
-
-function dateInfo(cell: unknown): { display: string; sortKey: string } | null {
-  if (!cell || typeof cell !== 'object') return null
-  const c = cell as { v?: unknown; f?: string }
-  if (c.v === null || c.v === undefined) return null
-
-  let sortKey = ''
-  let display = c.f ?? ''
-
-  if (typeof c.v === 'string' && c.v.startsWith('Date(')) {
-    const m = c.v.match(/Date\((\d+),(\d+),(\d+)\)/)
-    if (m) {
-      const y = parseInt(m[1])
-      const mo = parseInt(m[2]) + 1 // 0-indexed → 1-indexed
-      const d = parseInt(m[3])
-      sortKey = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-      if (!display) display = `${d}/${mo}/${y}`
+// ── CSV parser ───────────────────────────────────────────────
+// Parse một dòng CSV có dấu ngoặc kép
+function parseCSVRow(line: string): string[] {
+  const result: string[] = []
+  let cur = ''
+  let inQuote = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (c === '"') {
+      if (inQuote && line[i + 1] === '"') { cur += '"'; i++; continue } // escaped quote
+      inQuote = !inQuote
+      continue
     }
+    if (c === ',' && !inQuote) { result.push(cur.trim()); cur = ''; continue }
+    cur += c
   }
-  return sortKey ? { display, sortKey } : null
+  result.push(cur.trim())
+  return result
 }
 
-function parseRows(rows: unknown[]): DailyRecord[] {
+// Parse date "DD/MM/YYYY" → sortKey "YYYY-MM-DD"
+function parseDateDMY(str: string): { display: string; sortKey: string } | null {
+  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (!m) return null
+  const d = m[1].padStart(2, '0')
+  const mo = m[2].padStart(2, '0')
+  const y = m[3]
+  return { display: str, sortKey: `${y}-${mo}-${d}` }
+}
+
+function numStr(s: string): number {
+  if (!s || s === '') return 0
+  return parseFloat(s) || 0
+}
+
+// ── Parse CSV text → DailyRecord[] ──────────────────────────
+function parseCSV(csvText: string): DailyRecord[] {
+  const lines = csvText.split('\n')
   const result: DailyRecord[] = []
-  for (const row of rows) {
-    const r = row as { c: unknown[] }
-    const c = r.c ?? []
 
-    // col index 1 = date cell
-    const di = dateInfo(c[1])
+  // Skip line 0 (it's the gviz packed header)
+  // Data rows start from line 1
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]
+    if (!line.trim()) continue
+
+    const c = parseCSVRow(line)
+
+    // col[1] must be a date in DD/MM/YYYY format
+    const di = parseDateDMY(c[1] ?? '')
     if (!di) continue
-
-    // Skip summary/total rows (no date value)
-    const totalRequests = num(c[2])
 
     result.push({
       date: di.display,
       sortKey: di.sortKey,
-      total_requests: totalRequests,
-      avg_time: num(c[3]),
-      max_time: num(c[4]),
+      total_requests: numStr(c[2]),
+      avg_time:       numStr(c[3]),
+      max_time:       numStr(c[4]),
       devices: {
-        'VN88 2G':   num(c[5]),
-        'VN88 4G':   num(c[6]),
-        'VN88 4GH':  num(c[7]),
-        'S168':      num(c[8]),
-        'DVR':       num(c[9]),
-        'FUEL':      num(c[10]),
-        'Go168':     num(c[11]),
-        'MT99':      num(c[12]),
-        'C43&H5':    num(c[13]),
-        'BW':        num(c[14]),
-        'Phần mềm':  num(c[15]),
+        'VN88 2G':  numStr(c[5]),
+        'VN88 4G':  numStr(c[6]),
+        'VN88 4GH': numStr(c[7]),
+        'S168':     numStr(c[8]),
+        'DVR':      numStr(c[9]),
+        'FUEL':     numStr(c[10]),
+        'Go168':    numStr(c[11]),
+        'MT99':     numStr(c[12]),
+        'C43&H5':   numStr(c[13]),
+        'BW':       numStr(c[14]),
+        'Phần mềm': numStr(c[15]),
       },
       resolution: {
-        'Chưa xử lý': num(c[16]),
-        'Hẹn xử lý':  num(c[17]),
-        'Ngày 1':     num(c[18]),
-        'Ngày 2':     num(c[19]),
-        'Ngày 3':     num(c[20]),
-        'Ngày 4':     num(c[21]),
-        'Ngày 5':     num(c[22]),
-        'Tổng':       num(c[23]),
+        'Chưa xử lý': numStr(c[16]),
+        'Hẹn xử lý':  numStr(c[17]),
+        'Ngày 1':     numStr(c[18]),
+        'Ngày 2':     numStr(c[19]),
+        'Ngày 3':     numStr(c[20]),
+        'Ngày 4':     numStr(c[21]),
+        'Ngày 5':     numStr(c[22]),
+        'Tổng':       numStr(c[23]),
       },
       locations: {
-        'Hà Nội':     num(c[24]),
-        'Hải Phòng':  num(c[25]),
-        'Đà Nẵng':    num(c[26]),
-        'HCM':        num(c[27]),
-        'Bình Dương': num(c[28]),
+        'Hà Nội':     numStr(c[24]),
+        'Hải Phòng':  numStr(c[25]),
+        'Đà Nẵng':    numStr(c[26]),
+        'HCM':        numStr(c[27]),
+        'Bình Dương': numStr(c[28]),
       },
       channels: {
-        'Zalo':      num(c[29]),
-        'Hotline':   num(c[30]),
-        'Ngày nghỉ': num(c[31]),
+        'Zalo':      numStr(c[29]),
+        'Hotline':   numStr(c[30]),
+        'Ngày nghỉ': numStr(c[31]),
       },
       errors: {
-        'ACC':  num(c[32]),
-        'RFID': num(c[33]),
-        'PW':   num(c[34]),
-        'GPS':  num(c[35]),
-        'GSM':  num(c[36]),
-        'IO':   num(c[37]),
-        'SS':   num(c[38]),
-        'DMS':  num(c[39]),
-        'ADAS': num(c[40]),
-        'NC':   num(c[41]),
-        'SP':   num(c[42]),
-        'FS100':num(c[43]),
-        'SOJI': num(c[44]),
+        'ACC':   numStr(c[32]),
+        'RFID':  numStr(c[33]),
+        'PW':    numStr(c[34]),
+        'GPS':   numStr(c[35]),
+        'GSM':   numStr(c[36]),
+        'IO':    numStr(c[37]),
+        'SS':    numStr(c[38]),
+        'DMS':   numStr(c[39]),
+        'ADAS':  numStr(c[40]),
+        'NC':    numStr(c[41]),
+        'SP':    numStr(c[42]),
+        'FS100': numStr(c[43]),
+        'SOJI':  numStr(c[44]),
       },
     })
   }
+
   return result.sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 }
 
@@ -136,8 +141,8 @@ export async function GET(req: NextRequest) {
 
   const sp = new URL(req.url).searchParams
   const sheetId = sp.get('sheetId')
-  const month = sp.get('month')
-  const year = sp.get('year') // short (e.g. "25") or full (e.g. "2025")
+  const month   = sp.get('month')
+  const year    = sp.get('year') // short "26" hoặc full "2026"
 
   if (!sheetId || !month || !year) {
     return NextResponse.json({ error: 'Missing sheetId, month, year' }, { status: 400 })
@@ -147,20 +152,27 @@ export async function GET(req: NextRequest) {
   const sheetName = `báo cáo tháng ${month}/${yearShort}`
 
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`
-    const res = await fetch(url, {
-      headers: { 'Accept': 'text/html,application/xhtml+xml' },
-      cache: 'no-store',
-    })
+    // Dùng tqx=out:csv thay vì out:json để tránh lỗi parsedNumHeaders
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`
+    const res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-    const text = await res.text()
-    const data = parseGviz(text)
-    const rows = parseRows(data?.table?.rows ?? [])
+    const csvText = await res.text()
+
+    // Kiểm tra nếu response là HTML (sheet không tồn tại / không có quyền)
+    if (csvText.trimStart().startsWith('<')) {
+      return NextResponse.json({
+        error: `Sheet "${sheetName}" không tồn tại hoặc chưa public`,
+        rows: [],
+        sheetName,
+      })
+    }
+
+    const rows = parseCSV(csvText)
 
     return NextResponse.json({ rows, sheetName, month, year: yearShort })
   } catch (err) {
     console.error('[ho-tro/sheets]', err)
-    return NextResponse.json({ error: String(err), rows: [], sheetName }, { status: 200 })
+    return NextResponse.json({ error: String(err), rows: [], sheetName })
   }
 }
