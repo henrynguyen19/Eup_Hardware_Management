@@ -35,8 +35,23 @@ interface ParsedRow {
 
 const KNOWN_ASSIGNEES = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
 
-// RFC 4180 TSV parser — handles cells with embedded newlines wrapped in "..."
-// (same format Google Sheets uses when copying to clipboard)
+// Parse HTML table from clipboard (what Google Sheets reads)
+// Each <td> is one cell — embedded newlines are just text content, no ambiguity
+function parseHTMLTable(html: string): string[][] {
+  if (typeof window === 'undefined') return []
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(html, 'text/html')
+  const result: string[][] = []
+  doc.querySelectorAll('tr').forEach(tr => {
+    const cells = Array.from(tr.querySelectorAll('td, th'))
+    if (cells.length > 0) {
+      result.push(cells.map(td => (td.textContent ?? '').trim()))
+    }
+  })
+  return result
+}
+
+// RFC 4180 TSV fallback (for when HTML is not available)
 function parseTSV(text: string): string[][] {
   const rows: string[][] = []
   let row: string[] = []
@@ -44,51 +59,35 @@ function parseTSV(text: string): string[][] {
   let inQuotes = false
   let i = 0
   const n = text.length
-
   while (i < n) {
     const ch = text[i]
-
     if (inQuotes) {
-      if (ch === '"') {
-        if (i + 1 < n && text[i + 1] === '"') {
-          field += '"'; i += 2   // escaped quote ""
-        } else {
-          inQuotes = false; i++  // closing quote
-        }
-      } else {
-        field += ch; i++         // content inside quotes (may include \n)
-      }
+      if (ch === '"' && i + 1 < n && text[i + 1] === '"') { field += '"'; i += 2 }
+      else if (ch === '"') { inQuotes = false; i++ }
+      else { field += ch; i++ }
     } else {
-      if (ch === '"') {
-        inQuotes = true; i++
-      } else if (ch === '\t') {
-        row.push(field); field = ''; i++
-      } else if (ch === '\n') {
+      if (ch === '"') { inQuotes = true; i++ }
+      else if (ch === '\t') { row.push(field); field = ''; i++ }
+      else if (ch === '\n') {
         row.push(field); field = ''
         if (row.some(f => f.trim())) rows.push(row)
         row = []; i++
-      } else if (ch === '\r') {
-        i++  // ignore CR
-      } else {
-        field += ch; i++
-      }
+      } else if (ch === '\r') { i++ }
+      else { field += ch; i++ }
     }
   }
-  // flush last row
   row.push(field)
   if (row.some(f => f.trim())) rows.push(row)
-
   return rows
 }
 
 function colVal(cols: string[], idx: number) {
-  return cols[idx]?.trim() ?? ''
+  return (cols[idx] ?? '').trim()
 }
 
-function parseRows(text: string): ParsedRow[] {
-  const grid = parseTSV(text)
+function buildRowsFromGrid(grid: string[][]): ParsedRow[] {
   return grid
-    .filter(cols => cols.length > 3)  // skip noise rows (< 3 cols = not tabular)
+    .filter(cols => cols.length > 3)
     .map(cols => {
       const assigneeRaw = colVal(cols, 11)
       const known = KNOWN_ASSIGNEES.find(
@@ -122,6 +121,10 @@ function parseRows(text: string): ParsedRow[] {
     })
 }
 
+function parseRows(text: string): ParsedRow[] {
+  return buildRowsFromGrid(parseTSV(text))
+}
+
 const STATUS_COLOR: Record<string, string> = {
   'Close case':   'bg-green-100 text-green-700',
   'Unprocessing': 'bg-amber-100 text-amber-700',
@@ -153,14 +156,41 @@ interface Props {
 }
 
 export default function AddTicketForm({ allStaff, onClose, onSuccess }: Props) {
-  const [pasted, setPasted]     = useState('')
-  const [submitting, setSubmit] = useState(false)
-  const [result, setResult]     = useState<string | null>(null)
-  const [error, setError]       = useState<string | null>(null)
+  const [pasted, setPasted]       = useState('')
+  const [rows, setRows]           = useState<ParsedRow[]>([])
+  const [submitting, setSubmit]   = useState(false)
+  const [result, setResult]       = useState<string | null>(null)
+  const [error, setError]         = useState<string | null>(null)
+  const [parseSource, setSource]  = useState<'html'|'text'>('text')
 
-  const rows        = useMemo(() => parseRows(pasted), [pasted])
-  const validRows   = rows.filter(r => r.company && r.assignee && !r.error)
-  const invalidRows = rows.filter(r => r.error)
+  const validRows   = useMemo(() => rows.filter(r => r.company && r.assignee && !r.error), [rows])
+  const invalidRows = useMemo(() => rows.filter(r => r.error), [rows])
+
+  // onPaste: prefer text/html (HTML table) — same source Google Sheets uses
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const html = e.clipboardData.getData('text/html')
+    if (html && html.includes('<table')) {
+      e.preventDefault()
+      const grid = parseHTMLTable(html)
+      if (grid.length > 0) {
+        setRows(buildRowsFromGrid(grid))
+        // Show clean TSV in textarea (no embedded newlines — for readability)
+        setPasted(grid.map(r => r.join('\t')).join('\n'))
+        setResult(null); setError(null)
+        setSource('html')
+        return
+      }
+    }
+    // Fallback: text/plain — parsed by onChange below
+    setSource('text')
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const text = e.target.value
+    setPasted(text)
+    setRows(parseRows(text))
+    setResult(null); setError(null)
+  }
 
   // Count by assignee
   const byAssignee = useMemo(() => {
@@ -184,7 +214,7 @@ export default function AddTicketForm({ allStaff, onClose, onSuccess }: Props) {
       if (!res.ok || json.error) throw new Error(json.error ?? 'Lỗi không xác định')
       setResult(json.message ?? 'Ghi thành công')
       onSuccess?.(json.message ?? `Đã ghi ${validRows.length} dòng`)
-      setPasted('')
+      setPasted(''); setRows([])
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     } finally {
@@ -222,7 +252,8 @@ export default function AddTicketForm({ allStaff, onClose, onSuccess }: Props) {
               rows={5}
               placeholder="Chọn các dòng trong CRM → Ctrl+C → Ctrl+V vào đây"
               value={pasted}
-              onChange={e => { setPasted(e.target.value); setResult(null); setError(null) }}
+              onPaste={handlePaste}
+              onChange={handleChange}
             />
           </div>
 
@@ -237,6 +268,9 @@ export default function AddTicketForm({ allStaff, onClose, onSuccess }: Props) {
                     <span className="text-red-600 ml-2">· {invalidRows.length} dòng lỗi</span>
                   )}
                   <span className="text-gray-400 ml-2">· hiển thị cột A, D, G, J, L, M, N</span>
+                  {parseSource === 'html' && (
+                    <span className="ml-2 text-green-600 font-medium">· đọc HTML ✓</span>
+                  )}
                 </p>
                 {Object.keys(byAssignee).length > 0 && (
                   <div className="flex gap-1.5 flex-wrap justify-end">
