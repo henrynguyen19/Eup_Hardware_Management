@@ -1,6 +1,22 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  BarChart,
+  LineChart,
+  PieChart,
+  Bar,
+  Line,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from 'recharts'
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser'
 import { SUMMARY_SHEET_ID, getAvailableMonths } from '@/lib/staff-sheets'
 import type { StaffConfig } from '@/lib/staff-sheets'
@@ -16,45 +32,117 @@ interface Props {
 
 const MONTHS = getAvailableMonths()
 
+// ── Colours ──────────────────────────────────────────────────────
+const STAFF_COLORS: Record<string, string> = {
+  Kane:   '#3b82f6',
+  Stefan: '#a855f7',
+  Shiro:  '#22c55e',
+  Irene:  '#ec4899',
+  Blue:   '#f97316',
+}
+const DEVICE_COLORS = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#10b981','#f97316','#6366f1','#14b8a6']
+const ERROR_COLORS  = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#06b6d4','#ec4899','#10b981','#f97316','#6366f1','#14b8a6','#e11d48','#84cc16']
+
+// ── Helpers ───────────────────────────────────────────────────────
+function pct(part: number, total: number) {
+  return total ? Math.round((part / total) * 100) : 0
+}
+
 function sumObj(records: DailyRecord[], key: keyof DailyRecord) {
   const result: Record<string, number> = {}
   for (const r of records) {
     const obj = r[key] as Record<string, number>
-    for (const [k, v] of Object.entries(obj)) {
-      result[k] = (result[k] ?? 0) + v
-    }
+    for (const [k, v] of Object.entries(obj)) result[k] = (result[k] ?? 0) + v
   }
   return result
 }
 
-function topEntry(obj: Record<string, number>): [string, number] {
-  let best: [string, number] = ['--', 0]
-  for (const [k, v] of Object.entries(obj)) {
-    if (v > best[1]) best = [k, v]
+/** "01/06/2026" → "01/6" for axis labels */
+function shortDate(d: string) {
+  const [dd, mm] = d.split('/')
+  return `${dd}/${parseInt(mm)}`
+}
+
+/** Merge per-staff DailyRecord[] into one combined record per date */
+function mergeStaffRecords(staffMap: Record<string, DailyRecord[]>): DailyRecord[] {
+  const byDate = new Map<string, DailyRecord>()
+  for (const records of Object.values(staffMap)) {
+    for (const r of records) {
+      if (!byDate.has(r.sortKey)) {
+        byDate.set(r.sortKey, {
+          ...r,
+          devices:    { ...r.devices },
+          resolution: { ...r.resolution },
+          locations:  { ...r.locations },
+          channels:   { ...r.channels },
+          errors:     { ...r.errors },
+        })
+      } else {
+        const ex = byDate.get(r.sortKey)!
+        ex.total_requests += r.total_requests
+        ex.avg_time = Math.round((ex.avg_time + r.avg_time) / 2)
+        ex.max_time = Math.max(ex.max_time, r.max_time)
+        for (const [k, v] of Object.entries(r.devices))    ex.devices[k]    = (ex.devices[k] ?? 0) + v
+        for (const [k, v] of Object.entries(r.resolution)) ex.resolution[k] = (ex.resolution[k] ?? 0) + v
+        for (const [k, v] of Object.entries(r.locations))  ex.locations[k]  = (ex.locations[k] ?? 0) + v
+        for (const [k, v] of Object.entries(r.channels))   ex.channels[k]   = (ex.channels[k] ?? 0) + v
+        for (const [k, v] of Object.entries(r.errors))     ex.errors[k]     = (ex.errors[k] ?? 0) + v
+      }
+    }
   }
-  return best
+  return Array.from(byDate.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 }
 
-function pct(part: number, total: number) {
-  if (!total) return 0
-  return Math.round((part / total) * 100)
+/** Group each staff's records into weekly buckets */
+function buildWeeklyStaff(staffMap: Record<string, DailyRecord[]>, names: string[]) {
+  const weekMap = new Map<string, Record<string, number>>()
+  for (const name of names) {
+    for (const r of staffMap[name] ?? []) {
+      if (!r.total_requests) continue
+      const [d] = r.date.split('/').map(Number)
+      const week = `T${Math.ceil(d / 7)}`
+      if (!weekMap.has(week)) weekMap.set(week, {})
+      const wk = weekMap.get(week)!
+      wk[name] = (wk[name] ?? 0) + r.total_requests
+    }
+  }
+  return Array.from(weekMap.entries())
+    .sort(([a], [b]) => parseInt(a.slice(1)) - parseInt(b.slice(1)))
+    .map(([week, vals]) => ({ week, ...vals }))
 }
 
-function BarChart({ data, total, color = 'bg-blue-500', maxBars = 6 }: {
-  data: Record<string, number>
-  total: number
-  color?: string
-  maxBars?: number
+// ── Shared UI components ──────────────────────────────────────────
+function StatCard({ icon, label, value, sub, color = 'blue' }: {
+  icon: string; label: string; value: string | number; sub?: string; color?: string
 }) {
-  const sorted = Object.entries(data)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, maxBars)
-
-  if (!sorted.length) {
-    return <p className="text-xs text-gray-400">Khong co du lieu</p>
+  const bg: Record<string, string> = {
+    blue:   'bg-blue-50 border-blue-200',   green: 'bg-green-50 border-green-200',
+    orange: 'bg-orange-50 border-orange-200', purple: 'bg-purple-50 border-purple-200',
+    red:    'bg-red-50 border-red-200',     teal: 'bg-teal-50 border-teal-200',
   }
+  const tx: Record<string, string> = {
+    blue: 'text-blue-700', green: 'text-green-700', orange: 'text-orange-700',
+    purple: 'text-purple-700', red: 'text-red-700', teal: 'text-teal-700',
+  }
+  return (
+    <div className={`rounded-xl border p-4 ${bg[color] ?? bg.blue}`}>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
+          <p className={`text-2xl font-bold ${tx[color] ?? tx.blue}`}>{value}</p>
+          {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+        </div>
+        <span className="text-2xl">{icon}</span>
+      </div>
+    </div>
+  )
+}
 
+function HorizBar({ data, total, color = 'bg-blue-500', maxBars = 6 }: {
+  data: Record<string, number>; total: number; color?: string; maxBars?: number
+}) {
+  const sorted = Object.entries(data).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, maxBars)
+  if (!sorted.length) return <p className="text-xs text-gray-400">Không có dữ liệu</p>
   const max = sorted[0][1]
   return (
     <div className="space-y-2">
@@ -62,10 +150,7 @@ function BarChart({ data, total, color = 'bg-blue-500', maxBars = 6 }: {
         <div key={label} className="flex items-center gap-2 text-xs">
           <span className="w-20 text-gray-600 truncate flex-shrink-0">{label}</span>
           <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
-            <div
-              className={`h-4 rounded-full ${color} transition-all duration-500`}
-              style={{ width: `${(val / max) * 100}%` }}
-            />
+            <div className={`h-4 rounded-full ${color} transition-all`} style={{ width: `${(val / max) * 100}%` }} />
           </div>
           <span className="w-16 text-right text-gray-700 font-medium">
             {val} <span className="text-gray-400 font-normal">({pct(val, total)}%)</span>
@@ -76,83 +161,334 @@ function BarChart({ data, total, color = 'bg-blue-500', maxBars = 6 }: {
   )
 }
 
-function StatCard({ icon, label, value, sub, color = 'blue' }: {
-  icon: string
-  label: string
-  value: string | number
-  sub?: string
-  color?: string
+// ── Summary Dashboard (Tổng quan) ─────────────────────────────────
+function SummaryView({
+  staffMap, allStaff, month, yearShort, loading,
+}: {
+  staffMap: Record<string, DailyRecord[]>
+  allStaff: StaffConfig[]
+  month: number
+  yearShort: string
+  loading: boolean
 }) {
-  const colorMap: Record<string, string> = {
-    blue:   'bg-blue-50 border-blue-200',
-    green:  'bg-green-50 border-green-200',
-    orange: 'bg-orange-50 border-orange-200',
-    purple: 'bg-purple-50 border-purple-200',
-    red:    'bg-red-50 border-red-200',
-  }
-  const textMap: Record<string, string> = {
-    blue:   'text-blue-700',
-    green:  'text-green-700',
-    orange: 'text-orange-700',
-    purple: 'text-purple-700',
-    red:    'text-red-700',
-  }
+  const staffNames = allStaff.map(s => s.name)
+  const combined = useMemo(() => mergeStaffRecords(staffMap), [staffMap])
+  const dataRows = combined.filter(r => r.total_requests > 0)
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-20 gap-2 text-teal-600">
+      <div className="w-5 h-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+      <span className="text-sm">Đang tải dữ liệu tất cả nhân viên...</span>
+    </div>
+  )
+
+  if (!dataRows.length) return (
+    <div className="text-center py-20 text-gray-400">
+      <div className="text-5xl mb-4">📊</div>
+      <p>Không có dữ liệu tổng quan cho tháng {month}/{yearShort}</p>
+    </div>
+  )
+
+  const totalRequests = dataRows.reduce((s, r) => s + r.total_requests, 0)
+  const deviceSum    = sumObj(dataRows, 'devices')
+  const locationSum  = sumObj(dataRows, 'locations')
+  const channelSum   = sumObj(dataRows, 'channels')
+  const errorSum     = sumObj(dataRows, 'errors')
+  const avgResolution = Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / dataRows.length) || 0
+  const totalPending  = dataRows.reduce((s, r) => s + (r.resolution['Chua xu ly'] ?? 0), 0)
+  const resolveDay1   = dataRows.reduce((s, r) => s + (r.resolution['Ngay 1'] ?? 0), 0)
+  const activeStaff   = staffNames.filter(n => (staffMap[n] ?? []).some(r => r.total_requests > 0)).length
+
+  // Chart data
+  const dailyData = dataRows.map(r => ({
+    date:         shortDate(r.date),
+    'Tổng YC':    r.total_requests,
+    'Trên 3 ngày': (r.resolution['Ngay 3'] ?? 0) + (r.resolution['Ngay 4'] ?? 0) + (r.resolution['Ngay 5'] ?? 0),
+  }))
+
+  const resolutionData = dataRows.map(r => ({
+    date:       shortDate(r.date),
+    'Ngày 1':   r.resolution['Ngay 1'] ?? 0,
+    'Ngày 2':   r.resolution['Ngay 2'] ?? 0,
+    'Ngày 3':   r.resolution['Ngay 3'] ?? 0,
+    'Ngày 4+5': (r.resolution['Ngay 4'] ?? 0) + (r.resolution['Ngay 5'] ?? 0),
+    'Hẹn':      r.resolution['Hen xu ly'] ?? 0,
+  }))
+
+  const pendingPctData = dataRows.map(r => ({
+    date: shortDate(r.date),
+    'Tồn đọng (%)': r.total_requests ? Math.round(((r.resolution['Chua xu ly'] ?? 0) / r.total_requests) * 100) : 0,
+  }))
+
+  const weeklyStaffData = buildWeeklyStaff(staffMap, staffNames)
+
+  const devicePie   = Object.entries(deviceSum).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }))
+  const locationData = Object.entries(locationSum).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }))
+  const errorPie    = Object.entries(errorSum).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }))
+
+  const channelData = dataRows.map(r => ({
+    date:         shortDate(r.date),
+    'Zalo (%)':   r.total_requests ? Math.round(((r.channels['Zalo'] ?? 0) / r.total_requests) * 100) : 0,
+    'Hotline (%)': r.total_requests ? Math.round(((r.channels['Hotline'] ?? 0) / r.total_requests) * 100) : 0,
+  }))
+
+  const C = 'bg-white rounded-xl border border-gray-200 p-4'
+  const xProps = { tick: { fontSize: 9 }, interval: 'preserveStartEnd' as const }
+  const yProps = { tick: { fontSize: 9 } }
+
   return (
-    <div className={`rounded-xl border p-4 ${colorMap[color] ?? colorMap.blue}`}>
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
-          <p className={`text-2xl font-bold ${textMap[color] ?? textMap.blue}`}>{value}</p>
-          {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+    <div>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+        <StatCard icon="📞" label="Tổng yêu cầu"   value={totalRequests.toLocaleString()} color="blue" />
+        <StatCard icon="⏱️" label="TG xử lý TB"    value={`${avgResolution} ph`} color="purple" />
+        <StatCard icon="✅" label="Xử lý ngày 1"   value={`${pct(resolveDay1, totalRequests)}%`} color="green" />
+        <StatCard icon="🔴" label="Còn tồn đọng"   value={totalPending} color="red" />
+        <StatCard icon="👥" label="Nhân viên hoạt động" value={activeStaff} color="teal" />
+      </div>
+
+      {/* Row 1 — 4 small charts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* 1. Daily total + over-3-days line */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">Tổng số yêu cầu theo ngày</h3>
+          <ResponsiveContainer width="100%" height={170}>
+            <ComposedChart data={dailyData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="date" {...xProps} />
+              <YAxis {...yProps} />
+              <Tooltip />
+              <Bar dataKey="Tổng YC" fill="#3b82f6" />
+              <Line type="monotone" dataKey="Trên 3 ngày" stroke="#ef4444" dot={false} strokeWidth={2} />
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
-        <span className="text-2xl">{icon}</span>
+
+        {/* 2. Resolution speed stacked bars */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">Thời gian xử lý theo ngày</h3>
+          <ResponsiveContainer width="100%" height={170}>
+            <BarChart data={resolutionData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="date" {...xProps} />
+              <YAxis {...yProps} />
+              <Tooltip />
+              <Legend wrapperStyle={{ fontSize: 9 }} />
+              <Bar dataKey="Ngày 1"   stackId="a" fill="#22c55e" />
+              <Bar dataKey="Ngày 2"   stackId="a" fill="#f59e0b" />
+              <Bar dataKey="Ngày 3"   stackId="a" fill="#f97316" />
+              <Bar dataKey="Ngày 4+5" stackId="a" fill="#ef4444" />
+              <Bar dataKey="Hẹn"      stackId="a" fill="#8b5cf6" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 3. % Pending per day */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">% Tồn đọng chưa xử lý theo ngày</h3>
+          <ResponsiveContainer width="100%" height={170}>
+            <LineChart data={pendingPctData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="date" {...xProps} />
+              <YAxis {...yProps} unit="%" />
+              <Tooltip />
+              <Line type="monotone" dataKey="Tồn đọng (%)" stroke="#ef4444" dot={{ r: 2 }} strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 4. Weekly per-staff comparison */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">Tiến độ theo tuần — từng người</h3>
+          <ResponsiveContainer width="100%" height={170}>
+            <LineChart data={weeklyStaffData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="week" tick={{ fontSize: 9 }} />
+              <YAxis {...yProps} />
+              <Tooltip />
+              <Legend wrapperStyle={{ fontSize: 9 }} />
+              {staffNames.map(name => (
+                <Line
+                  key={name}
+                  type="monotone"
+                  dataKey={name}
+                  stroke={STAFF_COLORS[name] ?? '#999'}
+                  dot={{ r: 3 }}
+                  strokeWidth={2}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Row 2 — 4 small charts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* 5. Device pie */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">Tỷ lệ thiết bị lỗi trong tuần</h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <PieChart>
+              <Pie
+                data={devicePie}
+                cx="50%" cy="50%"
+                outerRadius={72}
+                dataKey="value"
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                labelLine={false}
+                fontSize={8}
+              >
+                {devicePie.map((_, i) => <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]} />)}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 6. Location bar */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">Số yêu cầu theo văn phòng</h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={locationData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+              <YAxis {...yProps} />
+              <Tooltip />
+              <Bar dataKey="value" name="Yêu cầu" fill="#06b6d4" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 7. Channel % per day */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">% Kênh tiếp nhận theo ngày</h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={channelData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="date" {...xProps} />
+              <YAxis {...yProps} unit="%" />
+              <Tooltip />
+              <Legend wrapperStyle={{ fontSize: 9 }} />
+              <Line type="monotone" dataKey="Zalo (%)"    stroke="#22c55e" dot={false} strokeWidth={2} />
+              <Line type="monotone" dataKey="Hotline (%)" stroke="#f97316" dot={false} strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 8. Error donut */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">Tỷ lệ loại lỗi trong tuần</h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <PieChart>
+              <Pie
+                data={errorPie}
+                cx="50%" cy="50%"
+                innerRadius={38} outerRadius={72}
+                dataKey="value"
+                label={({ name, percent }) => percent > 0.04 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
+                labelLine={false}
+                fontSize={8}
+              >
+                {errorPie.map((_, i) => <Cell key={i} fill={ERROR_COLORS[i % ERROR_COLORS.length]} />)}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Row 3 — full-width line chart */}
+      <div className={C}>
+        <h3 className="text-xs font-semibold text-gray-600 mb-2">
+          Số yêu cầu xử lý trên 3 ngày — toàn tháng {month}/{yearShort}
+        </h3>
+        <ResponsiveContainer width="100%" height={240}>
+          <ComposedChart data={dailyData} margin={{ top: 5, right: 20, bottom: 10, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="date" tick={{ fontSize: 9 }} interval={1} />
+            <YAxis tick={{ fontSize: 10 }} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="Tổng YC"     stroke="#3b82f6" dot={{ r: 3 }} strokeWidth={2} />
+            <Line type="monotone" dataKey="Trên 3 ngày" stroke="#ef4444" dot={{ r: 3 }} strokeWidth={2} />
+          </ComposedChart>
+        </ResponsiveContainer>
       </div>
     </div>
   )
 }
 
+// ── Main Dashboard ─────────────────────────────────────────────────
 export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
+  const [isSummaryMode, setIsSummaryMode] = useState(false)
   const [selectedSheetId, setSelectedSheetId] = useState<string>(
-    isAdmin ? (allStaff[0]?.sheetId ?? SUMMARY_SHEET_ID) : (staffConfig?.sheetId ?? '')
+    staffConfig?.sheetId ?? (allStaff[0]?.sheetId ?? '')
   )
-  const [records, setRecords] = useState<DailyRecord[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+
+  // Individual staff view state
+  const [records, setRecords]     = useState<DailyRecord[]>([])
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState<string | null>(null)
   const [sheetName, setSheetName] = useState('')
+
+  // Summary view state
+  const [staffDataMap, setStaffDataMap]       = useState<Record<string, DailyRecord[]>>({})
+  const [summaryLoading, setSummaryLoading]   = useState(false)
 
   const selectedMonth = MONTHS[selectedMonthIdx]
 
+  // ── Fetch single staff ──
   const fetchData = useCallback(async (sheetId: string, month: number, year: number) => {
     if (!sheetId) return
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/ho-tro/sheets?sheetId=${sheetId}&month=${month}&year=${year}`)
+      const res  = await fetch(`/api/ho-tro/sheets?sheetId=${sheetId}&month=${month}&year=${year}`)
       const json = await res.json()
       setSheetName(json.sheetName ?? '')
-
       if (json.error) {
-        setError(json.error)
-        setRecords([])
+        setError(json.error); setRecords([])
       } else if (!json.rows?.length) {
-        setError(`Chua co du lieu cho "${json.sheetName}"`)
-        setRecords([])
+        setError(`Chưa có dữ liệu cho "${json.sheetName}"`); setRecords([])
       } else {
-        setRecords(json.rows)
-        setError(null)
+        setRecords(json.rows); setError(null)
       }
     } catch (e) {
-      setError(String(e))
-      setRecords([])
+      setError(String(e)); setRecords([])
     } finally {
       setLoading(false)
     }
   }, [])
 
+  // ── Fetch all staff in parallel (summary) ──
+  const fetchAllStaff = useCallback(async (month: number, year: number) => {
+    setSummaryLoading(true)
+    try {
+      const results = await Promise.all(
+        allStaff.map(async s => {
+          const res  = await fetch(`/api/ho-tro/sheets?sheetId=${s.sheetId}&month=${month}&year=${year}`)
+          const json = await res.json()
+          return [s.name, json.rows ?? []] as [string, DailyRecord[]]
+        })
+      )
+      setStaffDataMap(Object.fromEntries(results))
+    } catch (e) {
+      console.error('[summary fetch]', e)
+      setStaffDataMap({})
+    } finally {
+      setSummaryLoading(false)
+    }
+  }, [allStaff])
+
   useEffect(() => {
-    fetchData(selectedSheetId, selectedMonth.month, selectedMonth.year)
-  }, [selectedSheetId, selectedMonthIdx, fetchData, selectedMonth.month, selectedMonth.year])
+    if (isSummaryMode) {
+      fetchAllStaff(selectedMonth.month, selectedMonth.year)
+    } else {
+      fetchData(selectedSheetId, selectedMonth.month, selectedMonth.year)
+    }
+  }, [isSummaryMode, selectedSheetId, selectedMonthIdx, fetchData, fetchAllStaff,
+      selectedMonth.month, selectedMonth.year])
 
   async function handleLogout() {
     const supabase = createSupabaseBrowserClient()
@@ -160,19 +496,18 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     window.location.href = '/login'
   }
 
-  const dataRows = records.filter(r => r.total_requests > 0)
-  const totalRequests = dataRows.reduce((s, r) => s + r.total_requests, 0)
-  const totalDays = dataRows.length
-  const avgTime = totalDays
-    ? Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / totalDays)
-    : 0
-  const totalResolved = dataRows.reduce((s, r) => s + (r.resolution['Ngay 1'] ?? r.resolution['Ngày 1'] ?? 0), 0)
-  const totalPending = dataRows.reduce((s, r) => s + (r.resolution['Chua xu ly'] ?? r.resolution['Chưa xử lý'] ?? 0), 0)
-  const deviceSum = sumObj(dataRows, 'devices')
-  const locationSum = sumObj(dataRows, 'locations')
-  const channelSum = sumObj(dataRows, 'channels')
-  const errorSum = sumObj(dataRows, 'errors')
-  const resolveRate = pct(totalResolved, totalRequests)
+  // Individual view aggregates
+  const dataRows       = records.filter(r => r.total_requests > 0)
+  const totalRequests  = dataRows.reduce((s, r) => s + r.total_requests, 0)
+  const totalDays      = dataRows.length
+  const avgTime        = totalDays ? Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / totalDays) : 0
+  const totalResolved  = dataRows.reduce((s, r) => s + (r.resolution['Ngay 1'] ?? 0), 0)
+  const totalPending   = dataRows.reduce((s, r) => s + (r.resolution['Chua xu ly'] ?? 0), 0)
+  const deviceSum      = sumObj(dataRows, 'devices')
+  const locationSum    = sumObj(dataRows, 'locations')
+  const channelSum     = sumObj(dataRows, 'channels')
+  const errorSum       = sumObj(dataRows, 'errors')
+  const resolveRate    = pct(totalResolved, totalRequests)
 
   const viewingStaff = isAdmin
     ? allStaff.find(s => s.sheetId === selectedSheetId) ?? null
@@ -180,6 +515,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
 
   return (
     <div className="flex flex-col min-h-screen">
+      {/* ── Header ── */}
       <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -190,7 +526,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 bg-teal-600 rounded-xl flex items-center justify-center text-lg">📋</div>
               <div>
-                <h1 className="text-lg font-bold text-gray-900 leading-none">Ho tro ky thuat</h1>
+                <h1 className="text-lg font-bold text-gray-900 leading-none">Hỗ trợ kỹ thuật</h1>
                 <p className="text-xs text-gray-400">{userEmail}</p>
               </div>
             </div>
@@ -213,7 +549,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             <button
               onClick={handleLogout}
               className="px-3 py-2 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition"
-              title="Dang xuat"
+              title="Đăng xuất"
             >
               🚪
             </button>
@@ -221,6 +557,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
         </div>
       </header>
 
+      {/* ── Staff / Summary tabs (admin only) ── */}
       {isAdmin && (
         <div className="bg-white border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4">
@@ -228,9 +565,9 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               {allStaff.map(staff => (
                 <button
                   key={staff.sheetId}
-                  onClick={() => setSelectedSheetId(staff.sheetId)}
+                  onClick={() => { setIsSummaryMode(false); setSelectedSheetId(staff.sheetId) }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-                    selectedSheetId === staff.sheetId
+                    !isSummaryMode && selectedSheetId === staff.sheetId
                       ? `${staff.bgClass} ring-2 ring-offset-1 ring-current`
                       : 'text-gray-600 hover:bg-gray-100'
                   }`}
@@ -239,164 +576,194 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 </button>
               ))}
               <button
-                onClick={() => setSelectedSheetId(SUMMARY_SHEET_ID)}
+                onClick={() => setIsSummaryMode(true)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-                  selectedSheetId === SUMMARY_SHEET_ID
+                  isSummaryMode
                     ? 'bg-gray-800 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                Tong quan
+                📊 Tổng quan
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* ── Content ── */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h2 className="font-bold text-gray-800 text-lg">
-              {viewingStaff ? viewingStaff.name : selectedSheetId === SUMMARY_SHEET_ID ? 'Tong quan nhom' : 'Bao cao cua ban'}
-            </h2>
-            <p className="text-sm text-gray-400">
-              {sheetName || `bao cao thang ${selectedMonth.month}/${selectedMonth.yearShort}`}
-              {totalDays > 0 && ` · ${totalDays} ngay lam viec`}
-            </p>
-          </div>
-          {loading && (
-            <div className="flex items-center gap-2 text-sm text-teal-600">
-              <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
-              Dang tai...
+
+        {/* ── Summary mode ── */}
+        {isSummaryMode ? (
+          <>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-gray-800 text-lg">Tổng quan nhóm</h2>
+                <p className="text-sm text-gray-400">Báo cáo tháng {selectedMonth.month}/{selectedMonth.yearShort} — tổng hợp tất cả nhân viên</p>
+              </div>
+              {summaryLoading && (
+                <div className="flex items-center gap-2 text-sm text-teal-600">
+                  <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                  Đang tải...
+                </div>
+              )}
             </div>
-          )}
-        </div>
-
-        {error && !loading && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-sm text-amber-700 mb-5">
-            {error}
-          </div>
-        )}
-
-        {!loading && dataRows.length > 0 && (
-          <div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <StatCard icon="📞" label="Tong yeu cau" value={totalRequests.toLocaleString()} sub={`${totalDays} ngay lam viec`} color="blue" />
-              <StatCard icon="⏱️" label="TG xu ly TB" value={`${avgTime} phut`} sub="Trung binh/ngay" color="purple" />
-              <StatCard icon="✅" label="Xu ly ngay" value={`${resolveRate}%`} sub={`${totalResolved} yeu cau`} color="green" />
-              <StatCard icon="🔴" label="Con ton dong" value={totalPending} sub="Chua xu ly" color="red" />
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-5 mb-6">
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-700 mb-4">Thiet bi (top 6)</h3>
-                <BarChart data={deviceSum} total={totalRequests} color="bg-blue-500" maxBars={6} />
+            <SummaryView
+              staffMap={staffDataMap}
+              allStaff={allStaff}
+              month={selectedMonth.month}
+              yearShort={selectedMonth.yearShort}
+              loading={summaryLoading}
+            />
+          </>
+        ) : (
+          /* ── Individual staff mode ── */
+          <>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-gray-800 text-lg">
+                  {viewingStaff ? viewingStaff.name : 'Báo cáo của bạn'}
+                </h2>
+                <p className="text-sm text-gray-400">
+                  {sheetName || `báo cáo tháng ${selectedMonth.month}/${selectedMonth.yearShort}`}
+                  {totalDays > 0 && ` · ${totalDays} ngày làm việc`}
+                </p>
               </div>
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-700 mb-4">Dia diem</h3>
-                <BarChart data={locationSum} total={totalRequests} color="bg-teal-500" maxBars={6} />
-              </div>
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-700 mb-4">Kenh tiep nhan</h3>
-                <BarChart data={channelSum} total={totalRequests} color="bg-indigo-500" maxBars={3} />
-              </div>
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-700 mb-4">Loai loi (top 6)</h3>
-                <BarChart data={errorSum} total={totalRequests} color="bg-orange-400" maxBars={6} />
-              </div>
+              {loading && (
+                <div className="flex items-center gap-2 text-sm text-teal-600">
+                  <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                  Đang tải...
+                </div>
+              )}
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                <h3 className="font-semibold text-gray-700">Chi tiet theo ngay</h3>
-                <span className="text-xs text-gray-400">{dataRows.length} ngay</span>
+            {error && !loading && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-sm text-amber-700 mb-5">
+                {error}
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngay</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">YC</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">TG TB</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium whitespace-nowrap">Xu ly ngay</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">Ton</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">HN</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">HP</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">DN</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">HCM</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">BD</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">Zalo</th>
-                      <th className="text-right px-3 py-3 text-gray-500 font-medium">Hotline</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dataRows.map((r, i) => {
-                      const resolveDay1 = r.resolution['Ngay 1'] ?? r.resolution['Ngày 1'] ?? 0
-                      const pending = r.resolution['Chua xu ly'] ?? r.resolution['Chưa xử lý'] ?? 0
-                      return (
-                        <tr key={r.sortKey} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50/70 ${i % 2 === 0 ? '' : 'bg-gray-50/30'}`}>
-                          <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{r.date}</td>
-                          <td className="px-3 py-2.5 text-right font-bold text-blue-700">{r.total_requests}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.avg_time}p</td>
-                          <td className="px-3 py-2.5 text-right">
-                            <span className={pct(resolveDay1, r.total_requests) >= 90 ? 'text-green-600 font-medium' : 'text-amber-600 font-medium'}>
-                              {pct(resolveDay1, r.total_requests)}%
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-right">
-                            {pending > 0 ? <span className="text-red-600 font-medium">{pending}</span> : <span className="text-gray-300">-</span>}
-                          </td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Ha Noi'] || r.locations['Hà Nội'] || '-'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Hai Phong'] || r.locations['Hải Phòng'] || '-'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Da Nang'] || r.locations['Đà Nẵng'] || '-'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['HCM'] || '-'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Binh Duong'] || r.locations['Bình Dương'] || '-'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Zalo'] || '-'}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Hotline'] || '-'}</td>
+            )}
+
+            {!loading && dataRows.length > 0 && (
+              <div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <StatCard icon="📞" label="Tổng yêu cầu"  value={totalRequests.toLocaleString()} sub={`${totalDays} ngày làm việc`} color="blue" />
+                  <StatCard icon="⏱️" label="TG xử lý TB"   value={`${avgTime} phút`} sub="Trung bình/ngày" color="purple" />
+                  <StatCard icon="✅" label="Xử lý ngày 1"  value={`${resolveRate}%`} sub={`${totalResolved} yêu cầu`} color="green" />
+                  <StatCard icon="🔴" label="Còn tồn đọng" value={totalPending} sub="Chưa xử lý" color="red" />
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-5 mb-6">
+                  <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h3 className="font-semibold text-gray-700 mb-4">Thiết bị (top 6)</h3>
+                    <HorizBar data={deviceSum} total={totalRequests} color="bg-blue-500" maxBars={6} />
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h3 className="font-semibold text-gray-700 mb-4">Địa điểm</h3>
+                    <HorizBar data={locationSum} total={totalRequests} color="bg-teal-500" maxBars={6} />
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h3 className="font-semibold text-gray-700 mb-4">Kênh tiếp nhận</h3>
+                    <HorizBar data={channelSum} total={totalRequests} color="bg-indigo-500" maxBars={3} />
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h3 className="font-semibold text-gray-700 mb-4">Loại lỗi (top 6)</h3>
+                    <HorizBar data={errorSum} total={totalRequests} color="bg-orange-400" maxBars={6} />
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-700">Chi tiết theo ngày</h3>
+                    <span className="text-xs text-gray-400">{dataRows.length} ngày</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngày</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">YC</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">TG TB</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium whitespace-nowrap">Xử lý ngày</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">Tồn</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">HN</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">HP</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">ĐN</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">HCM</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">BD</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">Zalo</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">Hotline</th>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                  <tfoot className="border-t-2 border-gray-300 bg-blue-50">
-                    <tr>
-                      <td className="px-4 py-3 font-bold text-gray-800">Tong thang</td>
-                      <td className="px-3 py-3 text-right font-bold text-blue-800">{totalRequests}</td>
-                      <td className="px-3 py-3 text-right text-gray-600">{avgTime}p</td>
-                      <td className="px-3 py-3 text-right font-bold">
-                        <span className={resolveRate >= 90 ? 'text-green-700' : 'text-amber-700'}>{resolveRate}%</span>
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        {totalPending > 0 ? <span className="text-red-700 font-bold">{totalPending}</span> : <span className="text-gray-300">-</span>}
-                      </td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['Ha Noi'] || locationSum['Hà Nội'] || '-'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['Hai Phong'] || locationSum['Hải Phòng'] || '-'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['Da Nang'] || locationSum['Đà Nẵng'] || '-'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['HCM'] || '-'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{locationSum['Binh Duong'] || locationSum['Bình Dương'] || '-'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{channelSum['Zalo'] || '-'}</td>
-                      <td className="px-3 py-3 text-right font-medium">{channelSum['Hotline'] || '-'}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+                      </thead>
+                      <tbody>
+                        {dataRows.map((r, i) => {
+                          const resolveDay = r.resolution['Ngay 1'] ?? 0
+                          const pending    = r.resolution['Chua xu ly'] ?? 0
+                          return (
+                            <tr key={r.sortKey} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50/70 ${i % 2 === 1 ? 'bg-gray-50/30' : ''}`}>
+                              <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{r.date}</td>
+                              <td className="px-3 py-2.5 text-right font-bold text-blue-700">{r.total_requests}</td>
+                              <td className="px-3 py-2.5 text-right text-gray-600">{r.avg_time}p</td>
+                              <td className="px-3 py-2.5 text-right">
+                                <span className={pct(resolveDay, r.total_requests) >= 90 ? 'text-green-600 font-medium' : 'text-amber-600 font-medium'}>
+                                  {pct(resolveDay, r.total_requests)}%
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-right">
+                                {pending > 0 ? <span className="text-red-600 font-medium">{pending}</span> : <span className="text-gray-300">-</span>}
+                              </td>
+                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Ha Noi'] || '-'}</td>
+                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Hai Phong'] || '-'}</td>
+                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Da Nang'] || '-'}</td>
+                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['HCM'] || '-'}</td>
+                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Binh Duong'] || '-'}</td>
+                              <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Zalo'] || '-'}</td>
+                              <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Hotline'] || '-'}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot className="border-t-2 border-gray-300 bg-blue-50">
+                        <tr>
+                          <td className="px-4 py-3 font-bold text-gray-800">Tổng tháng</td>
+                          <td className="px-3 py-3 text-right font-bold text-blue-800">{totalRequests}</td>
+                          <td className="px-3 py-3 text-right text-gray-600">{avgTime}p</td>
+                          <td className="px-3 py-3 text-right font-bold">
+                            <span className={resolveRate >= 90 ? 'text-green-700' : 'text-amber-700'}>{resolveRate}%</span>
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            {totalPending > 0 ? <span className="text-red-700 font-bold">{totalPending}</span> : <span className="text-gray-300">-</span>}
+                          </td>
+                          <td className="px-3 py-3 text-right font-medium">{locationSum['Ha Noi'] || '-'}</td>
+                          <td className="px-3 py-3 text-right font-medium">{locationSum['Hai Phong'] || '-'}</td>
+                          <td className="px-3 py-3 text-right font-medium">{locationSum['Da Nang'] || '-'}</td>
+                          <td className="px-3 py-3 text-right font-medium">{locationSum['HCM'] || '-'}</td>
+                          <td className="px-3 py-3 text-right font-medium">{locationSum['Binh Duong'] || '-'}</td>
+                          <td className="px-3 py-3 text-right font-medium">{channelSum['Zalo'] || '-'}</td>
+                          <td className="px-3 py-3 text-right font-medium">{channelSum['Hotline'] || '-'}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {!loading && dataRows.length === 0 && !error && (
-          <div className="text-center py-20 text-gray-400">
-            <div className="text-5xl mb-4">📋</div>
-            <p className="text-lg font-medium text-gray-500">Khong co du lieu</p>
-            <p className="text-sm mt-1">Chua co bao cao cho {selectedMonth.label.toLowerCase()}</p>
-          </div>
-        )}
+            {!loading && dataRows.length === 0 && !error && (
+              <div className="text-center py-20 text-gray-400">
+                <div className="text-5xl mb-4">📋</div>
+                <p className="text-lg font-medium text-gray-500">Không có dữ liệu</p>
+                <p className="text-sm mt-1">Chưa có báo cáo cho {selectedMonth.label.toLowerCase()}</p>
+              </div>
+            )}
 
-        {!isAdmin && !staffConfig && (
-          <div className="text-center py-20 text-gray-400">
-            <div className="text-5xl mb-4">🔗</div>
-            <p className="text-lg font-medium text-gray-500">Chua duoc lien ket</p>
-            <p className="text-sm mt-1">Tai khoan chua duoc gan sheet bao cao. Lien he Admin.</p>
-          </div>
+            {!isAdmin && !staffConfig && (
+              <div className="text-center py-20 text-gray-400">
+                <div className="text-5xl mb-4">🔗</div>
+                <p className="text-lg font-medium text-gray-500">Chưa được liên kết</p>
+                <p className="text-sm mt-1">Tài khoản chưa được gắn sheet báo cáo. Liên hệ Admin.</p>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
