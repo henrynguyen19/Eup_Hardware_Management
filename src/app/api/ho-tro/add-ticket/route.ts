@@ -132,7 +132,7 @@ async function writeToTab(
         startIndex: insertAt0,
         endIndex: insertAt0 + count,
       },
-      inheritFromBefore: true,
+      inheritFromBefore: false,  // false = inherit from row below (normal data row), not date header
     },
   }))
 
