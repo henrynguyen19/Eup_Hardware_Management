@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -21,6 +22,8 @@ import { createSupabaseBrowserClient } from '@/lib/supabase-browser'
 import { SUMMARY_SHEET_ID, getAvailableMonths } from '@/lib/staff-sheets'
 import type { StaffConfig } from '@/lib/staff-sheets'
 import type { DailyRecord } from '@/types/ho-tro'
+
+const AddTicketForm = dynamic(() => import('./AddTicketForm'), { ssr: false })
 
 interface Props {
   userEmail: string
@@ -429,6 +432,8 @@ function SummaryView({
 export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
   const [isSummaryMode, setIsSummaryMode] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [selectedSheetId, setSelectedSheetId] = useState<string>(
     staffConfig?.sheetId ?? (allStaff[0]?.sheetId ?? '')
   )
@@ -554,6 +559,14 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 <option key={i} value={i}>{m.label}</option>
               ))}
             </select>
+            {canWrite && (
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm border border-teal-400 text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-xl transition font-medium"
+              >
+                ✏️ Nhập liệu
+              </button>
+            )}
             {isAdmin && (
               <a href="/admin/users" className="flex items-center gap-1.5 px-3 py-2 text-sm border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-xl transition">
                 Admin
@@ -779,6 +792,26 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
           </>
         )}
       </div>
+
+      {/* ── Add Ticket Modal ── */}
+      {showAddForm && (
+        <AddTicketForm
+          allStaff={allStaff}
+          onClose={() => setShowAddForm(false)}
+          onSuccess={msg => {
+            setShowAddForm(false)
+            setSuccessMsg(msg)
+            setTimeout(() => setSuccessMsg(null), 4000)
+          }}
+        />
+      )}
+
+      {/* ── Success toast ── */}
+      {successMsg && (
+        <div className="fixed bottom-6 right-6 z-50 bg-teal-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2">
+          ✅ {successMsg}
+        </div>
+      )}
     </div>
   )
 }
