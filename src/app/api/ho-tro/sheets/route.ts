@@ -9,8 +9,7 @@ const adminClient = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-// ── CSV parser ───────────────────────────────────────────────
-// Parse một dòng CSV có dấu ngoặc kép
+// ── CSV single-row parser ────────────────────────────────────
 function parseCSVRow(line: string): string[] {
   const result: string[] = []
   let cur = ''
@@ -18,7 +17,7 @@ function parseCSVRow(line: string): string[] {
   for (let i = 0; i < line.length; i++) {
     const c = line[i]
     if (c === '"') {
-      if (inQuote && line[i + 1] === '"') { cur += '"'; i++; continue } // escaped quote
+      if (inQuote && line[i + 1] === '"') { cur += '"'; i++; continue }
       inQuote = !inQuote
       continue
     }
@@ -29,98 +28,190 @@ function parseCSVRow(line: string): string[] {
   return result
 }
 
-// Parse date "DD/MM/YYYY" → sortKey "YYYY-MM-DD"
-function parseDateDMY(str: string): { display: string; sortKey: string } | null {
-  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (!m) return null
-  const d = m[1].padStart(2, '0')
-  const mo = m[2].padStart(2, '0')
-  const y = m[3]
-  return { display: str, sortKey: `${y}-${mo}-${d}` }
+// ── Excel serial → DD/MM/YYYY ────────────────────────────────
+// Excel epoch = Jan 0, 1900 (with bug treating 1900 as leap year, so day 1 = Jan 1 1900)
+function excelSerialToDate(serial: number): { display: string; sortKey: string } | null {
+  // Excel serial 1 = 1900-01-01. JS: new Date(0) = 1970-01-01.
+  // Days from 1970-01-01 to 1900-01-01 = -25569 days (reversed)
+  // Excel incorrectly includes 1900-02-29 (serial 60), so we subtract 1 for serials > 60
+  const adjusted = serial > 60 ? serial - 1 : serial
+  const msPerDay = 86400000
+  const epoch1900 = Date.UTC(1900, 0, 1) // Jan 1 1900 in ms
+  const ms = epoch1900 + (adjusted - 1) * msPerDay
+  const date = new Date(ms)
+  const y = date.getUTCFullYear()
+  if (y < 2020 || y > 2035) return null
+  const m = (date.getUTCMonth() + 1).toString().padStart(2, '0')
+  const d = date.getUTCDate().toString().padStart(2, '0')
+  return { display: `${d}/${m}/${y}`, sortKey: `${y}-${m}-${d}` }
 }
 
-function numStr(s: string): number {
-  if (!s || s === '') return 0
-  return parseFloat(s) || 0
-}
+// ── Known metric names (sorted descending by length to avoid prefix conflicts) ──
+// Format: [Vietnamese name, value number follows immediately after name]
+const KNOWN_METRICS: string[] = [
+  'số yêu cầu xử lý sang ngày thứ 5',
+  'số yêu cầu xử lý sang ngày thứ 4',
+  'số yêu cầu xử lý sang ngày thứ 3',
+  'số yêu cầu xử lý sang ngày thứ 2',
+  'số yêu cầu xử lý trong ngày',
+  'Tiếp nhận chưa xử lý',
+  'thời gian xử lý trung bình',
+  'số lượng yêu cầu',
+  'Số lục trong ngày nghỉ',
+  'Tiếp nhận từ hotline',
+  'Tiếp nhận từ zalo',
+  'thời gian xử lý lâu',
+  'Gotrack - Go 168',
+  'Hẹn xử lý',
+  'Hải Phòng',
+  'Bình Dương',
+  'Hà Nội',
+  'Hồ Chí Minh',
+  'Đà Nẵng',
+  'Phần mềm',
+  'VN88 4GH',
+  'VN 88 2G',
+  'C43 & H5',
+  'VN88 4G',
+  'FS100',
+  'MT99',
+  'ADAS',
+  'RFID',
+  'SOJI',
+  'S168',
+  'ACC',
+  'DVR',
+  'DMS',
+  'FUEL',
+  'GPS',
+  'GSM',
+  'Tổng',
+  'BW',
+  'IO',
+  'NC',
+  'PW',
+  'SS',
+  'SP',
+]
+// Sort by descending length so longer names match first (e.g. VN88 4GH before VN88 4G)
+KNOWN_METRICS.sort((a, b) => b.length - a.length)
 
-// ── Parse CSV text → DailyRecord[] ──────────────────────────
-function parseCSV(csvText: string): DailyRecord[] {
-  const lines = csvText.split('\n')
+// ── Parse packed string from line 0 of báo cáo CSV ──────────
+// Format: "ngày{serial}số lượng yêu cầu{N}   ;{serial}{metric}{value}   ;ngày{serial2}..."
+function parsePackedString(packed: string): DailyRecord[] {
+  if (!packed || !packed.startsWith('ngày')) return []
+
+  // Split by the 3-space semicolon separator
+  const entries = packed.split('   ;')
+
+  // Group entries by Excel serial (5-digit number)
+  const dayMap = new Map<number, Map<string, number>>()
+  let currentSerial = 0
+
+  for (const rawEntry of entries) {
+    const entry = rawEntry.trim()
+    if (!entry) continue
+
+    // Check if it starts a new day: "ngày{5digits}"
+    const dayMatch = entry.match(/^ngày(\d{5})/)
+    if (dayMatch) {
+      currentSerial = parseInt(dayMatch[1])
+      if (!dayMap.has(currentSerial)) dayMap.set(currentSerial, new Map())
+      // The rest of the entry after "ngày" is still a metric entry
+      const rest = entry.slice(4) // remove "ngày"
+      parseMetricEntry(rest, currentSerial, dayMap.get(currentSerial)!)
+    } else if (currentSerial > 0) {
+      parseMetricEntry(entry, currentSerial, dayMap.get(currentSerial)!)
+    }
+  }
+
+  // Build DailyRecord[] from the map
   const result: DailyRecord[] = []
-
-  // Skip line 0 (it's the gviz packed header)
-  // Data rows start from line 1
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i]
-    if (!line.trim()) continue
-
-    const c = parseCSVRow(line)
-
-    // col[1] must be a date in DD/MM/YYYY format
-    const di = parseDateDMY(c[1] ?? '')
+  for (const [serial, metrics] of dayMap) {
+    const di = excelSerialToDate(serial)
     if (!di) continue
+
+    const g = (key: string): number => metrics.get(key) ?? 0
 
     result.push({
       date: di.display,
       sortKey: di.sortKey,
-      total_requests: numStr(c[2]),
-      avg_time:       numStr(c[3]),
-      max_time:       numStr(c[4]),
+      total_requests: g('số lượng yêu cầu'),
+      avg_time:       g('thời gian xử lý trung bình'),
+      max_time:       g('thời gian xử lý lâu'),
       devices: {
-        'VN88 2G':   numStr(c[5]),
-        'VN88 4G':   numStr(c[6]),
-        'VN88 4GH':  numStr(c[7]),
-        'S168':      numStr(c[8]),
-        'DVR':       numStr(c[9]),
-        'FUEL':      numStr(c[10]),
-        'Go168':     numStr(c[11]),
-        'MT99':      numStr(c[12]),
-        'C43&H5':    numStr(c[13]),
-        'BW':        numStr(c[14]),
-        'Phan mem':  numStr(c[15]),
+        'VN88 2G':  g('VN 88 2G'),
+        'VN88 4G':  g('VN88 4G'),
+        'VN88 4GH': g('VN88 4GH'),
+        'S168':     g('S168'),
+        'DVR':      g('DVR'),
+        'FUEL':     g('FUEL'),
+        'Go168':    g('Gotrack - Go 168'),
+        'MT99':     g('MT99'),
+        'C43&H5':   g('C43 & H5'),
+        'BW':       g('BW'),
+        'Phan mem': g('Phần mềm'),
       },
       resolution: {
-        'Chua xu ly': numStr(c[16]),
-        'Hen xu ly':  numStr(c[17]),
-        'Ngay 1':     numStr(c[18]),
-        'Ngay 2':     numStr(c[19]),
-        'Ngay 3':     numStr(c[20]),
-        'Ngay 4':     numStr(c[21]),
-        'Ngay 5':     numStr(c[22]),
-        'Tong':       numStr(c[23]),
+        'Chua xu ly': g('Tiếp nhận chưa xử lý'),
+        'Hen xu ly':  g('Hẹn xử lý'),
+        'Ngay 1':     g('số yêu cầu xử lý trong ngày'),
+        'Ngay 2':     g('số yêu cầu xử lý sang ngày thứ 2'),
+        'Ngay 3':     g('số yêu cầu xử lý sang ngày thứ 3'),
+        'Ngay 4':     g('số yêu cầu xử lý sang ngày thứ 4'),
+        'Ngay 5':     g('số yêu cầu xử lý sang ngày thứ 5'),
+        'Tong':       g('Tổng'),
       },
       locations: {
-        'Ha Noi':     numStr(c[24]),
-        'Hai Phong':  numStr(c[25]),
-        'Da Nang':    numStr(c[26]),
-        'HCM':        numStr(c[27]),
-        'Binh Duong': numStr(c[28]),
+        'Ha Noi':     g('Hà Nội'),
+        'Hai Phong':  g('Hải Phòng'),
+        'Da Nang':    g('Đà Nẵng'),
+        'HCM':        g('Hồ Chí Minh'),
+        'Binh Duong': g('Bình Dương'),
       },
       channels: {
-        'Zalo':      numStr(c[29]),
-        'Hotline':   numStr(c[30]),
-        'Ngay nghi': numStr(c[31]),
+        'Zalo':      g('Tiếp nhận từ zalo'),
+        'Hotline':   g('Tiếp nhận từ hotline'),
+        'Ngay nghi': g('Số lục trong ngày nghỉ'),
       },
       errors: {
-        'ACC':   numStr(c[32]),
-        'RFID':  numStr(c[33]),
-        'PW':    numStr(c[34]),
-        'GPS':   numStr(c[35]),
-        'GSM':   numStr(c[36]),
-        'IO':    numStr(c[37]),
-        'SS':    numStr(c[38]),
-        'DMS':   numStr(c[39]),
-        'ADAS':  numStr(c[40]),
-        'NC':    numStr(c[41]),
-        'SP':    numStr(c[42]),
-        'FS100': numStr(c[43]),
-        'SOJI':  numStr(c[44]),
+        'ACC':   g('ACC'),
+        'RFID':  g('RFID'),
+        'PW':    g('PW'),
+        'GPS':   g('GPS'),
+        'GSM':   g('GSM'),
+        'IO':    g('IO'),
+        'SS':    g('SS'),
+        'DMS':   g('DMS'),
+        'ADAS':  g('ADAS'),
+        'NC':    g('NC'),
+        'SP':    g('SP'),
+        'FS100': g('FS100'),
+        'SOJI':  g('SOJI'),
       },
     })
   }
 
   return result.sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+}
+
+// Parse a single metric entry like "46174số lượng yêu cầu43"
+function parseMetricEntry(entry: string, serial: number, metrics: Map<string, number>) {
+  const serialStr = String(serial)
+  // Strip serial prefix if present
+  const rest = entry.startsWith(serialStr) ? entry.slice(serialStr.length) : entry
+
+  // Try each known metric (already sorted by descending length)
+  for (const metricName of KNOWN_METRICS) {
+    if (rest.startsWith(metricName)) {
+      const valueStr = rest.slice(metricName.length)
+      const value = parseFloat(valueStr)
+      if (!isNaN(value)) {
+        metrics.set(metricName, value)
+      }
+      return
+    }
+  }
 }
 
 // ── GET handler ──────────────────────────────────────────────
@@ -142,7 +233,7 @@ export async function GET(req: NextRequest) {
   const sp = new URL(req.url).searchParams
   const sheetId = sp.get('sheetId')
   const month   = sp.get('month')
-  const year    = sp.get('year') // short "26" hoặc full "2026"
+  const year    = sp.get('year') // short "26" or full "2026"
 
   if (!sheetId || !month || !year) {
     return NextResponse.json({ error: 'Missing sheetId, month, year' }, { status: 400 })
@@ -152,25 +243,41 @@ export async function GET(req: NextRequest) {
   const sheetName = `báo cáo tháng ${month}/${yearShort}`
 
   try {
-    // Dùng tqx=out:csv thay vì out:json để tránh lỗi parsedNumHeaders
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`
+    // Use tqx=out:csv to avoid parsedNumHeaders bug with JSON format
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&headers=0`
     const res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
     const csvText = await res.text()
 
-    // Kiểm tra nếu response là HTML (sheet không tồn tại / không có quyền)
+    // Check if response is HTML (sheet not found / no permission)
     if (csvText.trimStart().startsWith('<')) {
       return NextResponse.json({
-        error: `Sheet "${sheetName}" không tồn tại hoặc chưa public`,
+        error: `Sheet "${sheetName}" khong ton tai hoac chua public`,
         rows: [],
         sheetName,
       })
     }
 
-    const rows = parseCSV(csvText)
+    // The báo cáo sheet has a packed string in the first cell of the first row.
+    // It contains all daily metrics encoded as:
+    // "ngày{serial}metric_name{value}   ;{serial}metric_name{value}   ;ngày{nextSerial}..."
+    // Parse this packed string to extract daily records.
+    const firstLine = csvText.split('\n')[0] ?? ''
+    const firstRow = parseCSVRow(firstLine)
+    const packedStr = firstRow[0] ?? ''
 
-    return NextResponse.json({ rows, sheetName, month, year: yearShort })
+    const rows = parsePackedString(packedStr)
+
+    // Filter to only the requested month/year
+    const monthNum = parseInt(month)
+    const yearNum  = 2000 + parseInt(yearShort)
+    const filtered = rows.filter(r => {
+      const [, m, y] = r.date.split('/').map(Number)
+      return m === monthNum && y === yearNum
+    })
+
+    return NextResponse.json({ rows: filtered, sheetName, month, year: yearShort })
   } catch (err) {
     console.error('[ho-tro/sheets]', err)
     return NextResponse.json({ error: String(err), rows: [], sheetName })
