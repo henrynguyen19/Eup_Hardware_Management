@@ -36,8 +36,9 @@ function toSheetDate(dateStr: string): string {
 function sheetTabFromDate(dateStr: string): string {
   let month = 0, yearShort = ''
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    const [y, , m] = dateStr.split('-')
-    month = parseInt(m); yearShort = y.slice(2)
+    const parts = dateStr.split('-')
+    yearShort = parts[0].slice(2)
+    month = parseInt(parts[1])  // parts[1] = tháng (06), không phải parts[2] = ngày (17)
   } else if (dateStr.includes('/')) {
     const p = dateStr.split('/')
     month = parseInt(p[1]); yearShort = (p[2] ?? '').slice(2)
