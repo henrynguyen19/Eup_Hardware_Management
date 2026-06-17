@@ -35,38 +35,85 @@ interface ParsedRow {
 
 const KNOWN_ASSIGNEES = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
 
+// RFC 4180 TSV parser — handles cells with embedded newlines wrapped in "..."
+// (same format Google Sheets uses when copying to clipboard)
+function parseTSV(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let inQuotes = false
+  let i = 0
+  const n = text.length
+
+  while (i < n) {
+    const ch = text[i]
+
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < n && text[i + 1] === '"') {
+          field += '"'; i += 2   // escaped quote ""
+        } else {
+          inQuotes = false; i++  // closing quote
+        }
+      } else {
+        field += ch; i++         // content inside quotes (may include \n)
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true; i++
+      } else if (ch === '\t') {
+        row.push(field); field = ''; i++
+      } else if (ch === '\n') {
+        row.push(field); field = ''
+        if (row.some(f => f.trim())) rows.push(row)
+        row = []; i++
+      } else if (ch === '\r') {
+        i++  // ignore CR
+      } else {
+        field += ch; i++
+      }
+    }
+  }
+  // flush last row
+  row.push(field)
+  if (row.some(f => f.trim())) rows.push(row)
+
+  return rows
+}
+
+function colVal(cols: string[], idx: number) {
+  return cols[idx]?.trim() ?? ''
+}
+
 function parseRows(text: string): ParsedRow[] {
-  // Split on actual newlines only — tabs separate columns
-  return text
-    .split('\n')
-    .map(line => line.trimEnd())
-    .filter(line => line.trim() && line.includes('\t'))
-    .map(line => {
-      const cols = line.split('\t')
-      const assigneeRaw = cols[11]?.trim() ?? ''
+  const grid = parseTSV(text)
+  return grid
+    .filter(cols => cols.length > 3)  // skip noise rows (< 3 cols = not tabular)
+    .map(cols => {
+      const assigneeRaw = colVal(cols, 11)
       const known = KNOWN_ASSIGNEES.find(
         n => n.toLowerCase() === assigneeRaw.toLowerCase()
       )
       return {
-        code:         cols[0]?.trim()  ?? '',
-        sos:          cols[1]?.trim()  ?? '',
-        company:      cols[2]?.trim()  ?? '',
-        date:         cols[3]?.trim()  ?? '',
-        contact:      cols[4]?.trim()  ?? '',
-        type:         cols[5]?.trim()  ?? '',
-        salesAlias:   cols[6]?.trim()  ?? '',
-        direction:    cols[7]?.trim()  ?? '',
-        content:      cols[8]?.trim()  ?? '',
-        reply:        cols[9]?.trim()  ?? '',
-        status:       cols[10]?.trim() ?? '',
+        code:         colVal(cols, 0),
+        sos:          colVal(cols, 1),
+        company:      colVal(cols, 2),
+        date:         colVal(cols, 3),
+        contact:      colVal(cols, 4),
+        type:         colVal(cols, 5),
+        salesAlias:   colVal(cols, 6),
+        direction:    colVal(cols, 7),
+        content:      colVal(cols, 8),
+        reply:        colVal(cols, 9),
+        status:       colVal(cols, 10),
         assignee:     known ?? assigneeRaw,
-        salesMan:     cols[12]?.trim() ?? '',
-        assistant:    cols[13]?.trim() ?? '',
-        startPoint:   cols[14]?.trim() ?? '',
-        endPoint:     cols[15]?.trim() ?? '',
-        licensePlate: cols[16]?.trim() ?? '',
-        col17:        cols[17]?.trim() ?? '',
-        attachment:   cols[18]?.trim() ?? '',
+        salesMan:     colVal(cols, 12),
+        assistant:    colVal(cols, 13),
+        startPoint:   colVal(cols, 14),
+        endPoint:     colVal(cols, 15),
+        licensePlate: colVal(cols, 16),
+        col17:        colVal(cols, 17),
+        attachment:   colVal(cols, 18),
         raw:          cols,
         error:        assigneeRaw && !known
           ? `Không nhận ra: "${assigneeRaw}"`
