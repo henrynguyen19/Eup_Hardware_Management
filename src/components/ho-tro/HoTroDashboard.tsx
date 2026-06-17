@@ -226,11 +226,17 @@ function SummaryView({
   const locationData = Object.entries(locationSum).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }))
   const errorPie    = Object.entries(errorSum).filter(([, v]) => v > 0).map(([name, value]) => ({ name, value }))
 
-  const channelData = dataRows.map(r => ({
-    date:         shortDate(r.date),
-    'Zalo (%)':   r.total_requests ? Math.round(((r.channels['Zalo'] ?? 0) / r.total_requests) * 100) : 0,
-    'Hotline (%)': r.total_requests ? Math.round(((r.channels['Hotline'] ?? 0) / r.total_requests) * 100) : 0,
-  }))
+  const channelData = dataRows.map(r => {
+    const zalo    = r.channels['Zalo']    ?? 0
+    const hotline = r.channels['Hotline'] ?? 0
+    const troLy   = Math.max(0, r.total_requests - zalo - hotline)
+    return {
+      date:          shortDate(r.date),
+      'Trợ lý (%)': r.total_requests ? Math.round((troLy   / r.total_requests) * 100) : 0,
+      'Zalo (%)':    r.total_requests ? Math.round((zalo    / r.total_requests) * 100) : 0,
+      'Hotline (%)': r.total_requests ? Math.round((hotline / r.total_requests) * 100) : 0,
+    }
+  })
 
   const C = 'bg-white rounded-xl border border-gray-200 p-4'
   const xProps = { tick: { fontSize: 9 }, interval: 'preserveStartEnd' as const }
@@ -369,7 +375,8 @@ function SummaryView({
               <YAxis {...yProps} unit="%" />
               <Tooltip />
               <Legend wrapperStyle={{ fontSize: 9 }} />
-              <Line type="monotone" dataKey="Zalo (%)"    stroke="#22c55e" dot={false} strokeWidth={2} />
+              <Line type="monotone" dataKey="Trợ lý (%)" stroke="#6366f1" dot={false} strokeWidth={2} />
+              <Line type="monotone" dataKey="Zalo (%)"   stroke="#22c55e" dot={false} strokeWidth={2} />
               <Line type="monotone" dataKey="Hotline (%)" stroke="#f97316" dot={false} strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
@@ -505,9 +512,15 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const totalPending   = dataRows.reduce((s, r) => s + (r.resolution['Chua xu ly'] ?? 0), 0)
   const deviceSum      = sumObj(dataRows, 'devices')
   const locationSum    = sumObj(dataRows, 'locations')
-  const channelSum     = sumObj(dataRows, 'channels')
+  const channelSumRaw  = sumObj(dataRows, 'channels')
   const errorSum       = sumObj(dataRows, 'errors')
   const resolveRate    = pct(totalResolved, totalRequests)
+  // "Trợ lý" = requests without #zalo or #hotline hashtag
+  const channelSum = {
+    'Trợ lý':  Math.max(0, totalRequests - (channelSumRaw['Zalo'] ?? 0) - (channelSumRaw['Hotline'] ?? 0)),
+    'Zalo':    channelSumRaw['Zalo'] ?? 0,
+    'Hotline': channelSumRaw['Hotline'] ?? 0,
+  }
 
   const viewingStaff = isAdmin
     ? allStaff.find(s => s.sheetId === selectedSheetId) ?? null
