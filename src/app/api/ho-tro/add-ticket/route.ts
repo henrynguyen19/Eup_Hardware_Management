@@ -40,20 +40,26 @@ function sheetTabFromDate(dateStr: string): string {
 }
 
 interface ParsedRow {
-  code:       string
-  company:    string
-  date:       string
-  contact:    string
-  type:       string
-  salesAlias: string
-  direction:  string
-  content:    string
-  reply:      string
-  status:     string
-  assignee:   string
-  salesMan:   string
-  assistant:  string
-  raw:        string[]
+  code:         string
+  sos:          string
+  company:      string
+  date:         string
+  contact:      string
+  type:         string
+  salesAlias:   string
+  direction:    string
+  content:      string
+  reply:        string
+  status:       string
+  assignee:     string
+  salesMan:     string
+  assistant:    string
+  startPoint:   string
+  endPoint:     string
+  licensePlate: string
+  col17:        string
+  attachment:   string
+  raw:          string[]
 }
 
 export async function POST(req: NextRequest) {
@@ -109,30 +115,33 @@ export async function POST(req: NextRequest) {
       // A=code, B=blank, C=company, D=date, E=contact, F=type, G=salesAlias,
       // H=direction, I=content, J=reply, K=status, L=assignee, M=salesMan,
       // N=assistant, O=blank, P=blank, Q=company (repeated)
+      // Write all 19 columns (A-S) matching CRM structure
       const values = tabRows.map(r => [
-        r.code,
-        '',
-        r.company,
-        r.date,
-        r.contact,
-        r.type || 'Xử lý vấn đề',
-        r.salesAlias,
-        r.direction,
-        r.content,
-        r.reply,
-        r.status,
-        r.assignee,
-        r.salesMan,
-        r.assistant,
-        '',
-        '',
-        r.company,
+        r.code,         // A
+        r.sos,          // B
+        r.company,      // C
+        r.date,         // D
+        r.contact,      // E
+        r.type || 'Xử lý vấn đề', // F
+        r.salesAlias,   // G
+        r.direction,    // H
+        r.content,      // I
+        r.reply,        // J
+        r.status,       // K
+        r.assignee,     // L
+        r.salesMan,     // M
+        r.assistant,    // N
+        r.startPoint,   // O
+        r.endPoint,     // P
+        r.licensePlate, // Q
+        r.col17,        // R
+        r.attachment,   // S
       ])
 
       try {
         await sheets.spreadsheets.values.append({
           spreadsheetId:   staff.sheetId,
-          range:           `${tab}!A:Q`,
+          range:           `${tab}!A:S`,
           valueInputOption: 'USER_ENTERED',
           insertDataOption: 'INSERT_ROWS',
           requestBody: { values },
