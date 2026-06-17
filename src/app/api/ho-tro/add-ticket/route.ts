@@ -10,15 +10,10 @@ const adminClient = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-// Build Google Sheets auth from Service Account env vars
 function getSheetsClient() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
   const key   = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
-
-  if (!email || !key) {
-    throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_EMAIL or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY')
-  }
-
+  if (!email || !key) throw new Error('Missing Google Service Account credentials')
   const auth = new google.auth.GoogleAuth({
     credentials: { client_email: email, private_key: key },
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -26,75 +21,43 @@ function getSheetsClient() {
   return google.sheets({ version: 'v4', auth })
 }
 
-// Construct the "Reply" hashtag string from form data
-function buildHashtag(data: TicketInput): string {
-  const parts: string[] = []
-
-  // Category
-  if (data.category) parts.push(`#${data.category}`)
-
-  // Devices
-  for (const d of data.devices ?? []) {
-    parts.push(`#${d.toLowerCase().replace(/\s+/g, '')}`)
+// Get sheet tab name: "tháng M/YY" derived from the date column (col D)
+// Accepts formats: "2026-06-17" or "17/06/2026"
+function sheetTabFromDate(dateStr: string): string {
+  let month = 0, yearShort = ''
+  if (dateStr.includes('-')) {
+    const [y, m] = dateStr.split('-')
+    month = parseInt(m)
+    yearShort = y.slice(2)
+  } else if (dateStr.includes('/')) {
+    const parts = dateStr.split('/')
+    // could be DD/MM/YYYY or MM/DD/YYYY — assume DD/MM/YYYY (Vietnamese)
+    month = parseInt(parts[1])
+    yearShort = parts[2]?.slice(2) ?? ''
   }
-
-  // Error types
-  for (const e of data.errors ?? []) {
-    parts.push(`#${e.toLowerCase()}`)
-  }
-
-  // Handler name (lowercase, no #)
-  if (data.assignee) parts.push(data.assignee.toLowerCase())
-
-  // Date DD/M
-  if (data.date) {
-    const [y, m, d] = data.date.split('-')
-    parts.push(`${parseInt(d)}/${parseInt(m)}`)
-  }
-
-  // Flag (#F / #N / #L)
-  if (data.flag) parts.push(`#${data.flag}`)
-
-  // Vehicle plate
-  if (data.licensePlate?.trim()) parts.push(data.licensePlate.trim())
-
-  // Free-text notes
-  if (data.notes?.trim()) parts.push(data.notes.trim())
-
-  return parts.join(' ')
+  if (!month || !yearShort) return 'tháng 6/26' // fallback
+  return `tháng ${month}/${yearShort}`
 }
 
-export interface TicketInput {
-  // CRM fields
-  code:         string   // ticket ID
-  company:      string
-  date:         string   // YYYY-MM-DD
-  contactPerson: string
-  requestType:  string
-  salesAlias:   string   // trợ lý alias (Alice, Clara, Soda…)
-  direction:    'Vào' | 'Ra'
-  content:      string
-  status:       string
-  assignee:     string   // Kane / Stefan / Shiro / Irene / Blue
-  salesMan:     string
-  assistant:    string
-
-  // Hashtag fields (auto-construct Reply column)
-  category:     string   // hardware / fuelsensor / arrowware
-  devices:      string[]
-  errors:       string[]
-  flag:         string   // F / N / L
-  licensePlate: string
-  notes:        string
-
-  // Optional extra
-  km?:          string
-  startPoint?:  string
-  endPoint?:    string
+interface ParsedRow {
+  code:       string
+  company:    string
+  date:       string
+  contact:    string
+  type:       string
+  salesAlias: string
+  direction:  string
+  content:    string
+  reply:      string
+  status:     string
+  assignee:   string
+  salesMan:   string
+  assistant:  string
+  raw:        string[]
 }
 
 export async function POST(req: NextRequest) {
-  // Auth check
+  // Auth
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -108,81 +71,89 @@ export async function POST(req: NextRequest) {
   const hasAccess = perms.includes('ho_tro:write') || perms.includes('ho_tro:read') || perms.includes('admin:users')
   if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const body: TicketInput = await req.json()
+  const body = await req.json() as { rows: ParsedRow[] }
+  const rows = body.rows ?? []
+  if (!rows.length) return NextResponse.json({ error: 'Không có dòng dữ liệu' }, { status: 400 })
 
-  // Find target sheet
-  const staff = STAFF_SHEETS.find(s => s.name.toLowerCase() === body.assignee.toLowerCase())
-  if (!staff) {
-    return NextResponse.json({ error: `Không tìm thấy nhân viên: ${body.assignee}` }, { status: 400 })
+  // Group rows by assignee
+  const byAssignee = new Map<string, ParsedRow[]>()
+  for (const row of rows) {
+    const name = row.assignee?.trim()
+    if (!name) continue
+    if (!byAssignee.has(name)) byAssignee.set(name, [])
+    byAssignee.get(name)!.push(row)
   }
 
-  // Build sheet tab name: "tháng M/YY"
-  const [year, month] = body.date.split('-')
-  const yearShort = year.slice(2)
-  const sheetTab  = `tháng ${parseInt(month)}/${yearShort}`
+  const sheets  = getSheetsClient()
+  const results: string[] = []
+  const errors:  string[] = []
 
-  // Build the reply/hashtag column
-  const replyText = buildHashtag(body)
+  for (const [assignee, assigneeRows] of byAssignee) {
+    const staff = STAFF_SHEETS.find(s => s.name.toLowerCase() === assignee.toLowerCase())
+    if (!staff) {
+      errors.push(`Không tìm thấy sheet cho: ${assignee}`)
+      continue
+    }
 
-  // Row to append — match the CRM column order:
-  // A: code, B: blank, C: company, D: date (DD/MM/YYYY), E: contact, F: type,
-  // G: salesAlias, H: direction, I: content, J: reply, K: status,
-  // L: assignee (cap), M: salesMan, N: assistant, O-P: blank, Q: company repeat
-  const [y, mo, d] = body.date.split('-')
-  const dateDisplay = `${d}/${mo}/${y}` // DD/MM/YYYY
+    // Group this assignee's rows by sheet tab (different dates → different tabs)
+    const byTab = new Map<string, ParsedRow[]>()
+    for (const row of assigneeRows) {
+      const tab = sheetTabFromDate(row.date)
+      if (!byTab.has(tab)) byTab.set(tab, [])
+      byTab.get(tab)!.push(row)
+    }
 
-  const row = [
-    body.code,
-    '',
-    body.company,
-    dateDisplay,
-    body.contactPerson,
-    body.requestType || 'Xử lý vấn đề',
-    body.salesAlias,
-    body.direction,
-    body.content,
-    replyText,
-    body.status || 'Unprocessing',
-    body.assignee,
-    body.salesMan,
-    body.assistant,
-    '',
-    '',
-    body.company,
-    body.licensePlate || '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    body.km || '',
-    body.startPoint || '',
-    body.endPoint || '',
-  ]
+    for (const [tab, tabRows] of byTab) {
+      // Build values array — each row is columns A through at least Q
+      // Matching the existing sheet structure:
+      // A=code, B=blank, C=company, D=date, E=contact, F=type, G=salesAlias,
+      // H=direction, I=content, J=reply, K=status, L=assignee, M=salesMan,
+      // N=assistant, O=blank, P=blank, Q=company (repeated)
+      const values = tabRows.map(r => [
+        r.code,
+        '',
+        r.company,
+        r.date,
+        r.contact,
+        r.type || 'Xử lý vấn đề',
+        r.salesAlias,
+        r.direction,
+        r.content,
+        r.reply,
+        r.status,
+        r.assignee,
+        r.salesMan,
+        r.assistant,
+        '',
+        '',
+        r.company,
+      ])
 
-  try {
-    const sheets = getSheetsClient()
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: staff.sheetId,
-      range:         `${sheetTab}!A:AD`,
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [row] },
-    })
-
-    return NextResponse.json({
-      success: true,
-      message: `Đã ghi vào sheet của ${staff.name}: ${sheetTab}`,
-      replyText,
-    })
-  } catch (err: unknown) {
-    console.error('[add-ticket]', err)
-    const msg = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: msg }, { status: 500 })
+      try {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId:   staff.sheetId,
+          range:           `${tab}!A:Q`,
+          valueInputOption: 'USER_ENTERED',
+          insertDataOption: 'INSERT_ROWS',
+          requestBody: { values },
+        })
+        results.push(`${assignee}/${tab}: ${tabRows.length} dòng`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        errors.push(`${assignee}/${tab}: ${msg}`)
+      }
+    }
   }
+
+  const totalWritten = rows.filter(r => {
+    const staff = STAFF_SHEETS.find(s => s.name.toLowerCase() === r.assignee?.toLowerCase())
+    return !!staff
+  }).length
+
+  return NextResponse.json({
+    success: errors.length === 0,
+    message: `Đã ghi ${totalWritten} dòng → ${results.join(', ')}${errors.length ? ` | Lỗi: ${errors.join(', ')}` : ''}`,
+    results,
+    errors,
+  })
 }
