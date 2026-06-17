@@ -38,7 +38,7 @@ function sheetTabFromDate(dateStr: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     const parts = dateStr.split('-')
     yearShort = parts[0].slice(2)
-    month = parseInt(parts[1])  // parts[1] = tháng (06), không phải parts[2] = ngày (17)
+    month = parseInt(parts[1])
   } else if (dateStr.includes('/')) {
     const p = dateStr.split('/')
     month = parseInt(p[1]); yearShort = (p[2] ?? '').slice(2)
@@ -70,7 +70,8 @@ function rowToValues(r: ParsedRow): string[] {
 
 const DATE_CELL_RE = /^\d{2}\/\d{2}\/\d{4}$/
 
-// Write rows to a single tab, inserting each date group after its date-header row
+// Write rows into pre-existing empty rows after each date header.
+// DOES NOT insert new rows — finds existing empty rows (col A empty) and fills them.
 async function writeToTab(
   sheets: Sheets,
   spreadsheetId: string,
@@ -78,84 +79,100 @@ async function writeToTab(
   rowsByDate: Map<string, ParsedRow[]>   // "15/06/2026" → rows
 ): Promise<string> {
 
-  // 1. Get sheetId (numeric) for batchUpdate
+  // Check tab exists
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: 'sheets.properties',
   })
-  const sheetMeta = meta.data.sheets?.find(
-    s => s.properties?.title === tabName
-  )
+  const sheetMeta = meta.data.sheets?.find(s => s.properties?.title === tabName)
   if (!sheetMeta) throw new Error(`Tab "${tabName}" không tìm thấy`)
-  const sheetId = sheetMeta.properties!.sheetId!
 
-  // 2. Read col A (all date-header rows and data rows)
-  const aResp = await sheets.spreadsheets.values.get({
+  // Read col A and col C to identify:
+  //   - date-header rows: colA matches DD/MM/YYYY
+  //   - occupied data rows: colA is non-empty (has ticket code) OR colC is non-empty (has company)
+  //   - available rows: both colA and colC are empty
+  const resp = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${q(tabName)}!A:A`,
+    range: `${q(tabName)}!A:C`,
+    valueRenderOption: 'FORMATTED_VALUE',
   })
-  const colA: string[] = (aResp.data.values ?? []).map(
-    (r: (string | undefined)[]) => (r[0] ?? '').toString().trim()
-  )
+  type Cell = string
+  const grid: Cell[][] = (resp.data.values ?? []).map((r: Cell[]) => [
+    (r[0] ?? '').toString().trim(),  // A = ticket code / date header
+    (r[1] ?? '').toString().trim(),  // B = SOS
+    (r[2] ?? '').toString().trim(),  // C = company name
+  ])
 
-  // 3. For each date, find the 0-indexed row where we should insert
-  //    = the row just before the NEXT date-header (or end of sheet if none)
-  const insertPlan: { insertAt0: number; count: number; rows: ParsedRow[] }[] = []
+  const results: string[] = []
+  const errors:  string[] = []
+
+  // Build one batchUpdate with all value writes
+  const valueRanges: { range: string; values: string[][] }[] = []
 
   for (const [dateFmt, dateRows] of rowsByDate) {
+    // Find the date-header row
     let dateRowIdx = -1
-    for (let i = 0; i < colA.length; i++) {
-      if (colA[i] === dateFmt) { dateRowIdx = i; break }
+    for (let i = 0; i < grid.length; i++) {
+      if (grid[i][0] === dateFmt) { dateRowIdx = i; break }
     }
 
-    let insertAt0: number
     if (dateRowIdx === -1) {
-      // Date header not found → append to end
-      insertAt0 = colA.length
-    } else {
-      // Insert immediately after the date-header row
-      insertAt0 = dateRowIdx + 1
+      errors.push(`Không tìm thấy hàng ngày ${dateFmt} trong tab`)
+      continue
     }
 
-    insertPlan.push({ insertAt0, count: dateRows.length, rows: dateRows })
+    // Collect consecutive available rows (col A empty AND col C empty) after the date header
+    const availableRows: number[] = []
+    for (let i = dateRowIdx + 1; i < grid.length; i++) {
+      const colA = grid[i][0]
+      const colC = grid[i][2]
+      // Stop scanning when we hit the next date-header row
+      if (DATE_CELL_RE.test(colA)) break
+      // A row is available if it has no data in col A and col C
+      if (!colA && !colC) {
+        availableRows.push(i)  // 0-indexed
+        if (availableRows.length >= dateRows.length) break
+      }
+    }
+
+    if (availableRows.length === 0) {
+      errors.push(`Không còn hàng trống cho ngày ${dateFmt}`)
+      continue
+    }
+
+    const rowsToWrite = dateRows.slice(0, availableRows.length)
+    if (rowsToWrite.length < dateRows.length) {
+      errors.push(`Chỉ ghi được ${rowsToWrite.length}/${dateRows.length} dòng cho ngày ${dateFmt} (không đủ hàng trống)`)
+    }
+
+    // Each available row gets one record (individual update per row since they may not be contiguous)
+    for (let i = 0; i < rowsToWrite.length; i++) {
+      const row1 = availableRows[i] + 1  // convert to 1-indexed
+      valueRanges.push({
+        range: `${q(tabName)}!A${row1}:S${row1}`,
+        values: [rowToValues(rowsToWrite[i])],
+      })
+    }
+
+    results.push(`${dateFmt}: ${rowsToWrite.length} dòng (hàng ${availableRows.map(r => r + 1).join(', ')})`)
   }
 
-  // 4. Sort bottom-to-top so earlier insertions don't shift later positions
-  insertPlan.sort((a, b) => b.insertAt0 - a.insertAt0)
-
-  // 5. Build batchUpdate insert requests (all in one call)
-  const insertRequests = insertPlan.map(({ insertAt0, count }) => ({
-    insertDimension: {
-      range: {
-        sheetId,
-        dimension: 'ROWS' as const,
-        startIndex: insertAt0,
-        endIndex: insertAt0 + count,
-      },
-      inheritFromBefore: false,  // false = inherit from row below (normal data row), not date header
-    },
-  }))
-
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: { requests: insertRequests },
-  })
-
-  // 6. Write values to the newly inserted rows
-  //    (bottom-to-top order means positions are still valid)
-  for (const { insertAt0, count, rows } of insertPlan) {
-    const startRow1 = insertAt0 + 1  // 1-indexed
-    const endRow1   = insertAt0 + count
-    await sheets.spreadsheets.values.update({
+  if (valueRanges.length > 0) {
+    // Write all rows in one API call via batchUpdate
+    await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
-      range: `${q(tabName)}!A${startRow1}:S${endRow1}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: rows.map(rowToValues) },
+      requestBody: {
+        valueInputOption: 'USER_ENTERED',
+        data: valueRanges,
+      },
     })
   }
 
-  const total = [...rowsByDate.values()].reduce((s, r) => s + r.length, 0)
-  return `${total} dòng`
+  if (errors.length > 0 && results.length === 0) throw new Error(errors.join('; '))
+
+  const total = valueRanges.length
+  const msg   = `${total} dòng${errors.length ? ` (⚠ ${errors.join('; ')})` : ''}`
+  return msg
 }
 
 export async function POST(req: NextRequest) {
@@ -181,7 +198,7 @@ export async function POST(req: NextRequest) {
   if (!rows.length) return NextResponse.json({ error: 'Không có dòng dữ liệu' }, { status: 400 })
 
   // Group: assignee → tabName → dateFormatted → rows[]
-  type TabMap  = Map<string, Map<string, ParsedRow[]>>
+  type TabMap = Map<string, Map<string, ParsedRow[]>>
   const byStaff = new Map<string, TabMap>()
 
   for (const row of rows) {
