@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import UserManagement from '@/components/admin/UserManagement'
+import AppShell from '@/components/AppShell'
 
 async function getUsers() {
   const supabase = createClient(
@@ -44,8 +45,8 @@ export default async function UsersPage() {
   const { users, roles } = await getUsers()
 
   return (
-    <main className="min-h-screen bg-[#f8fafc]">
+    <AppShell userEmail={user.email ?? ''} permissions={permissions}>
       <UserManagement users={users} roles={roles} currentUserEmail={user.email ?? ''} />
-    </main>
+    </AppShell>
   )
 }

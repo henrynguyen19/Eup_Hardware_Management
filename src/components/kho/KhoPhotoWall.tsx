@@ -2,7 +2,6 @@
 
 import { useState, useRef, useMemo } from 'react'
 import Image from 'next/image'
-import { createSupabaseBrowserClient } from '@/lib/supabase-browser'
 import type { EquipmentCard, DeviceType } from '@/types/equipment'
 import { DEVICE_TYPES, DEVICE_TYPE_LABELS, DEVICE_TYPE_COLORS, DEVICE_TYPE_ICONS } from '@/types/equipment'
 import DeviceFormModal from './DeviceFormModal'
@@ -22,11 +21,6 @@ const TYPE_TAB_ALL = 'Tất cả'
 export default function KhoPhotoWall({ initialCards, userEmail, canWrite = true, isAdmin = false, canHoTro = false }: Props) {
   const [cards, setCards] = useState<EquipmentCard[]>(initialCards)
 
-  async function handleLogout() {
-    const supabase = createSupabaseBrowserClient()
-    await supabase.auth.signOut()
-    window.location.href = '/login'
-  }
   const [activeType, setActiveType] = useState<string>(TYPE_TAB_ALL)
   const [search, setSearch] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -169,32 +163,7 @@ export default function KhoPhotoWall({ initialCards, userEmail, canWrite = true,
                   </button>
                 </>
               )}
-              {/* Hỗ trợ kỹ thuật */}
-              {(canHoTro || isAdmin) && (
-                <a
-                  href="/ho-tro"
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm border border-teal-300 text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-xl transition"
-                >
-                  📋 Hỗ trợ KT
-                </a>
-              )}
-              {/* Admin & Logout */}
-              <div className="h-6 w-px bg-gray-200" />
-              {isAdmin && (
-                <a
-                  href="/admin/users"
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-xl transition"
-                >
-                  ⚙️ Admin
-                </a>
-              )}
-              <button
-                onClick={handleLogout}
-                className="px-3 py-2 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition"
-                title="Đăng xuất"
-              >
-                🚪
-              </button>
+              {/* Logout handled by SidebarNav */}
             </div>
           </div>
         </div>

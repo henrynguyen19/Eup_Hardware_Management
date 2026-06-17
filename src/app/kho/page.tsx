@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import KhoPhotoWall from '@/components/kho/KhoPhotoWall'
+import AppShell from '@/components/AppShell'
 import type { EquipmentCard } from '@/types/equipment'
 import type { FirmwareVersion } from '@/types/kho'
 
@@ -60,7 +61,7 @@ export default async function KhoPage() {
   const canHoTro = permissions.includes('ho_tro:read') || isAdmin
 
   return (
-    <main className="min-h-screen bg-[#f8fafc]">
+    <AppShell userEmail={user.email ?? ''} permissions={permissions}>
       <KhoPhotoWall
         initialCards={cards}
         latestFirmware={latestFirmware}
@@ -69,6 +70,6 @@ export default async function KhoPage() {
         isAdmin={isAdmin}
         canHoTro={canHoTro}
       />
-    </main>
+    </AppShell>
   )
 }

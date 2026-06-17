@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { STAFF_SHEETS, getStaffByEmail } from '@/lib/staff-sheets'
 import HoTroDashboard from '@/components/ho-tro/HoTroDashboard'
+import AppShell from '@/components/AppShell'
 
 const adminClient = () =>
   createClient(
@@ -34,7 +35,7 @@ export default async function HoTroPage() {
   const canWrite = permissions.includes('ho_tro:write') || isAdmin
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <AppShell userEmail={user.email ?? ''} permissions={permissions}>
       <HoTroDashboard
         userEmail={user.email ?? ''}
         isAdmin={isAdmin}
@@ -42,6 +43,6 @@ export default async function HoTroPage() {
         staffConfig={staffConfig}
         allStaff={STAFF_SHEETS}
       />
-    </main>
+    </AppShell>
   )
 }
