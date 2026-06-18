@@ -85,20 +85,28 @@ function colVal(cols: string[], idx: number) {
   return (cols[idx] ?? '').trim()
 }
 
-// Tìm tên kỹ thuật viên cuối cùng xuất hiện trong chuỗi remarks (cột J)
-// Người làm xong sẽ tự ghi tên mình → lấy tên xuất hiện sau cùng
+// Tìm tên kỹ thuật viên trong chuỗi remarks (cột J)
+// Ưu tiên pattern "tên ngày" (vd "shiro 18/6") — người làm xong ghi tên + ngày
+// Fallback: lấy vị trí xuất hiện đầu tiên của tên (không lấy cuối để tránh false positive)
 function extractAssigneeFromRemarks(remarks: string): string | null {
-  const lower = remarks.toLowerCase()
-  let lastIndex = -1
-  let found: string | null = null
-  for (const name of KNOWN_ASSIGNEES) {
-    const idx = lower.lastIndexOf(name.toLowerCase())
-    if (idx > lastIndex) {
-      lastIndex = idx
-      found = name
-    }
+  if (!remarks.trim()) return null
+
+  // Pattern 1: "name dd/M" hoặc "name dd/MM" — tên kỹ thuật viên ký tên kèm ngày
+  const datePattern = /\b(\w+)\s+\d{1,2}\/\d{1,2}/g
+  let lastDateMatch: string | null = null
+  let match
+  while ((match = datePattern.exec(remarks)) !== null) {
+    const name = KNOWN_ASSIGNEES.find(n => n.toLowerCase() === match![1].toLowerCase())
+    if (name) lastDateMatch = name  // lấy lần ký tên cuối cùng có kèm ngày
   }
-  return found
+  if (lastDateMatch) return lastDateMatch
+
+  // Pattern 2: fallback — tìm tên đầu tiên xuất hiện (không phải cuối, tránh "blue" ở cuối remarks)
+  const lower = remarks.toLowerCase()
+  for (const name of KNOWN_ASSIGNEES) {
+    if (lower.includes(name.toLowerCase())) return name
+  }
+  return null
 }
 
 function buildRowsFromGrid(grid: string[][]): ParsedRow[] {
@@ -108,13 +116,10 @@ function buildRowsFromGrid(grid: string[][]): ParsedRow[] {
       const reply       = colVal(cols, 9)   // J - Remarks
       const assigneeCol = colVal(cols, 11)  // L - người được assign (fallback)
 
-      // Ưu tiên: tên cuối cùng trong cột J (người thực sự làm)
-      // Fallback: cột L nếu J không có tên nào
+      // Chỉ dùng cột J — nếu J trống hoặc không có tên → assignee rỗng → row bị loại
+      // KHÔNG fallback sang cột L (cột L là người được assign, không phải người thực sự làm)
       const fromRemarks = extractAssigneeFromRemarks(reply)
-      const fromColL    = KNOWN_ASSIGNEES.find(
-        n => n.toLowerCase() === assigneeCol.toLowerCase()
-      )
-      const assignee = fromRemarks ?? fromColL ?? assigneeCol
+      const assignee    = fromRemarks ?? ''
 
       return {
         code:         colVal(cols, 0),
@@ -137,8 +142,10 @@ function buildRowsFromGrid(grid: string[][]): ParsedRow[] {
         col17:        colVal(cols, 17),
         attachment:   colVal(cols, 18),
         raw:          cols,
-        error:        !fromRemarks && assigneeCol && !fromColL
-          ? `Cột L không nhận ra: "${assigneeCol}"`
+        error:        !fromRemarks && reply.trim()
+          ? `Cột J không có tên kỹ thuật viên`
+          : !fromRemarks
+          ? undefined  // J trống → row sẽ bị lọc ra (không hiện lỗi, chỉ skip)
           : undefined,
       }
     })
@@ -186,7 +193,7 @@ export default function AddTicketForm({ allStaff, onClose, onSuccess }: Props) {
   const [error, setError]         = useState<string | null>(null)
   const [parseSource, setSource]  = useState<'html'|'text'>('text')
 
-  const validRows   = useMemo(() => rows.filter(r => r.company && r.assignee && !r.error), [rows])
+  const validRows   = useMemo(() => rows.filter(r => r.company && r.assignee && !r.error && r.reply.trim() !== ''), [rows])
   const invalidRows = useMemo(() => rows.filter(r => r.error), [rows])
 
   // onPaste: prefer text/html (HTML table) — same source Google Sheets uses
