@@ -31,7 +31,7 @@ export async function GET() {
   if (!auth.ok) return auth.error!
 
   const { data, error } = await sb()
-    .from('user_groups_view')
+    .from('dept_groups_view')
     .select('*')
     .order('name')
 
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data, error } = await sb()
-    .from('user_groups')
+    .from('dept_groups')
     .insert({ name: name.trim(), description, permissions: permissions ?? [], color })
     .select()
     .single()

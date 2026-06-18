@@ -36,7 +36,7 @@ const supabase = createClient(
 const DEFAULT_PASSWORD = 'EupVN123'
 
 // ─── Danh sách nhân viên cần tạo ────────────────────────────
-// group: tên nhóm phải khớp với user_groups.name trong DB
+// group: tên nhóm phải khớp với dept_groups.name trong DB
 const USERS = [
   // ── R&D Phần cứng (14 người) ───────────────────────────────
   { english: 'Henry',  vn: 'Nguyễn Văn Hùng',         group: 'R&D Phần cứng' },
@@ -146,9 +146,9 @@ async function main() {
   console.log(`✅ Role mặc định: "${viewerRole.name}" (${viewerRole.id})\n`)
 
   // 2. Lấy danh sách groups
-  const { data: groups, error: groupsErr } = await supabase.from('user_groups').select('id, name')
+  const { data: groups, error: groupsErr } = await supabase.from('dept_groups').select('id, name')
   if (groupsErr) {
-    console.error('❌ Không đọc được bảng user_groups. Hãy chạy migration 03 trước:', groupsErr.message)
+    console.error('❌ Không đọc được bảng dept_groups. Hãy chạy migration 03 trước:', groupsErr.message)
     process.exit(1)
   }
   const groupMap = Object.fromEntries(groups.map(g => [g.name, g.id]))
@@ -206,7 +206,7 @@ async function main() {
       // Gán group
       const groupId = groupMap[user.group]
       if (groupId) {
-        await supabase.from('user_group_members').upsert(
+        await supabase.from('dept_group_members').upsert(
           { user_id: userId, group_id: groupId },
           { onConflict: 'user_id,group_id', ignoreDuplicates: true }
         )
@@ -248,7 +248,7 @@ async function ensureGroupMembership(email, groupName, groupMap) {
 
   if (!ur?.user_id) return
 
-  await supabase.from('user_group_members').upsert(
+  await supabase.from('dept_group_members').upsert(
     { user_id: ur.user_id, group_id: groupId },
     { onConflict: 'user_id,group_id', ignoreDuplicates: true }
   )

@@ -41,7 +41,7 @@ export async function PATCH(
   if (body.color !== undefined)       update.color       = body.color
 
   const { error } = await sb()
-    .from('user_groups')
+    .from('dept_groups')
     .update(update)
     .eq('id', params.id)
 
@@ -58,7 +58,7 @@ export async function DELETE(
   if (!auth.ok) return auth.error!
 
   const { error } = await sb()
-    .from('user_groups')
+    .from('dept_groups')
     .delete()
     .eq('id', params.id)
 
@@ -90,7 +90,7 @@ export async function POST(
     if (!uid) return NextResponse.json({ error: 'Không tìm thấy user' }, { status: 404 })
 
     const { error } = await sb()
-      .from('user_group_members')
+      .from('dept_group_members')
       .upsert({ user_id: uid, group_id: params.id }, { onConflict: 'user_id,group_id', ignoreDuplicates: true })
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -110,7 +110,7 @@ export async function POST(
     if (!uid) return NextResponse.json({ error: 'Không tìm thấy user' }, { status: 404 })
 
     const { error } = await sb()
-      .from('user_group_members')
+      .from('dept_group_members')
       .delete()
       .eq('user_id', uid)
       .eq('group_id', params.id)
