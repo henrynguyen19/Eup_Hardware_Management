@@ -186,120 +186,77 @@ const COMPAT_BY_NAME = [
 
 // ─── 3. Tính năng thiết bị (dùng tên, script lookup ID) ─────────────────────
 // Format: [device_name_pattern, feature_key, value, notes]
+// feature_key = tên hiển thị trực tiếp trên bảng (đúng theo file Excel)
 const FEATURES_BY_NAME = [
-  // VN88-4G
-  ['VN88', 'qcvn06',            '✔', ''],
-  ['VN88', 'qcvn31',            '✔', ''],
-  ['VN88', 'nd10',              '✔', 'Phải kết hợp cùng DVR-88'],
-  ['VN88', 'rfid',              '✔', 'Đầu quẹt tích hợp sẵn - Thẻ EUP'],
-  ['VN88', 'rfid_auto_logout',  '✔', 'Đỗ xe quá 4H (mặc định tắt)'],
-  ['VN88', 'speed_alert',       '✔', ''],
-  ['VN88', 'cam_max',           '2',  'Kết hợp DVR-88, có thể thêm SmartBox'],
-  ['VN88', 'fuel_sensor',       '✔', 'Soji, Taiwan, Daviteq, BK-Adsun+DTU, AI'],
-  ['VN88', 'fuel_sensor_dual',  '✔', 'Soji (2 cây dầu cùng phiên bản)'],
-  ['VN88', 'temp_sensor',       '✔', ''],
-  ['VN88', 'concrete_sensor',   '✗', ''],
-  ['VN88', 'collision_sensor',  '✔', 'Cần thêm SmartBox'],
-  ['VN88', 'trailer_etag',      '✔', 'Cần thêm SmartBox'],
-  ['VN88', 'telematics_l1',     '✔', 'Tăng tốc đột ngột, phanh gấp, cua gấp'],
-  ['VN88', 'telematics_l2',     '✗', 'Cần H5 + DMS/ADAS'],
-  ['VN88', 'dms',               '✗', ''],
-  ['VN88', 'adas',              '✗', ''],
-  ['VN88', 'sos',               '✔', ''],
+  // ── VN88-4G ──────────────────────────────────────────────────────────────────
+  ['VN88', 'QCVN06',             '✔', ''],
+  ['VN88', 'QCVN31',             '✔', ''],
+  ['VN88', 'Nghị Định 10',       '✔', 'Cần lắp cùng DVR 88'],
+  ['VN88', 'Cảnh báo quẹt thẻ', '✔', 'Chuông'],
+  ['VN88', 'Quẹt Thẻ lái xe',   '✔', 'Đầu quẹt tích hợp - Thẻ EUP'],
+  ['VN88', 'Tự động đăng xuất',  '✔', 'Đỗ xe quá 4H (Mặc định tắt)'],
+  ['VN88', 'Cảnh báo Tốc độ theo cung đường', '✔', ''],
+  ['VN88', 'Cảnh báo quá tốc độ', '✔', ''],
+  ['VN88', 'Tích hợp cam',        '✔', 'DVR 88 - tối đa 2 cam, có thể thêm SmartBox'],
+  ['VN88', 'Cảm biến dầu Taiwan - Soji', '✔', 'Có thể lắp thêm SmartBox'],
+  ['VN88', 'Cảm biến dầu đôi',   'Soji', '2 cây dầu cùng phiên bản'],
+  ['VN88', 'Cảm biến dầu chuyển đổi', '✔', 'Soji - BK-Adsun+DTU(ADA) + AI - Daviteq'],
+  ['VN88', 'Cảm biến nhiệt độ',  '✔', ''],
+  ['VN88', 'Công tắc nâng hạ ben, cửa, điều hòa, Sos, Công tắc chở hàng', '✔', ''],
+  ['VN88', 'Cảm biến va chạm',   '✔', 'Cần thêm SmartBox'],
+  ['VN88', 'Cảm biến rơmooc etag','✔', 'Cần thêm SmartBox'],
 
-  // Go-168
-  ['Go-168', 'qcvn06',            '✔', ''],
-  ['Go-168', 'qcvn31',            '✔', ''],
-  ['Go-168', 'nd10',              '✗', 'Không hỗ trợ NĐ10 (không tích hợp camera)'],
-  ['Go-168', 'rfid',              '✔', 'Đầu quẹt tích hợp sẵn - Thẻ EUP'],
-  ['Go-168', 'rfid_auto_logout',  '✔', 'Có thể cài đặt thời gian (mặc định tắt)'],
-  ['Go-168', 'speed_alert',       '✔', ''],
-  ['Go-168', 'cam_max',           '0',  'Không tích hợp camera'],
-  ['Go-168', 'fuel_sensor',       '✔', 'Soji, Daviteq, Adsun'],
-  ['Go-168', 'fuel_sensor_dual',  '✔', 'Soji (2 cây dầu cùng phiên bản)'],
-  ['Go-168', 'temp_sensor',       '✔', ''],
-  ['Go-168', 'concrete_sensor',   '✔', ''],
-  ['Go-168', 'collision_sensor',  '✔', ''],
-  ['Go-168', 'trailer_etag',      '✗', ''],
-  ['Go-168', 'telematics_l1',     '✔', 'Tăng tốc đột ngột, phanh gấp, cua gấp'],
-  ['Go-168', 'telematics_l2',     '✗', ''],
-  ['Go-168', 'dms',               '✗', ''],
-  ['Go-168', 'adas',              '✗', ''],
-  ['Go-168', 'sos',               '✔', ''],
+  // ── Go-168 ───────────────────────────────────────────────────────────────────
+  ['Go-168', 'QCVN06',             '✔', ''],
+  ['Go-168', 'QCVN31',             '✔', ''],
+  ['Go-168', 'Cảnh báo quẹt thẻ', '✔', 'Chuông'],
+  ['Go-168', 'Quẹt Thẻ lái xe',   '✔', 'Đầu quẹt tích hợp - Thẻ EUP'],
+  ['Go-168', 'Tự động đăng xuất',  '✔', 'Có thể cài đặt thời gian (Mặc định tắt)'],
+  ['Go-168', 'Cảnh báo Tốc độ theo cung đường', '✔', ''],
+  ['Go-168', 'Cảnh báo quá tốc độ', '✔', ''],
+  ['Go-168', 'Cảm biến dầu Taiwan - Soji', '✔', ''],
+  ['Go-168', 'Cảm biến dầu đôi',   'Soji', '2 cây dầu cùng phiên bản'],
+  ['Go-168', 'Cảm biến dầu chuyển đổi', '✔', 'Soji - Daviteq - Adsun'],
+  ['Go-168', 'Cảm biến nhiệt độ',  '✔', ''],
+  ['Go-168', 'Cảm biến bê tông',   '✔', ''],
+  ['Go-168', 'Công tắc nâng hạ ben, cửa, điều hòa, Sos, Công tắc chở hàng', '✔', ''],
+  ['Go-168', 'Cảm biến va chạm',   '✔', ''],
 
-  // C43
-  ['C43', 'qcvn06',            '✗', ''],
-  ['C43', 'qcvn31',            '✔', ''],
-  ['C43', 'nd10',              '✔', ''],
-  ['C43', 'rfid',              '✔', 'Đầu ghi thẻ ngoài - Thẻ QCVN'],
-  ['C43', 'rfid_auto_logout',  '✔', 'Sau khi tắt chìa khóa (mặc định tắt)'],
-  ['C43', 'speed_alert',       '✔', ''],
-  ['C43', 'cam_max',           '2',  'Cố định 2 camera: 1 hành trình + 1 trong cabin'],
-  ['C43', 'fuel_sensor',       '✔', 'Soji, Daviteq'],
-  ['C43', 'fuel_sensor_dual',  '✔', 'Soji (2 cây dầu cùng phiên bản)'],
-  ['C43', 'temp_sensor',       '✗', ''],
-  ['C43', 'concrete_sensor',   '✗', ''],
-  ['C43', 'collision_sensor',  '✗', ''],
-  ['C43', 'telematics_l1',     '✗', ''],
-  ['C43', 'telematics_l2',     '✗', ''],
-  ['C43', 'dms',               '✗', ''],
-  ['C43', 'adas',              '✗', ''],
-  ['C43', 'sos',               '✗', ''],
+  // ── C43 ──────────────────────────────────────────────────────────────────────
+  ['C43', 'QCVN31',             '✔', ''],
+  ['C43', 'Nghị Định 10',       '✔', ''],
+  ['C43', 'Cảnh báo quẹt thẻ', '✔', 'Chuông'],
+  ['C43', 'Quẹt Thẻ lái xe',   '✔', 'Đầu ghi thẻ ngoài - Thẻ QCVN'],
+  ['C43', 'Tự động đăng xuất',  '✔', 'Sau khi tắt chìa khóa (Mặc định tắt)'],
+  ['C43', 'Cảnh báo Tốc độ theo cung đường', '✔', ''],
+  ['C43', 'Cảnh báo quá tốc độ', '✔', ''],
+  ['C43', 'Tích hợp cam',        '✔', 'Cố định 2 camera'],
+  ['C43', 'Cảm biến dầu Taiwan - Soji', '✔', ''],
+  ['C43', 'Cảm biến dầu đôi',   'Soji', '2 cây dầu cùng phiên bản'],
+  ['C43', 'Cảm biến dầu chuyển đổi', '✔', 'Soji - Daviteq'],
 
-  // H5
-  ['H5', 'qcvn06',            '✗', ''],
-  ['H5', 'qcvn31',            '✔', ''],
-  ['H5', 'nd10',              '✔', ''],
-  ['H5', 'rfid',              '✔', 'Đầu ghi thẻ ngoài - Thẻ QCVN'],
-  ['H5', 'rfid_auto_logout',  '✔', 'Sau khi tắt chìa khóa (mặc định tắt)'],
-  ['H5', 'speed_alert',       '✔', ''],
-  ['H5', 'cam_max',           '4',  'Tối đa 4 camera rời'],
-  ['H5', 'fuel_sensor',       '✔', 'Soji (cần thêm cáp kết nối)'],
-  ['H5', 'fuel_sensor_dual',  '✔', 'Soji (2 cây dầu cùng phiên bản)'],
-  ['H5', 'temp_sensor',       '✗', ''],
-  ['H5', 'concrete_sensor',   '✗', ''],
-  ['H5', 'collision_sensor',  '✗', ''],
-  ['H5', 'telematics_l1',     '✗', ''],
-  ['H5', 'telematics_l2',     '✔', 'H5 + DMS (buồn ngủ/điện thoại) + ADAS (lệch làn/va chạm)'],
-  ['H5', 'dms',               '✔', 'Cần lắp thêm thiết bị DMS'],
-  ['H5', 'adas',              '✔', 'Cần lắp thêm thiết bị ADAS'],
-  ['H5', 'sos',               '✗', ''],
+  // ── H5 ───────────────────────────────────────────────────────────────────────
+  ['H5', 'QCVN31',             '✔', ''],
+  ['H5', 'Nghị Định 10',       '✔', ''],
+  ['H5', 'Cảnh báo quẹt thẻ', '✔', 'Đèn báo'],
+  ['H5', 'Quẹt Thẻ lái xe',   '✔', 'Đầu ghi thẻ ngoài - Thẻ QCVN'],
+  ['H5', 'Tự động đăng xuất',  '✔', 'Sau khi tắt chìa khóa (Mặc định tắt)'],
+  ['H5', 'Cảnh báo Tốc độ theo cung đường', '✔', ''],
+  ['H5', 'Cảnh báo quá tốc độ', '✔', ''],
+  ['H5', 'Tích hợp cam',        '✔', 'Tối đa 4 camera'],
+  ['H5', 'Cảm biến dầu Taiwan - Soji', '✔', 'Cần thêm cáp kết nối'],
+  ['H5', 'Cảm biến dầu đôi',   'Soji', '2 cây dầu cùng phiên bản'],
 
-  // F6N (AICAM)
-  ['F6N', 'qcvn06',            '✔', ''],
-  ['F6N', 'qcvn31',            '✔', ''],
-  ['F6N', 'nd10',              '✔', ''],
-  ['F6N', 'rfid',              '✔', 'Đầu ghi thẻ ngoài - Thẻ QCVN'],
-  ['F6N', 'rfid_auto_logout',  '✔', 'Sau khi tắt chìa khóa (mặc định tắt)'],
-  ['F6N', 'speed_alert',       '✔', ''],
-  ['F6N', 'cam_max',           '4',  'Tối đa 4 camera rời'],
-  ['F6N', 'fuel_sensor',       '✗', ''],
-  ['F6N', 'temp_sensor',       '✗', ''],
-  ['F6N', 'concrete_sensor',   '✗', ''],
-  ['F6N', 'telematics_l1',     '✗', ''],
-  ['F6N', 'telematics_l2',     '✗', ''],
-  ['F6N', 'dms',               '✗', ''],
-  ['F6N', 'adas',              '✗', ''],
-  ['F6N', 'sos',               '✗', ''],
-
-  // MT99
-  ['MT99', 'qcvn06',         '✗', ''],
-  ['MT99', 'qcvn31',         '✗', 'Không hợp chuẩn - thiết bị cơ bản'],
-  ['MT99', 'nd10',           '✗', ''],
-  ['MT99', 'rfid',           '✗', ''],
-  ['MT99', 'cam_max',        '0', ''],
-  ['MT99', 'fuel_sensor',    '✗', ''],
-  ['MT99', 'temp_sensor',    '✗', ''],
-  ['MT99', 'telematics_l1',  '✗', ''],
-  ['MT99', 'sos',            '✗', ''],
-  ['MT99', 'low_power',      '✔', 'Tiêu thụ điện thấp - phù hợp ắc quy xe máy'],
-
-  // SmartBox
-  ['SmartBox', 'purpose',        'Bộ mở rộng', 'Hỗ trợ VN88-4G kết nối nhiều phụ kiện đồng thời'],
-  ['SmartBox', 'temp_sensor',    '✔', 'Hỗ trợ cảm biến nhiệt độ khi dùng với VN88-4G'],
-  ['SmartBox', 'collision_sensor','✔', 'Hỗ trợ cảm biến va chạm khi dùng với VN88-4G'],
-  ['SmartBox', 'trailer_etag',   '✔', 'Hỗ trợ rơmooc etag khi dùng với VN88-4G'],
-  ['SmartBox', 'cam_max',        '2', 'Mở rộng thêm 2 camera cho VN88-4G'],
+  // ── F6N ──────────────────────────────────────────────────────────────────────
+  ['F6N', 'QCVN06',             '✔', ''],
+  ['F6N', 'QCVN31',             '✔', ''],
+  ['F6N', 'Nghị Định 10',       '✔', ''],
+  ['F6N', 'Cảnh báo quẹt thẻ', '✔', 'Chuông'],
+  ['F6N', 'Quẹt Thẻ lái xe',   '✔', 'Đầu ghi thẻ ngoài - Thẻ QCVN'],
+  ['F6N', 'Tự động đăng xuất',  '✔', 'Sau khi tắt chìa khóa (Mặc định tắt)'],
+  ['F6N', 'Cảnh báo Tốc độ theo cung đường', '✔', ''],
+  ['F6N', 'Cảnh báo quá tốc độ', '✔', ''],
+  ['F6N', 'Tích hợp cam',        '✔', 'Tối đa 4 camera'],
 ]
 
 // ─── Hàm lookup: tìm equipment_id theo tên (khớp một phần, không phân biệt hoa thường) ──
@@ -397,7 +354,16 @@ async function main() {
   }
   console.log()
 
-  // 4. Upsert device_features (lookup theo tên)
+  // 4. Xóa toàn bộ device_features cũ rồi insert lại (để đồng bộ tên tiếng Việt)
+  console.log('🗑️  Xóa device_features cũ...')
+  const { error: delFeatErr } = await supabase
+    .from('device_features')
+    .delete()
+    .neq('equipment_id', '')
+  if (delFeatErr) console.warn('  ⚠️  Không xóa được (có thể bảng rỗng):', delFeatErr.message)
+  else console.log('   ✅ Đã xóa dữ liệu cũ\n')
+
+  // 4b. Upsert device_features (lookup theo tên)
   console.log('⚙️  Upsert device_features...')
   let featOk = 0, featSkip = 0, featWarn = []
 
