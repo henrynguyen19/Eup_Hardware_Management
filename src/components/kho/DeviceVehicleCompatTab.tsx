@@ -130,7 +130,7 @@ export default function DeviceVehicleCompatTab({ equipmentId, canWrite }: Props)
   }
 
   function renderRows(rows: CompatRow[], badge: { label: string; cls: string }) {
-    return groupByCategory(rows).map(([cat, catRows]) => (
+    return Object.entries(groupByCategory(rows)).map(([cat, catRows]) => (
       <div key={cat}>
         <p className="text-xs font-medium text-gray-400 mb-1.5">
           {CATEGORY_ICONS[cat] ?? '🚙'} {cat}
