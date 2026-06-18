@@ -85,14 +85,37 @@ function colVal(cols: string[], idx: number) {
   return (cols[idx] ?? '').trim()
 }
 
+// Tìm tên kỹ thuật viên cuối cùng xuất hiện trong chuỗi remarks (cột J)
+// Người làm xong sẽ tự ghi tên mình → lấy tên xuất hiện sau cùng
+function extractAssigneeFromRemarks(remarks: string): string | null {
+  const lower = remarks.toLowerCase()
+  let lastIndex = -1
+  let found: string | null = null
+  for (const name of KNOWN_ASSIGNEES) {
+    const idx = lower.lastIndexOf(name.toLowerCase())
+    if (idx > lastIndex) {
+      lastIndex = idx
+      found = name
+    }
+  }
+  return found
+}
+
 function buildRowsFromGrid(grid: string[][]): ParsedRow[] {
   return grid
     .filter(cols => cols.length > 3)
     .map(cols => {
-      const assigneeRaw = colVal(cols, 11)
-      const known = KNOWN_ASSIGNEES.find(
-        n => n.toLowerCase() === assigneeRaw.toLowerCase()
+      const reply       = colVal(cols, 9)   // J - Remarks
+      const assigneeCol = colVal(cols, 11)  // L - người được assign (fallback)
+
+      // Ưu tiên: tên cuối cùng trong cột J (người thực sự làm)
+      // Fallback: cột L nếu J không có tên nào
+      const fromRemarks = extractAssigneeFromRemarks(reply)
+      const fromColL    = KNOWN_ASSIGNEES.find(
+        n => n.toLowerCase() === assigneeCol.toLowerCase()
       )
+      const assignee = fromRemarks ?? fromColL ?? assigneeCol
+
       return {
         code:         colVal(cols, 0),
         sos:          colVal(cols, 1),
@@ -103,9 +126,9 @@ function buildRowsFromGrid(grid: string[][]): ParsedRow[] {
         salesAlias:   colVal(cols, 6),
         direction:    colVal(cols, 7),
         content:      colVal(cols, 8),
-        reply:        colVal(cols, 9),
+        reply,
         status:       colVal(cols, 10),
-        assignee:     known ?? assigneeRaw,
+        assignee,
         salesMan:     colVal(cols, 12),
         assistant:    colVal(cols, 13),
         startPoint:   colVal(cols, 14),
@@ -114,8 +137,8 @@ function buildRowsFromGrid(grid: string[][]): ParsedRow[] {
         col17:        colVal(cols, 17),
         attachment:   colVal(cols, 18),
         raw:          cols,
-        error:        assigneeRaw && !known
-          ? `Không nhận ra: "${assigneeRaw}"`
+        error:        !fromRemarks && assigneeCol && !fromColL
+          ? `Cột L không nhận ra: "${assigneeCol}"`
           : undefined,
       }
     })
