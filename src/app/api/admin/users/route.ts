@@ -82,6 +82,21 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ ok: true })
 }
 
+// PUT: reset mật khẩu về mặc định
+export async function PUT(req: NextRequest) {
+  const auth = await requireAdminPermission()
+  if (!auth.ok) return auth.error!
+
+  const { userId } = await req.json()
+  if (!userId) return NextResponse.json({ error: 'Thiếu userId' }, { status: 400 })
+
+  const { error } = await supabaseAdmin().auth.admin.updateUserById(userId, {
+    password: 'eupvn123',
+  })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
+
 // DELETE: xóa quyền truy cập
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdminPermission()

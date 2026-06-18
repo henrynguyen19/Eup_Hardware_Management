@@ -500,6 +500,8 @@ function UsersTab({
   const [search, setSearch] = useState('')
   const [expandedGroup, setExpandedGroup] = useState<string | null>('__none__')
   const [changingRole, setChangingRole] = useState<string | null>(null)
+  const [resetting, setResetting]       = useState<string | null>(null)
+  const [resetMsg, setResetMsg]         = useState<{ userId: string; ok: boolean } | null>(null)
 
   const filtered = users.filter(u =>
     u.user_email.toLowerCase().includes(search.toLowerCase())
@@ -546,6 +548,19 @@ function UsersTab({
       body: JSON.stringify({ userId, roleId }),
     })
     setChangingRole(null)
+  }
+
+  async function handleResetPassword(userId: string) {
+    if (!confirm('Reset mật khẩu về "eupvn123"?')) return
+    setResetting(userId); setResetMsg(null)
+    const res = await fetch('/api/admin/users', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+    setResetting(null)
+    setResetMsg({ userId, ok: res.ok })
+    setTimeout(() => setResetMsg(null), 3000)
   }
 
   async function handleRemove(userId: string, email: string) {
@@ -626,6 +641,7 @@ function UsersTab({
                     <th className="text-left px-5 py-2 text-xs text-gray-400 font-medium">Email</th>
                     <th className="text-left px-4 py-2 text-xs text-gray-400 font-medium">Vai trò</th>
                     <th className="text-left px-4 py-2 text-xs text-gray-400 font-medium">Quyền hiệu lực</th>
+                    <th className="px-4 py-2 text-xs text-gray-400 font-medium text-center">Mật khẩu</th>
                     <th className="px-4 py-2"></th>
                   </tr>
                 </thead>
@@ -657,6 +673,22 @@ function UsersTab({
                       </td>
                       <td className="px-4 py-3">
                         <PermSummary permissions={u.permissions} />
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {resetMsg?.userId === u.user_id ? (
+                          <span className={`text-[10px] font-medium ${resetMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
+                            {resetMsg.ok ? '✓ Đã reset' : '✗ Lỗi'}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleResetPassword(u.user_id)}
+                            disabled={resetting === u.user_id}
+                            title="Reset về eupvn123"
+                            className="text-[11px] px-2 py-1 rounded border border-orange-200 text-orange-600 hover:bg-orange-50 hover:border-orange-400 transition disabled:opacity-40 font-medium"
+                          >
+                            {resetting === u.user_id ? '...' : '🔑 Reset MK'}
+                          </button>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {u.user_email !== currentUserEmail && (
