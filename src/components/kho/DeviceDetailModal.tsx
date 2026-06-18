@@ -6,18 +6,13 @@ import type { EquipmentCard, DeviceType } from '@/types/equipment'
 import { DEVICE_TYPE_LABELS, DEVICE_TYPE_COLORS, DEVICE_TYPE_ICONS } from '@/types/equipment'
 import DeviceFeaturesTab from './DeviceFeaturesTab'
 import DeviceVehicleCompatTab from './DeviceVehicleCompatTab'
-import FirmwareList from './FirmwareList'
-import PhuKienList from './PhuKienList'
-import TieuChuanXuatHang from './TieuChuanXuatHang'
 
-type TabId = 'info' | 'features' | 'vehicle' | 'firmware' | 'accessories'
+type TabId = 'info' | 'features' | 'vehicle'
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: 'info',       label: 'Tổng quan',    icon: '📋' },
-  { id: 'features',   label: 'Tính năng',    icon: '⚙️' },
-  { id: 'vehicle',    label: 'Xe phù hợp',   icon: '🚗' },
-  { id: 'firmware',   label: 'Firmware',     icon: '💾' },
-  { id: 'accessories',label: 'Phụ kiện',     icon: '🔧' },
+  { id: 'info',     label: 'Tổng quan',  icon: '📋' },
+  { id: 'features', label: 'Tính năng',  icon: '⚙️' },
+  { id: 'vehicle',  label: 'Xe phù hợp', icon: '🚗' },
 ]
 
 interface Props {
@@ -148,20 +143,6 @@ export default function DeviceDetailModal({ card, canWrite, onClose, onEdit, onD
             </div>
           )}
 
-          {/* Tab: Firmware */}
-          {activeTab === 'firmware' && (
-            <div className="px-5 pt-4">
-              <FirmwareList equipmentId={card.equipment_id} canWrite={canWrite} />
-            </div>
-          )}
-
-          {/* Tab: Phụ kiện */}
-          {activeTab === 'accessories' && (
-            <div className="px-5 pt-4 space-y-5">
-              <PhuKienList equipmentId={card.equipment_id} canWrite={canWrite} />
-              <TieuChuanXuatHang equipmentId={card.equipment_id} />
-            </div>
-          )}
         </div>
 
         {/* Footer */}
