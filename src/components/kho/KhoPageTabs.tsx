@@ -9,19 +9,36 @@ import type { FirmwareVersion } from '@/types/kho'
 
 type PageTab = 'devices' | 'features' | 'vehicles'
 
-interface TabDef {
-  id: PageTab
-  icon: string
-  label: string
-  desc: string
-  activeColor: string
-  activeBg: string
-}
+// EUP brand colors
+const EUP_RED   = '#A70A0A'
+const EUP_GREEN = '#00AF50'
+const EUP_NAVY  = '#164d81'
 
-const PAGE_TABS: TabDef[] = [
-  { id: 'devices',  icon: '📦', label: 'Thiết bị',      desc: 'Danh sách thiết bị & phụ kiện',  activeColor: 'text-blue-700',   activeBg: 'bg-blue-50 border-blue-200' },
-  { id: 'features', icon: '⚙️', label: 'Bảng tính năng', desc: 'So sánh tính năng các thiết bị', activeColor: 'text-violet-700', activeBg: 'bg-violet-50 border-violet-200' },
-  { id: 'vehicles', icon: '🚗', label: 'Xe & Thiết bị',  desc: 'Loại xe và thiết bị cần lắp',    activeColor: 'text-emerald-700', activeBg: 'bg-emerald-50 border-emerald-200' },
+const PAGE_TABS = [
+  {
+    id: 'devices'  as PageTab,
+    icon: '📦',
+    label: 'Thiết bị',
+    desc: 'Danh sách thiết bị & phụ kiện',
+    activeStyle: { background: EUP_RED, color: '#fff', boxShadow: '0 2px 8px rgba(167,10,10,0.25)', borderColor: EUP_RED },
+    indicatorColor: EUP_RED,
+  },
+  {
+    id: 'features' as PageTab,
+    icon: '⚙️',
+    label: 'Bảng tính năng',
+    desc: 'So sánh tính năng các thiết bị',
+    activeStyle: { background: EUP_NAVY, color: '#fff', boxShadow: '0 2px 8px rgba(22,77,129,0.25)', borderColor: EUP_NAVY },
+    indicatorColor: EUP_NAVY,
+  },
+  {
+    id: 'vehicles' as PageTab,
+    icon: '🚗',
+    label: 'Xe & Thiết bị',
+    desc: 'Loại xe và thiết bị cần lắp',
+    activeStyle: { background: EUP_GREEN, color: '#fff', boxShadow: '0 2px 8px rgba(0,175,80,0.25)', borderColor: EUP_GREEN },
+    indicatorColor: EUP_GREEN,
+  },
 ]
 
 interface Props {
@@ -36,38 +53,66 @@ interface Props {
 export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, canWrite, isAdmin, canHoTro }: Props) {
   const [activeTab, setActiveTab] = useState<PageTab>('devices')
 
-  return (
-    <div className="min-h-screen bg-gray-50/60">
+  const activeTabDef = PAGE_TABS.find(t => t.id === activeTab)!
 
-      {/* Tab bar */}
+  return (
+    <div className="min-h-screen" style={{ background: '#f5f6f8' }}>
+
+      {/* Page header */}
       <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 py-2 flex gap-2">
-          {PAGE_TABS.map(tab => {
-            const isActive = tab.id === activeTab
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={
-                  'flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-left transition-all ' +
-                  (isActive
-                    ? tab.activeBg + ' ' + tab.activeColor + ' shadow-sm'
-                    : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-700')
-                }
-              >
-                <span className="text-xl leading-none">{tab.icon}</span>
-                <span className="hidden sm:flex flex-col">
-                  <span className={'text-sm font-semibold leading-tight ' + (isActive ? tab.activeColor : '')}>
-                    {tab.label}
+        {/* Top color stripe */}
+        <div className="h-0.5" style={{ background: `linear-gradient(90deg, ${EUP_RED} 0%, ${activeTabDef.indicatorColor} 100%)`, transition: 'all 0.3s' }} />
+
+        <div className="max-w-7xl mx-auto px-4">
+          {/* Breadcrumb row */}
+          <div className="flex items-center justify-between py-2.5">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-bold" style={{ color: EUP_RED }}>EUP</span>
+              <span className="text-gray-300">/</span>
+              <span className="text-gray-600 font-medium">Quản lý thiết bị</span>
+              <span className="text-gray-300">/</span>
+              <span className="font-semibold text-gray-800">{activeTabDef.label}</span>
+            </div>
+            {isAdmin && (
+              <span className="text-xs px-2.5 py-1 rounded-full font-medium"
+                    style={{ background: 'rgba(167,10,10,0.08)', color: EUP_RED, border: `1px solid rgba(167,10,10,0.15)` }}>
+                ⚙️ Admin
+              </span>
+            )}
+          </div>
+
+          {/* Tab row */}
+          <div className="flex gap-1 pb-0">
+            {PAGE_TABS.map(tab => {
+              const isActive = tab.id === activeTab
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className="relative flex items-center gap-2 px-4 pt-2 pb-3 transition-all duration-200 text-left rounded-t-xl"
+                  style={isActive
+                    ? { ...tab.activeStyle, border: 'none', borderBottom: 'none' }
+                    : { color: '#6b7280', background: 'transparent' }
+                  }
+                  onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = '#f3f4f6' }}
+                  onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                >
+                  <span className="text-lg leading-none">{tab.icon}</span>
+                  <span className="hidden sm:flex flex-col">
+                    <span className="text-sm font-bold leading-tight">{tab.label}</span>
+                    <span className="text-[11px] leading-tight opacity-70">{tab.desc}</span>
                   </span>
-                  <span className={'text-[11px] leading-tight ' + (isActive ? 'opacity-70' : 'text-gray-400')}>
-                    {tab.desc}
-                  </span>
-                </span>
-                <span className="sm:hidden text-xs font-medium">{tab.label}</span>
-              </button>
-            )
-          })}
+                  <span className="sm:hidden text-xs font-semibold">{tab.label}</span>
+
+                  {/* Active bottom indicator */}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t"
+                          style={{ background: 'rgba(255,255,255,0.5)' }} />
+                  )}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
@@ -88,15 +133,20 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
         {activeTab === 'features' && (
           <div className="p-4">
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-violet-50 to-white flex items-center gap-3">
-                <span className="text-2xl">⚙️</span>
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3"
+                   style={{ background: `linear-gradient(90deg, ${EUP_NAVY}10, transparent)` }}>
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white text-lg flex-shrink-0"
+                     style={{ background: EUP_NAVY }}>
+                  ⚙️
+                </div>
                 <div>
                   <h2 className="text-base font-bold text-gray-800">Bảng so sánh tính năng</h2>
                   <p className="text-xs text-gray-500 mt-0.5">Tổng hợp tính năng kỹ thuật của từng thiết bị</p>
                 </div>
                 {isAdmin && (
-                  <span className="ml-auto text-xs bg-violet-100 text-violet-700 px-2.5 py-1 rounded-full font-medium">
-                    ✏️ Admin: kéo thả để sắp xếp · click để sửa tên
+                  <span className="ml-auto text-xs px-2.5 py-1 rounded-full font-medium"
+                        style={{ background: `${EUP_NAVY}15`, color: EUP_NAVY, border: `1px solid ${EUP_NAVY}25` }}>
+                    ✏️ Kéo thả để sắp xếp · Click để sửa tên
                   </span>
                 )}
               </div>
@@ -108,8 +158,12 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
         {activeTab === 'vehicles' && (
           <div className="p-4">
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-white flex items-center gap-3">
-                <span className="text-2xl">🚗</span>
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3"
+                   style={{ background: `linear-gradient(90deg, ${EUP_GREEN}10, transparent)` }}>
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white text-lg flex-shrink-0"
+                     style={{ background: EUP_GREEN }}>
+                  🚗
+                </div>
                 <div>
                   <h2 className="text-base font-bold text-gray-800">Xe & Thiết bị cần lắp</h2>
                   <p className="text-xs text-gray-500 mt-0.5">Tổng quan thiết bị bắt buộc và tuỳ chọn theo từng loại xe</p>
