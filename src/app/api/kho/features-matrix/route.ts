@@ -46,3 +46,21 @@ export async function GET() {
     matrix,
   })
 }
+
+// PATCH /api/kho/features-matrix
+// Body: { old_key: string, new_key: string }
+// Đổi tên feature_key trên toàn bộ bảng device_features
+export async function PATCH(req: Request) {
+  const { old_key, new_key } = await req.json()
+  if (!old_key || !new_key || old_key === new_key) {
+    return NextResponse.json({ error: 'Thiếu old_key hoặc new_key' }, { status: 400 })
+  }
+
+  const { error } = await sb()
+    .from('device_features')
+    .update({ feature_key: new_key.trim() })
+    .eq('feature_key', old_key)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
