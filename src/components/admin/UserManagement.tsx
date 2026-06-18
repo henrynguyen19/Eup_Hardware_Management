@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
-// ── Types ────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────
 interface UserRecord {
   user_id: string
   user_email: string
@@ -32,34 +32,64 @@ interface Props {
   currentUserEmail: string
 }
 
-// ── Permission labels ────────────────────────────────────────
-const PERM_LABELS: Record<string, string> = {
-  'admin:users':   '👑 Quản lý user',
-  'ho_tro:read':   '🛠 Xem Hỗ trợ KT',
-  'ho_tro:write':  '✏️ Ghi Hỗ trợ KT',
-  'kho:read':      '📦 Xem Kho',
-  'thong_ke:read': '📊 Thống kê',
-  'giao_nhan:read':'🚚 Giao nhận',
+// ── Permission Matrix Definition ──────────────────────────────
+const FEATURES = [
+  { id: 'kho',      label: 'Quản lý thiết bị', icon: '📦', actions: ['read','write','edit','delete'] },
+  { id: 'ho_tro',   label: 'Hỗ trợ kỹ thuật',  icon: '🛠️', actions: ['read','write','edit','delete'] },
+  { id: 'sua_chua', label: 'Thống kê sửa chữa', icon: '📊', actions: ['read','write','edit','delete'] },
+  { id: 'gui_hang', label: 'Giao nhận',          icon: '🚚', actions: ['read','write','edit','delete'] },
+  { id: 'admin',    label: 'Phân quyền & User',  icon: '👥', actions: ['users'] },
+]
+
+const ACTION_LABELS: Record<string, string> = {
+  read: 'Xem', write: 'Thêm', edit: 'Sửa', delete: 'Xóa', users: 'Quản lý',
 }
 
-const ALL_PERMISSIONS = Object.keys(PERM_LABELS)
-
-const ROLE_COLORS: Record<string, string> = {
-  admin:     'bg-red-100 text-red-700',
-  ky_thuat:  'bg-blue-100 text-blue-700',
-  van_phong: 'bg-green-100 text-green-700',
-  viewer:    'bg-gray-100 text-gray-600',
+// Build flat permission key: "kho:read", "admin:users" …
+function permKey(featureId: string, action: string) {
+  return `${featureId}:${action}`
 }
 
-// ── Main component ───────────────────────────────────────────
+// All permission keys (for display / checking)
+const ALL_PERM_KEYS = FEATURES.flatMap(f => f.actions.map(a => permKey(f.id, a)))
+
+function permLabel(key: string): string {
+  const [feat, act] = key.split(':')
+  const f = FEATURES.find(x => x.id === feat)
+  return f ? `${f.icon} ${f.label} › ${ACTION_LABELS[act] ?? act}` : key
+}
+
+// ── Main component ─────────────────────────────────────────────
 export default function UserManagement({ users: initUsers, roles, currentUserEmail }: Props) {
-  const [tab, setTab] = useState<'users' | 'groups'>('users')
+  const [tab, setTab] = useState<'groups' | 'users'>('groups')
+  const [groups, setGroups] = useState<Group[]>([])
+  const [loadingGroups, setLoadingGroups] = useState(true)
+  const [userList] = useState(initUsers)
+
+  const fetchGroups = useCallback(async () => {
+    setLoadingGroups(true)
+    const res = await fetch('/api/admin/groups')
+    const data = await res.json()
+    setGroups(data.groups ?? [])
+    setLoadingGroups(false)
+  }, [])
+
+  useEffect(() => { fetchGroups() }, [fetchGroups])
+
+  // Map user → group(s) for the Users tab
+  const userGroupMap: Record<string, string[]> = {}
+  for (const g of groups) {
+    for (const email of g.member_emails) {
+      if (!userGroupMap[email]) userGroupMap[email] = []
+      userGroupMap[email].push(g.name)
+    }
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xl">👥</span>
             <h1 className="text-lg font-bold text-gray-900">Phân quyền & User</h1>
@@ -70,8 +100,11 @@ export default function UserManagement({ users: initUsers, roles, currentUserEma
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200 px-6">
-        <div className="max-w-5xl mx-auto flex gap-0">
-          {([['users', '👤 Người dùng'], ['groups', '🏢 Nhóm / Phòng ban']] as const).map(([key, label]) => (
+        <div className="max-w-6xl mx-auto flex">
+          {([
+            ['groups', '🏢 Nhóm / Phòng ban'],
+            ['users',  '👤 Danh sách người dùng'],
+          ] as const).map(([key, label]) => (
             <button
               key={key}
               onClick={() => setTab(key)}
@@ -88,12 +121,24 @@ export default function UserManagement({ users: initUsers, roles, currentUserEma
       </div>
 
       <div className="flex-1 px-6 py-6">
-        <div className="max-w-5xl mx-auto">
-          {tab === 'users' && (
-            <UsersTab initUsers={initUsers} roles={roles} currentUserEmail={currentUserEmail} />
-          )}
+        <div className="max-w-6xl mx-auto">
           {tab === 'groups' && (
-            <GroupsTab allUsers={initUsers} />
+            <GroupsTab
+              groups={groups}
+              loading={loadingGroups}
+              allUsers={userList}
+              onRefresh={fetchGroups}
+            />
+          )}
+          {tab === 'users' && (
+            <UsersTab
+              users={userList}
+              roles={roles}
+              groups={groups}
+              userGroupMap={userGroupMap}
+              currentUserEmail={currentUserEmail}
+              onRefresh={fetchGroups}
+            />
           )}
         </div>
       </div>
@@ -101,23 +146,377 @@ export default function UserManagement({ users: initUsers, roles, currentUserEma
   )
 }
 
-// ── Tab: Người dùng ──────────────────────────────────────────
-function UsersTab({ initUsers, roles, currentUserEmail }: {
-  initUsers: UserRecord[]
-  roles: Role[]
-  currentUserEmail: string
+// ── Tab: Nhóm ─────────────────────────────────────────────────
+function GroupsTab({
+  groups, loading, allUsers, onRefresh,
+}: {
+  groups: Group[]
+  loading: boolean
+  allUsers: UserRecord[]
+  onRefresh: () => void
 }) {
-  const [userList, setUserList] = useState(initUsers)
+  const [expanded, setExpanded] = useState<string | null>(groups[0]?.id ?? null)
+  const [newName, setNewName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+
+  async function handleCreate() {
+    if (!newName.trim()) return
+    setCreating(true); setMsg(null)
+    const res = await fetch('/api/admin/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName.trim() }),
+    })
+    const data = await res.json()
+    if (!res.ok) { setMsg({ type: 'err', text: data.error }); setCreating(false); return }
+    setNewName('')
+    setMsg({ type: 'ok', text: `Đã tạo nhóm "${data.group?.name}"` })
+    await onRefresh()
+    setCreating(false)
+  }
+
+  if (loading) return <div className="text-center py-20 text-gray-400">Đang tải...</div>
+
+  return (
+    <div className="space-y-4">
+      {/* Tạo nhóm mới */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+        <input
+          placeholder="Tên nhóm mới (VD: R&D Phần mềm)"
+          value={newName}
+          onChange={e => setNewName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleCreate()}
+          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          onClick={handleCreate}
+          disabled={creating || !newName.trim()}
+          className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition"
+        >
+          {creating ? 'Đang tạo...' : '+ Tạo nhóm'}
+        </button>
+        {msg && <span className={`text-sm ${msg.type === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</span>}
+      </div>
+
+      {/* Danh sách nhóm */}
+      {groups.map(g => (
+        <GroupCard
+          key={g.id}
+          group={g}
+          expanded={expanded === g.id}
+          onToggle={() => setExpanded(expanded === g.id ? null : g.id)}
+          allUsers={allUsers}
+          onRefresh={onRefresh}
+        />
+      ))}
+
+      {groups.length === 0 && (
+        <div className="text-center py-20 text-gray-400">Chưa có nhóm nào</div>
+      )}
+    </div>
+  )
+}
+
+// ── Group Card với Permission Matrix ──────────────────────────
+function GroupCard({
+  group, expanded, onToggle, allUsers, onRefresh,
+}: {
+  group: Group
+  expanded: boolean
+  onToggle: () => void
+  allUsers: UserRecord[]
+  onRefresh: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const [addEmail, setAddEmail] = useState('')
+  const [memberTab, setMemberTab] = useState<'matrix' | 'members'>('matrix')
+
+  const perms = new Set(group.permissions)
+  const nonMembers = allUsers.filter(u => !group.member_emails.includes(u.user_email))
+
+  async function togglePerm(key: string) {
+    setSaving(true)
+    const newPerms = perms.has(key)
+      ? group.permissions.filter(p => p !== key)
+      : [...group.permissions, key]
+    await fetch(`/api/admin/groups/${group.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions: newPerms }),
+    })
+    await onRefresh()
+    setSaving(false)
+  }
+
+  async function toggleFeatureRead(featureId: string, actions: string[]) {
+    // Toggle toàn bộ feature (all actions on/off)
+    const featurePerms = actions.map(a => permKey(featureId, a))
+    const allOn = featurePerms.every(k => perms.has(k))
+    setSaving(true)
+    const newPerms = allOn
+      ? group.permissions.filter(p => !featurePerms.includes(p))
+      : [...new Set([...group.permissions, ...featurePerms])]
+    await fetch(`/api/admin/groups/${group.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions: newPerms }),
+    })
+    await onRefresh()
+    setSaving(false)
+  }
+
+  async function handleAddMember() {
+    if (!addEmail) return
+    await fetch(`/api/admin/groups/${group.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addMember', userEmail: addEmail }),
+    })
+    setAddEmail('')
+    await onRefresh()
+  }
+
+  async function handleRemoveMember(email: string) {
+    await fetch(`/api/admin/groups/${group.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'removeMember', userEmail: email }),
+    })
+    await onRefresh()
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Xóa nhóm "${group.name}"?`)) return
+    await fetch(`/api/admin/groups/${group.id}`, { method: 'DELETE' })
+    await onRefresh()
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Header */}
+      <div
+        className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition"
+        onClick={onToggle}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3 rounded-full" style={{ background: group.color ?? '#6B7280' }} />
+          <div>
+            <span className="font-semibold text-gray-900">{group.name}</span>
+            {group.description && (
+              <span className="ml-3 text-xs text-gray-400">{group.description}</span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          {/* Tóm tắt quyền */}
+          <div className="hidden sm:flex gap-1 flex-wrap max-w-sm justify-end">
+            {FEATURES.map(f => {
+              const hasAny = f.actions.some(a => perms.has(permKey(f.id, a)))
+              const hasAll = f.actions.every(a => perms.has(permKey(f.id, a)))
+              if (!hasAny) return null
+              return (
+                <span
+                  key={f.id}
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                    hasAll ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  {f.icon} {f.label}{hasAll ? '' : ' (một phần)'}
+                </span>
+              )
+            })}
+          </div>
+          <span className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-medium whitespace-nowrap">
+            {group.member_count} thành viên
+          </span>
+          <span className="text-gray-400 text-sm">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </div>
+
+      {/* Body */}
+      {expanded && (
+        <div className="border-t border-gray-100">
+          {/* Sub-tabs */}
+          <div className="flex border-b border-gray-100 px-5">
+            {([['matrix','🔐 Phân quyền'], ['members','👤 Thành viên']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setMemberTab(key)}
+                className={`px-4 py-2.5 text-xs font-medium border-b-2 transition ${
+                  memberTab === key ? 'border-blue-500 text-blue-700' : 'border-transparent text-gray-500'
+                }`}
+              >
+                {label} {key === 'members' && `(${group.member_count})`}
+              </button>
+            ))}
+            {saving && <span className="ml-auto self-center text-xs text-blue-500 animate-pulse">Đang lưu...</span>}
+          </div>
+
+          {/* Permission Matrix */}
+          {memberTab === 'matrix' && (
+            <div className="p-5">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left py-2 pr-4 text-xs font-semibold text-gray-500 w-48">Tính năng</th>
+                    <th className="text-center py-2 px-3 text-xs font-semibold text-gray-500 w-16">Xem</th>
+                    <th className="text-center py-2 px-3 text-xs font-semibold text-gray-500 w-16">Thêm</th>
+                    <th className="text-center py-2 px-3 text-xs font-semibold text-gray-500 w-16">Sửa</th>
+                    <th className="text-center py-2 px-3 text-xs font-semibold text-gray-500 w-16">Xóa</th>
+                    <th className="text-center py-2 px-3 text-xs font-semibold text-gray-500 w-20">Tất cả</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {FEATURES.map(f => {
+                    const featurePerms = f.actions.map(a => permKey(f.id, a))
+                    const allOn = featurePerms.every(k => perms.has(k))
+                    const standardActions = ['read', 'write', 'edit', 'delete']
+                    return (
+                      <tr key={f.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
+                        <td className="py-3 pr-4">
+                          <span className="font-medium text-gray-800">
+                            {f.icon} {f.label}
+                          </span>
+                        </td>
+                        {standardActions.map(act => {
+                          const key = permKey(f.id, act)
+                          const supported = f.actions.includes(act)
+                          const checked = perms.has(key)
+                          return (
+                            <td key={act} className="text-center py-3 px-3">
+                              {supported ? (
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => togglePerm(key)}
+                                  disabled={saving}
+                                  className="w-4 h-4 accent-blue-600 cursor-pointer"
+                                />
+                              ) : (
+                                <span className="text-gray-200">—</span>
+                              )}
+                            </td>
+                          )
+                        })}
+                        <td className="text-center py-3 px-3">
+                          <button
+                            onClick={() => toggleFeatureRead(f.id, f.actions)}
+                            disabled={saving}
+                            className={`text-[10px] px-2 py-1 rounded-full font-medium transition ${
+                              allOn
+                                ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {allOn ? 'Bỏ hết' : 'Chọn hết'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <p className="mt-3 text-xs text-gray-400">
+                Quyền của nhóm áp dụng cho tất cả thành viên. Quyền cá nhân (từ vai trò) được gộp thêm vào.
+              </p>
+            </div>
+          )}
+
+          {/* Members */}
+          {memberTab === 'members' && (
+            <div className="p-5 space-y-4">
+              {/* Thêm thành viên */}
+              <div className="flex gap-2">
+                <select
+                  value={addEmail}
+                  onChange={e => setAddEmail(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">-- Chọn user để thêm vào nhóm --</option>
+                  {nonMembers.map(u => (
+                    <option key={u.user_id} value={u.user_email}>{u.user_email}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleAddMember}
+                  disabled={!addEmail}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition"
+                >
+                  Thêm
+                </button>
+              </div>
+
+              {/* Danh sách thành viên */}
+              <div className="flex flex-wrap gap-2">
+                {group.member_emails.map(email => (
+                  <div
+                    key={email}
+                    className="flex items-center gap-1.5 bg-gray-100 rounded-full pl-3 pr-1 py-1 text-sm text-gray-700"
+                  >
+                    <span>{email}</span>
+                    <button
+                      onClick={() => handleRemoveMember(email)}
+                      className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-red-100 hover:text-red-600 text-gray-400 transition text-xs"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                {group.member_emails.length === 0 && (
+                  <p className="text-sm text-gray-400 italic">Chưa có thành viên</p>
+                )}
+              </div>
+
+              {/* Xóa nhóm */}
+              <div className="pt-3 border-t border-gray-100 flex justify-end">
+                <button onClick={handleDelete} className="text-xs text-red-500 hover:text-red-700">
+                  Xóa nhóm này
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Tab: Người dùng (phân tầng theo nhóm) ─────────────────────
+function UsersTab({
+  users, roles, groups, userGroupMap, currentUserEmail, onRefresh,
+}: {
+  users: UserRecord[]
+  roles: Role[]
+  groups: Group[]
+  userGroupMap: Record<string, string[]>
+  currentUserEmail: string
+  onRefresh: () => void
+}) {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState(roles[0]?.id ?? '')
   const [inviting, setInviting] = useState(false)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-  const [changingRole, setChangingRole] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [expandedGroup, setExpandedGroup] = useState<string | null>('__none__')
+  const [changingRole, setChangingRole] = useState<string | null>(null)
 
-  const filtered = userList.filter(u =>
+  const filtered = users.filter(u =>
     u.user_email.toLowerCase().includes(search.toLowerCase())
   )
+
+  // Group users
+  const grouped: { label: string; color: string; id: string; members: UserRecord[] }[] = []
+
+  for (const g of groups) {
+    const members = filtered.filter(u => g.member_emails.includes(u.user_email))
+    grouped.push({ id: g.id, label: g.name, color: g.color ?? '#6B7280', members })
+  }
+
+  const ungrouped = filtered.filter(u =>
+    !groups.some(g => g.member_emails.includes(u.user_email))
+  )
+  grouped.push({ id: '__none__', label: 'Không thuộc nhóm', color: '#9CA3AF', members: ungrouped })
 
   async function handleInvite() {
     if (!inviteEmail.trim()) return
@@ -129,11 +528,9 @@ function UsersTab({ initUsers, roles, currentUserEmail }: {
         body: JSON.stringify({ email: inviteEmail.trim(), roleId: inviteRole }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Lỗi không xác định')
+      if (!res.ok) throw new Error(data.error)
       setMsg({ type: 'ok', text: `Đã thêm ${inviteEmail}` })
       setInviteEmail('')
-      const updated = await fetch('/api/admin/users').then(r => r.json())
-      setUserList(updated.users ?? [])
     } catch (err: unknown) {
       setMsg({ type: 'err', text: err instanceof Error ? err.message : 'Lỗi' })
     } finally {
@@ -141,24 +538,14 @@ function UsersTab({ initUsers, roles, currentUserEmail }: {
     }
   }
 
-  async function handleChangeRole(userId: string, newRoleId: string) {
+  async function handleChangeRole(userId: string, roleId: string) {
     setChangingRole(userId)
-    try {
-      await fetch('/api/admin/users', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, roleId: newRoleId }),
-      })
-      setUserList(prev =>
-        prev.map(u => {
-          if (u.user_id !== userId) return u
-          const role = roles.find(r => r.id === newRoleId)
-          return { ...u, role_id: newRoleId, role_name: role?.name ?? u.role_name }
-        })
-      )
-    } finally {
-      setChangingRole(null)
-    }
+    await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, roleId }),
+    })
+    setChangingRole(null)
   }
 
   async function handleRemove(userId: string, email: string) {
@@ -168,14 +555,12 @@ function UsersTab({ initUsers, roles, currentUserEmail }: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId }),
     })
-    setUserList(prev => prev.filter(u => u.user_id !== userId))
   }
 
   return (
     <div className="space-y-5">
       {/* Thêm user */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="font-semibold text-gray-800 mb-4">Thêm người dùng mới</h2>
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex gap-3">
           <input
             type="email"
@@ -188,11 +573,9 @@ function UsersTab({ initUsers, roles, currentUserEmail }: {
           <select
             value={inviteRole}
             onChange={e => setInviteRole(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
           >
-            {roles.map(r => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
+            {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
           <button
             onClick={handleInvite}
@@ -202,385 +585,120 @@ function UsersTab({ initUsers, roles, currentUserEmail }: {
             {inviting ? 'Đang thêm...' : 'Thêm'}
           </button>
         </div>
-        {msg && (
-          <p className={`mt-3 text-sm ${msg.type === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>
-        )}
-        <p className="mt-2 text-xs text-gray-400">
-          * Dùng nút "Nhóm" để import hàng loạt theo phòng ban. Script: <code className="bg-gray-100 px-1 rounded">node scripts/import-users.mjs</code>
-        </p>
+        {msg && <p className={`mt-2 text-sm ${msg.type === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
       </div>
 
-      {/* Danh sách */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-          <h2 className="font-semibold text-gray-700">Danh sách người dùng ({userList.length})</h2>
-          <input
-            placeholder="Tìm email..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50/50 border-b border-gray-100">
-            <tr>
-              <th className="text-left px-5 py-3 text-gray-500 font-medium">Email</th>
-              <th className="text-left px-5 py-3 text-gray-500 font-medium">Vai trò</th>
-              <th className="text-left px-5 py-3 text-gray-500 font-medium">Quyền hiệu lực</th>
-              <th className="px-5 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(u => (
-              <tr key={u.user_id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50">
-                <td className="px-5 py-3">
-                  <span className="font-medium text-gray-800">{u.user_email}</span>
-                  {u.user_email === currentUserEmail && (
-                    <span className="ml-2 text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">bạn</span>
-                  )}
-                </td>
-                <td className="px-5 py-3">
-                  <select
-                    value={u.role_id}
-                    onChange={e => handleChangeRole(u.user_id, e.target.value)}
-                    disabled={changingRole === u.user_id || u.user_email === currentUserEmail}
-                    className={`text-xs px-2.5 py-1.5 rounded-lg border-0 font-medium cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 ${ROLE_COLORS[u.role_name] ?? 'bg-gray-100 text-gray-600'}`}
-                  >
-                    {roles.map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-5 py-3">
-                  <div className="flex flex-wrap gap-1">
-                    {(u.permissions ?? []).map(p => (
-                      <span key={p} className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-mono">
-                        {PERM_LABELS[p] ?? p}
-                      </span>
-                    ))}
-                    {(u.permissions ?? []).length === 0 && (
-                      <span className="text-[10px] text-gray-300 italic">Chưa có quyền đặc biệt</span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-5 py-3 text-right">
-                  {u.user_email !== currentUserEmail && (
-                    <button
-                      onClick={() => handleRemove(u.user_id, u.user_email)}
-                      className="text-xs text-red-500 hover:text-red-700 transition"
-                    >
-                      Xóa
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-gray-400">
-                  {search ? 'Không tìm thấy email phù hợp' : 'Chưa có người dùng nào'}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ── Tab: Nhóm ────────────────────────────────────────────────
-function GroupsTab({ allUsers }: { allUsers: UserRecord[] }) {
-  const [groups, setGroups] = useState<Group[]>([])
-  const [loading, setLoading] = useState(true)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [newGroupName, setNewGroupName] = useState('')
-  const [newGroupDesc, setNewGroupDesc] = useState('')
-  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-
-  const fetchGroups = useCallback(async () => {
-    setLoading(true)
-    const res = await fetch('/api/admin/groups')
-    const data = await res.json()
-    setGroups(data.groups ?? [])
-    setLoading(false)
-  }, [])
-
-  useEffect(() => { fetchGroups() }, [fetchGroups])
-
-  async function handleCreate() {
-    if (!newGroupName.trim()) return
-    setCreating(true); setMsg(null)
-    const res = await fetch('/api/admin/groups', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newGroupName.trim(), description: newGroupDesc }),
-    })
-    const data = await res.json()
-    if (!res.ok) { setMsg({ type: 'err', text: data.error }); setCreating(false); return }
-    setNewGroupName(''); setNewGroupDesc('')
-    setMsg({ type: 'ok', text: `Đã tạo nhóm "${data.group?.name}"` })
-    await fetchGroups()
-    setCreating(false)
-  }
-
-  async function handleDeleteGroup(g: Group) {
-    if (!confirm(`Xóa nhóm "${g.name}"? Sẽ xóa tất cả thành viên khỏi nhóm này.`)) return
-    await fetch(`/api/admin/groups/${g.id}`, { method: 'DELETE' })
-    await fetchGroups()
-  }
-
-  async function handleUpdatePermissions(groupId: string, newPerms: string[]) {
-    await fetch(`/api/admin/groups/${groupId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ permissions: newPerms }),
-    })
-    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, permissions: newPerms } : g))
-  }
-
-  async function handleAddMember(groupId: string, email: string) {
-    const res = await fetch(`/api/admin/groups/${groupId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'addMember', userEmail: email }),
-    })
-    if (res.ok) await fetchGroups()
-  }
-
-  async function handleRemoveMember(groupId: string, email: string) {
-    await fetch(`/api/admin/groups/${groupId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'removeMember', userEmail: email }),
-    })
-    await fetchGroups()
-  }
-
-  return (
-    <div className="space-y-5">
-      {/* Tạo nhóm mới */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="font-semibold text-gray-800 mb-4">Tạo nhóm mới</h2>
-        <div className="flex gap-3">
-          <input
-            placeholder="Tên nhóm (VD: R&D Phần cứng)"
-            value={newGroupName}
-            onChange={e => setNewGroupName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleCreate()}
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <input
-            placeholder="Mô tả (tuỳ chọn)"
-            value={newGroupDesc}
-            onChange={e => setNewGroupDesc(e.target.value)}
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            onClick={handleCreate}
-            disabled={creating || !newGroupName.trim()}
-            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition"
-          >
-            {creating ? 'Đang tạo...' : '+ Tạo nhóm'}
-          </button>
-        </div>
-        {msg && (
-          <p className={`mt-3 text-sm ${msg.type === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>
-        )}
+      {/* Search */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">Tổng cộng {users.length} người dùng</p>
+        <input
+          placeholder="Tìm email..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
       </div>
 
-      {/* Danh sách nhóm */}
-      {loading ? (
-        <div className="text-center py-12 text-gray-400">Đang tải...</div>
-      ) : (
-        <div className="space-y-3">
-          {groups.map(g => (
-            <GroupCard
-              key={g.id}
-              group={g}
-              expanded={expandedId === g.id}
-              onToggle={() => setExpandedId(expandedId === g.id ? null : g.id)}
-              allUsers={allUsers}
-              onUpdatePermissions={handleUpdatePermissions}
-              onAddMember={handleAddMember}
-              onRemoveMember={handleRemoveMember}
-              onDelete={handleDeleteGroup}
-            />
-          ))}
-          {groups.length === 0 && (
-            <div className="text-center py-12 text-gray-400">Chưa có nhóm nào</div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Group Card ───────────────────────────────────────────────
-function GroupCard({
-  group, expanded, onToggle, allUsers,
-  onUpdatePermissions, onAddMember, onRemoveMember, onDelete,
-}: {
-  group: Group
-  expanded: boolean
-  onToggle: () => void
-  allUsers: UserRecord[]
-  onUpdatePermissions: (id: string, perms: string[]) => Promise<void>
-  onAddMember: (id: string, email: string) => Promise<void>
-  onRemoveMember: (id: string, email: string) => Promise<void>
-  onDelete: (g: Group) => Promise<void>
-}) {
-  const [addEmail, setAddEmail] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  const nonMembers = allUsers.filter(u => !group.member_emails.includes(u.user_email))
-
-  async function togglePerm(perm: string) {
-    setSaving(true)
-    const newPerms = group.permissions.includes(perm)
-      ? group.permissions.filter(p => p !== perm)
-      : [...group.permissions, perm]
-    await onUpdatePermissions(group.id, newPerms)
-    setSaving(false)
-  }
-
-  async function handleAddMember() {
-    if (!addEmail) return
-    await onAddMember(group.id, addEmail)
-    setAddEmail('')
-  }
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      {/* Header */}
-      <div
-        className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition"
-        onClick={onToggle}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className="w-3 h-3 rounded-full flex-shrink-0"
-            style={{ background: group.color ?? '#6B7280' }}
-          />
-          <div>
-            <p className="font-semibold text-gray-900">{group.name}</p>
-            {group.description && (
-              <p className="text-xs text-gray-400 mt-0.5">{group.description}</p>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex flex-wrap gap-1 max-w-sm justify-end">
-            {group.permissions.length === 0 ? (
-              <span className="text-xs text-gray-300 italic">Chưa có quyền</span>
-            ) : group.permissions.map(p => (
-              <span key={p} className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">
-                {PERM_LABELS[p] ?? p}
-              </span>
-            ))}
-          </div>
-          <span className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-medium whitespace-nowrap">
-            {group.member_count} thành viên
-          </span>
-          <span className="text-gray-400 text-sm">{expanded ? '▲' : '▼'}</span>
-        </div>
-      </div>
-
-      {/* Body */}
-      {expanded && (
-        <div className="border-t border-gray-100 px-5 py-4 space-y-5">
-          {/* Phân quyền */}
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-              Quyền truy cập của nhóm {saving && <span className="text-blue-500 ml-2">Đang lưu...</span>}
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {ALL_PERMISSIONS.map(perm => {
-                const active = group.permissions.includes(perm)
-                return (
-                  <label
-                    key={perm}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition text-sm ${
-                      active
-                        ? 'border-blue-400 bg-blue-50 text-blue-800'
-                        : 'border-gray-200 hover:border-gray-300 text-gray-600'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={active}
-                      onChange={() => togglePerm(perm)}
-                      className="w-3.5 h-3.5 accent-blue-600"
-                    />
-                    <span className="text-xs">{PERM_LABELS[perm]}</span>
-                  </label>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Thành viên */}
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-              Thành viên ({group.member_count})
-            </p>
-
-            {/* Thêm thành viên */}
-            <div className="flex gap-2 mb-3">
-              <select
-                value={addEmail}
-                onChange={e => setAddEmail(e.target.value)}
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">-- Chọn user để thêm --</option>
-                {nonMembers.map(u => (
-                  <option key={u.user_id} value={u.user_email}>{u.user_email}</option>
-                ))}
-              </select>
-              <button
-                onClick={handleAddMember}
-                disabled={!addEmail}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm transition"
-              >
-                Thêm
-              </button>
-            </div>
-
-            {/* Danh sách thành viên */}
-            <div className="flex flex-wrap gap-2">
-              {group.member_emails.map(email => (
-                <div
-                  key={email}
-                  className="flex items-center gap-1.5 bg-gray-100 rounded-full pl-3 pr-1 py-1 text-sm text-gray-700"
-                >
-                  <span>{email}</span>
-                  <button
-                    onClick={() => onRemoveMember(group.id, email)}
-                    className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-red-100 hover:text-red-600 text-gray-400 transition text-xs"
-                    title="Xóa khỏi nhóm"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-              {group.member_emails.length === 0 && (
-                <p className="text-sm text-gray-400 italic">Chưa có thành viên</p>
-              )}
-            </div>
-          </div>
-
-          {/* Xóa nhóm */}
-          <div className="pt-2 border-t border-gray-100 flex justify-end">
-            <button
-              onClick={() => onDelete(group)}
-              className="text-xs text-red-500 hover:text-red-700 transition"
+      {/* Grouped list */}
+      <div className="space-y-3">
+        {grouped.map(g => (
+          <div key={g.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            {/* Group header */}
+            <div
+              className="px-5 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition"
+              onClick={() => setExpandedGroup(expandedGroup === g.id ? null : g.id)}
             >
-              Xóa nhóm này
-            </button>
+              <div className="flex items-center gap-2.5">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ background: g.color }} />
+                <span className="font-semibold text-sm text-gray-800">{g.label}</span>
+                <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                  {g.members.length} người
+                </span>
+              </div>
+              <span className="text-gray-400 text-xs">{expandedGroup === g.id ? '▲' : '▼'}</span>
+            </div>
+
+            {/* User rows */}
+            {expandedGroup === g.id && (
+              <table className="w-full text-sm border-t border-gray-100">
+                <thead className="bg-gray-50/50">
+                  <tr>
+                    <th className="text-left px-5 py-2 text-xs text-gray-400 font-medium">Email</th>
+                    <th className="text-left px-4 py-2 text-xs text-gray-400 font-medium">Vai trò</th>
+                    <th className="text-left px-4 py-2 text-xs text-gray-400 font-medium">Quyền hiệu lực</th>
+                    <th className="px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.members.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-5 py-6 text-center text-gray-300 text-sm italic">
+                        Chưa có thành viên
+                      </td>
+                    </tr>
+                  )}
+                  {g.members.map(u => (
+                    <tr key={u.user_id} className="border-t border-gray-50 hover:bg-gray-50/50">
+                      <td className="px-5 py-3">
+                        <span className="font-medium text-gray-800">{u.user_email}</span>
+                        {u.user_email === currentUserEmail && (
+                          <span className="ml-2 text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">bạn</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          defaultValue={u.role_id}
+                          onChange={e => handleChangeRole(u.user_id, e.target.value)}
+                          disabled={changingRole === u.user_id || u.user_email === currentUserEmail}
+                          className="text-xs px-2 py-1 rounded border border-gray-200 bg-white focus:outline-none"
+                        >
+                          {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <PermSummary permissions={u.permissions} />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {u.user_email !== currentUserEmail && (
+                          <button
+                            onClick={() => handleRemove(u.user_id, u.user_email)}
+                            className="text-xs text-red-400 hover:text-red-600 transition"
+                          >
+                            Xóa
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
-        </div>
-      )}
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Permission Summary chips ───────────────────────────────────
+function PermSummary({ permissions }: { permissions: string[] }) {
+  const perms = new Set(permissions)
+  return (
+    <div className="flex flex-wrap gap-1">
+      {FEATURES.map(f => {
+        const hasRead  = perms.has(permKey(f.id, f.actions[0]))
+        const hasWrite = f.actions.length > 1 && perms.has(permKey(f.id, 'write'))
+        const hasEdit  = f.actions.length > 1 && perms.has(permKey(f.id, 'edit'))
+        const hasDel   = f.actions.length > 1 && perms.has(permKey(f.id, 'delete'))
+        if (!hasRead) return null
+        const parts = ['Xem', hasWrite && 'Thêm', hasEdit && 'Sửa', hasDel && 'Xóa'].filter(Boolean)
+        return (
+          <span key={f.id} className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium whitespace-nowrap">
+            {f.icon} {parts.join('·')}
+          </span>
+        )
+      })}
+      {permissions.length === 0 && <span className="text-[10px] text-gray-300 italic">Chưa có quyền</span>}
     </div>
   )
 }
