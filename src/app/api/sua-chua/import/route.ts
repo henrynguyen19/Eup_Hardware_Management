@@ -164,6 +164,85 @@ function parseSheetData(values: string[][], weekId: string) {
   return { statsRows }
 }
 
+// GET /api/sua-chua/import?dry=Tuan+21+-+2026
+// Dry-run: parse một sheet và trả về debug info — KHÔNG lưu vào DB
+export async function GET(req: NextRequest) {
+  const sheetName = req.nextUrl.searchParams.get('dry') || 'Tuan 21 - 2026'
+  try {
+    const sheets = getSheetsClient()
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${sheetName}'!A1:S200`,
+    })
+    const values = (resp.data.values ?? []) as string[][]
+
+    // Run parse step-by-step với trace
+    const trace: Array<{ row: number; label: string; norm: string; col: number; action: string }> = []
+    let currentStatus: string | null = null
+    let dataStartCol = 1
+    const statsRows: Array<{ status_type: string; fault_type: string; device_type: string; quantity: number }> = []
+
+    function firstNonEmpty(row: string[], maxCols = 3) {
+      for (let i = 0; i < maxCols && i < row.length; i++) {
+        const v = (row[i] || '').trim()
+        if (v) return { label: v, col: i }
+      }
+      return null
+    }
+
+    const sectionNorms: [string, string][] = [
+      ['da sua','da_sua'], ['gui bao hanh','gui_bao_hanh'],
+      ['khong loi','khong_loi'], ['hong han','hong_han'], ['cho sua','cho_sua'],
+    ]
+
+    values.forEach((row, i) => {
+      if (!row || row.length === 0) return
+      const found = firstNonEmpty(row, 3)
+      if (!found) return
+      const { label, col } = found
+      const norm = normalize(label)
+
+      let action = 'skip'
+
+      if (norm.startsWith('loi') || norm.startsWith('thietbi')) {
+        dataStartCol = col + 1; action = `header→dataStartCol=${dataStartCol}`
+      } else {
+        // Check section
+        let matched = STATUS_SECTIONS[label]
+        if (!matched) {
+          for (const [kn, val] of sectionNorms) {
+            const k = kn.replace(/\s/g, '')
+            if (norm === k || norm.startsWith(k.slice(0, 5))) { matched = val; break }
+          }
+        }
+        if (matched) {
+          currentStatus = matched; action = `section→${matched}`
+        } else if (norm === 'tong' && currentStatus && currentStatus !== 'cho_sua') {
+          action = `TỔNG→${currentStatus}`
+          const quantities: string[] = []
+          for (let idx = 0; idx < DEVICE_TYPES.length; idx++) {
+            const rawVal = (row[dataStartCol + idx] || '').replace(/,/g, '').trim()
+            const qty = Math.min(parseInt(rawVal) || 0, MAX_QTY_PER_CELL)
+            if (qty > 0) {
+              statsRows.push({ status_type: currentStatus!, fault_type: 'TỔNG', device_type: DEVICE_TYPES[idx], quantity: qty })
+              quantities.push(`${DEVICE_TYPES[idx]}=${qty}`)
+            }
+          }
+          action += ` [${quantities.join(',')}]`
+        } else if (currentStatus === 'cho_sua' && norm.startsWith('so') && col === 0) {
+          action = `cho_sua data row`
+        }
+      }
+
+      trace.push({ row: i + 1, label, norm, col, action })
+    })
+
+    return NextResponse.json({ sheet: sheetName, dataStartCol, statsCount: statsRows.length, stats: statsRows.slice(0, 20), trace: trace.filter(t => t.action !== 'skip').slice(0, 50) })
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
+}
+
 // POST /api/sua-chua/import
 // Body: {
 //   sheet_titles?: string[]   — nếu bỏ qua thì import tất cả sheet đủ điều kiện
