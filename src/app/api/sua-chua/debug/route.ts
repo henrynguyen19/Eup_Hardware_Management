@@ -28,17 +28,34 @@ export async function GET(req: NextRequest) {
     })
 
     const values = resp.data.values ?? []
-    // Return with row numbers for easy inspection
-    const annotated = values.map((row, i) => ({
-      row: i + 1,
-      A: row[0] ?? '',
-      B: row[1] ?? '',
-      C: row[2] ?? '',
-      D: row[3] ?? '',
-      E: row[4] ?? '',
-      F: row[5] ?? '',
-      rest: row.slice(6),
-    }))
+
+    function normalize(s: string): string {
+      return s.trim().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'd').toLowerCase().replace(/\s+/g, '')
+    }
+    function firstNonEmpty(row: string[], maxCols = 3) {
+      for (let i = 0; i < maxCols && i < row.length; i++) {
+        const v = (row[i] || '').trim()
+        if (v) return { label: v, col: i, norm: normalize(v) }
+      }
+      return null
+    }
+
+    // Return with row numbers + normalized label for debugging
+    const annotated = values.map((row, i) => {
+      const found = firstNonEmpty(row, 3)
+      return {
+        row: i + 1,
+        label: found?.label ?? '',
+        col: found?.col ?? -1,
+        norm: found?.norm ?? '',  // ← key field để debug matching
+        A: row[0] ?? '',
+        B: row[1] ?? '',
+        C: row[2] ?? '',
+        D: row[3] ?? '',
+        E: row[4] ?? '',
+        F: row[5] ?? '',
+      }
+    })
 
     return NextResponse.json({ sheet: sheetName, rows: annotated })
   } catch (e) {

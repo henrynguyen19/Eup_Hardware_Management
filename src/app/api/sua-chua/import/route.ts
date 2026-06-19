@@ -41,12 +41,27 @@ function sb() {
   )
 }
 
+// Chuẩn hóa chuỗi: bỏ dấu tiếng Việt, lowercase, bỏ khoảng trắng
+// Dùng ̀-ͯ tường minh để tránh lỗi encoding khi deploy
+function normalize(s: string): string {
+  return s.trim()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')  // bỏ combining diacritics (U+0300 → U+036F)
+    .replace(/[đĐ]/g, 'd')            // đ/Đ không có NFD decomposition nên xử lý riêng
+    .toLowerCase()
+    .replace(/\s+/g, '')
+}
+
 // Parse sheet title to extract year and week_number
 // e.g. "Tuan 21 - 2026" → { year: 2026, week_number: 21 }
+// Yêu cầu năm phải là 20XX (2020-2029) để tránh nhầm format ngày "24052024"
 function parseSheetTitle(title: string) {
-  const m = title.match(/(\d+)\s*-\s*(\d{4})/)
+  const m = title.match(/(\d+)\s*-\s*(20\d{2})\b/)
   if (!m) return null
-  return { week_number: parseInt(m[1]), year: parseInt(m[2]) }
+  const week_number = parseInt(m[1])
+  const year = parseInt(m[2])
+  if (week_number < 1 || week_number > 53) return null  // sanity check
+  return { week_number, year }
 }
 
 // Parse a single sheet's values into stats rows.
@@ -98,17 +113,28 @@ function parseSheetData(values: string[][], weekId: string) {
     if (!found) continue
     const { label, col } = found
 
+    // Normalize label — dùng function normalize() đã test ở trên
+    const labelNorm = normalize(label)
+
     // === Detect header row "Lỗi \ Thiết Bị" → xác định dataStartCol ===
-    if (/lỗi|thiết\s*bị/i.test(label)) {
+    if (labelNorm.startsWith('loi') || labelNorm.startsWith('thietbi')) {
       dataStartCol = col + 1
       continue
     }
 
-    // === Detect STATUS section headers ===
-    let matchedStatus = STATUS_SECTIONS[label]
+    // === Detect STATUS section headers (dùng labelNorm để bỏ qua vấn đề dấu) ===
+    let matchedStatus: string | undefined = STATUS_SECTIONS[label]
     if (!matchedStatus) {
-      for (const [key, val] of Object.entries(STATUS_SECTIONS)) {
-        if (label.toLowerCase().includes(key.toLowerCase().slice(0, 5))) {
+      const sectionNorms: [string, string][] = [
+        ['da sua',       'da_sua'],
+        ['gui bao hanh', 'gui_bao_hanh'],
+        ['khong loi',    'khong_loi'],
+        ['hong han',     'hong_han'],
+        ['cho sua',      'cho_sua'],
+      ]
+      for (const [keyNorm, val] of sectionNorms) {
+        const kn = keyNorm.replace(/\s/g, '')
+        if (labelNorm === kn || labelNorm.startsWith(kn.slice(0, 5))) {
           matchedStatus = val; break
         }
       }
@@ -119,14 +145,15 @@ function parseSheetData(values: string[][], weekId: string) {
     }
 
     // === Hàng TỔNG: đọc aggregate cho 4 trạng thái chính ===
-    if (/^t[oổ]ng$/i.test(label.replace(/\s/g, '')) && currentStatus && currentStatus !== 'cho_sua') {
+    // labelNorm của "TỔNG"/"Tổng"/"tong" đều → "tong"
+    if (labelNorm === 'tong' && currentStatus && currentStatus !== 'cho_sua') {
       readAggregateRow(row, 'TỔNG')
       continue
     }
 
     // === Chờ sửa: hàng "SỐ LƯỢNG" ở cột A (col===0) là dòng data duy nhất ===
     // Sub-header "SỐ LƯỢNG" nằm ở cột B trở đi (col>0) → bỏ qua
-    if (currentStatus === 'cho_sua' && /^s[oố]\s*l[uư]/i.test(label) && col === 0) {
+    if (currentStatus === 'cho_sua' && labelNorm.startsWith('so') && col === 0) {
       readAggregateRow(row, 'SỐ LƯỢNG')
       continue
     }
