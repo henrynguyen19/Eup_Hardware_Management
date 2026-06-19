@@ -502,10 +502,12 @@ function DashboardTab() {
   const [loading, setLoading] = useState(true)
 
   // Determine years to fetch
+  // Luôn load năm hiện tại + năm trước để navigation có đủ tuần
+  const baseYears = Array.from(new Set([now.getFullYear(), now.getFullYear() - 1]))
   const yearsNeeded: number[] = (() => {
     switch (periodMode) {
-      case 'tuan':  return [weekYear]
-      case 'thang': return [monthYear]
+      case 'tuan':  return Array.from(new Set([...baseYears, weekYear]))
+      case 'thang': return Array.from(new Set([...baseYears, monthYear]))
       case 'range': {
         if (!rangeStart || !rangeEnd) return [now.getFullYear()]
         const sy = new Date(rangeStart).getFullYear()
@@ -621,18 +623,48 @@ function DashboardTab() {
   const filteredWeekIds = new Set(filteredWeeks.map(w => w.id))
   const filteredStats   = allStats.filter(s => filteredWeekIds.has(s.week_id))
 
+  // Tất cả tuần từ cache (mọi năm), sắp xếp tăng dần theo thời gian
+  const allKnownWeeks = Object.values(cache)
+    .flatMap(c => c.weeks)
+    .sort((a, b) => a.year !== b.year ? a.year - b.year : a.week_number - b.week_number)
+
+  // Navigation tuần: nhảy theo danh sách tuần thực sự có trong DB
+  function navToStoredWeek(delta: -1 | 1) {
+    if (allKnownWeeks.length === 0) return
+    const idx = allKnownWeeks.findIndex(w => w.year === weekYear && w.week_number === weekNum)
+    const nextIdx = idx === -1
+      ? (delta === -1 ? allKnownWeeks.length - 1 : 0)
+      : Math.max(0, Math.min(allKnownWeeks.length - 1, idx + delta))
+    const target = allKnownWeeks[nextIdx]
+    setWeekYear(target.year); setWeekNum(target.week_number)
+  }
+
+  function goToLatestWeek() {
+    if (allKnownWeeks.length === 0) return
+    const latest = allKnownWeeks[allKnownWeeks.length - 1]
+    setWeekYear(latest.year); setWeekNum(latest.week_number)
+  }
+
+  // Format date_start / date_end thành "dd/mm"
+  function fmtShortDate(s: string | null | undefined): string {
+    if (!s) return ''
+    const [, m, d] = s.split('-')
+    return `${d}/${m}`
+  }
+
   // Period label
   const periodLabel = (() => {
     switch (periodMode) {
       case 'tuan': {
-        const [mon, sun] = isoWeekBounds(weekYear, weekNum)
-        const fmt = (d: Date) => `${d.getUTCDate()}/${d.getUTCMonth()+1}`
-        // If we matched a week with a label (from sheets), show it
-        const matchedLabel = filteredWeeks.length > 0 ? filteredWeeks[0].week_label : null
-        const dateRange = `(${fmt(mon)}-${fmt(sun)})`
-        return matchedLabel
-          ? `${matchedLabel} · ISO W${weekNum}/${weekYear} ${dateRange}`
-          : `Tuần ${weekNum} / ${weekYear} ${dateRange}`
+        const matched = filteredWeeks[0]
+        if (matched?.date_start) {
+          const range = matched.date_end
+            ? `${fmtShortDate(matched.date_start)} – ${fmtShortDate(matched.date_end)}`
+            : fmtShortDate(matched.date_start)
+          return range
+        }
+        // Fallback nếu chưa có date_start
+        return matched?.week_label ?? `Tuần ${weekNum} / ${weekYear}`
       }
       case 'thang': return `Tháng ${month} / ${monthYear}`
       case 'range': return rangeStart && rangeEnd ? `${fmtDateStr(rangeStart)} → ${fmtDateStr(rangeEnd)}` : 'Chọn khoảng ngày'
@@ -692,13 +724,13 @@ function DashboardTab() {
           <div className="flex items-center gap-2 flex-wrap">
             {periodMode === 'tuan' && (
               <>
-                <button className={navBtn}
-                  onClick={() => { const n = navigateWeek(weekYear, weekNum, -1); setWeekYear(n.year); setWeekNum(n.week) }}>‹</button>
-                <span className="text-sm font-semibold text-gray-800 min-w-[130px] text-center">{periodLabel}</span>
-                <button className={navBtn}
-                  onClick={() => { const n = navigateWeek(weekYear, weekNum, 1); setWeekYear(n.year); setWeekNum(n.week) }}>›</button>
-                <button onClick={() => { setWeekYear(todayISO.year); setWeekNum(todayISO.week) }}
-                  className="text-xs text-[#164d81] hover:underline ml-1">Hôm nay</button>
+                <button className={navBtn} onClick={() => navToStoredWeek(-1)}
+                  disabled={allKnownWeeks.length === 0}>‹</button>
+                <span className="text-sm font-semibold text-gray-800 min-w-[140px] text-center">{periodLabel}</span>
+                <button className={navBtn} onClick={() => navToStoredWeek(1)}
+                  disabled={allKnownWeeks.length === 0}>›</button>
+                <button onClick={goToLatestWeek}
+                  className="text-xs text-[#164d81] hover:underline ml-1">Mới nhất</button>
               </>
             )}
             {periodMode === 'thang' && (
