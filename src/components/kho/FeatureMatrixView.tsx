@@ -39,12 +39,12 @@ function deviceHeaderStyle(deviceType: string) {
 // ── Cell renderer ─────────────────────────────────────────────
 function CellDisplay({ value, notes }: { value: string; notes: string | null }) {
   const v = value.trim()
-  const isCheck = v === 'check' || v === '\u2714' || ['co', 'yes', '1'].includes(v.toLowerCase())
-  const isCross = v === 'Khong' || v === '\u2718' || ['khong', 'no', '0', ''].includes(v.toLowerCase())
+  const isCheck = v === 'check' || v === '✔' || ['co', 'yes', '1'].includes(v.toLowerCase())
+  const isCross = v === 'Khong' || v === '✘' || ['khong', 'no', '0', ''].includes(v.toLowerCase())
 
   if (isCheck) return (
     <span className="flex flex-col items-center gap-0.5">
-      <span className="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">\u2714</span>
+      <span className="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">✔</span>
       {notes && <span className="text-[10px] text-gray-400 text-center leading-tight max-w-[80px] break-words">{notes}</span>}
     </span>
   )
@@ -75,13 +75,13 @@ function CellEditPopup({
 }) {
   const [valueType, setValueType] = useState<'check' | 'cross' | 'text'>(() => {
     const v = state.value.trim()
-    if (v === 'check' || v === '\u2714' || ['co', 'yes', '1'].includes(v.toLowerCase())) return 'check'
+    if (v === 'check' || v === '✔' || ['co', 'yes', '1'].includes(v.toLowerCase())) return 'check'
     if (v === 'Khong' || ['khong', 'no', '0', ''].includes(v.toLowerCase())) return 'cross'
     return 'text'
   })
   const [textVal, setTextVal] = useState(() => {
     const v = state.value.trim()
-    const isSpecial = ['check', '\u2714', 'Khong', '\u2718', 'co', 'yes', '1', 'khong', 'no', '0', ''].includes(v.toLowerCase())
+    const isSpecial = ['check', '✔', 'Khong', '✘', 'co', 'yes', '1', 'khong', 'no', '0', ''].includes(v.toLowerCase())
     return isSpecial ? '' : v
   })
   const [notes, setNotes] = useState(state.notes)
@@ -119,7 +119,7 @@ function CellEditPopup({
                   : 'bg-blue-100 border-blue-400 text-blue-700'
                   : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300'
               }\`}
-            >{t === 'check' ? '\u2714 Co' : t === 'cross' ? '\u2014 Khong' : '\ud83d\udcdd Text'}</button>
+            >{t === 'check' ? '✔ Co' : t === 'cross' ? '— Khong' : '📝 Text'}</button>
           ))}
         </div>
         {valueType === 'text' && (
@@ -197,11 +197,11 @@ function AddGroupModal({ onClose, onAdd }: {
   onClose: () => void; onAdd: (label: string, icon: string, color: string) => Promise<void>
 }) {
   const [label, setLabel] = useState('')
-  const [icon, setIcon]   = useState('\u2699\ufe0f')
+  const [icon, setIcon]   = useState('⚙️')
   const [color, setColor] = useState('gray')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const EMOJI_OPTIONS = ['\u2699\ufe0f','\ud83d\udcdc','\ud83e\ude9e','\u26a1','\ud83d\udcf7','\ud83d\udee2\ufe0f','\ud83d\udd0c','\ud83d\udd27','\ud83d\udce1','\ud83d\udca1','\ud83d\udd12','\ud83c\udf21\ufe0f','\ud83d\udcf2','\ud83d\udea8','\ud83d\udd0b','\ud83d\udee1\ufe0f']
+  const EMOJI_OPTIONS = ['⚙️','📜','🪞','⚡','📷','🛢️','🔌','🔧','📡','💡','🔒','🌡️','📲','🚨','🔋','🛡️']
 
   async function handleAdd() {
     if (!label.trim()) { setErr('Nhap ten nhom'); return }
@@ -364,7 +364,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
   if (error) return <div className="text-red-500 text-sm bg-red-50 rounded-xl p-4 m-4">{error}</div>
   if (!data || data.devices.length === 0) return (
     <div className="flex flex-col items-center justify-center py-16 text-gray-400 text-sm gap-2">
-      <span className="text-4xl">\u2699\ufe0f</span>
+      <span className="text-4xl">⚙️</span>
       Chua co du lieu tinh nang.
     </div>
   )
@@ -417,7 +417,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
                   <td colSpan={devices.length + (isAdmin ? 2 : 1)} className={\`px-4 py-2 sticky left-0 \${s.groupBg} z-10\`}>
                     <div className="flex items-center justify-between">
                       <span className={\`font-bold text-[11px] tracking-wider uppercase \${s.text}\`}>
-                        {group?.icon ?? '\u2699\ufe0f'} {label}
+                        {group?.icon ?? '⚙️'} {label}
                       </span>
                       {isAdmin && (
                         <button onClick={() => setShowAddFeature(label)}
@@ -448,7 +448,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
                       }
                     >
                       {isAdmin && (
-                        <td className="text-center w-6 border-r border-gray-100 text-gray-300 group-hover:text-gray-400 select-none" title="Keo de sap xep">\u22ee</td>
+                        <td className="text-center w-6 border-r border-gray-100 text-gray-300 group-hover:text-gray-400 select-none" title="Keo de sap xep">⋮</td>
                       )}
                       <td className="px-4 py-2 sticky left-0 bg-inherit z-10 border-r border-gray-100">
                         {isAdmin && isEditing ? (
@@ -457,8 +457,8 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
                               onKeyDown={e => { if (e.key === 'Enter') confirmRename(key); if (e.key === 'Escape') setEditingKey(null) }}
                               className="flex-1 border border-violet-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white"
                             />
-                            <button onClick={() => confirmRename(key)} disabled={renaming} className="text-green-600 font-bold text-sm px-1 disabled:opacity-40">\u2714</button>
-                            <button onClick={() => setEditingKey(null)} className="text-gray-400 text-sm px-1">\xd7</button>
+                            <button onClick={() => confirmRename(key)} disabled={renaming} className="text-green-600 font-bold text-sm px-1 disabled:opacity-40">✔</button>
+                            <button onClick={() => setEditingKey(null)} className="text-gray-400 text-sm px-1">×</button>
                           </div>
                         ) : (
                           <div className="flex items-center gap-2">
@@ -467,7 +467,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
                               <button onClick={() => { setEditingKey(key); setEditVal(key); setRenameErr(null) }}
                                 className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-violet-600 text-[10px] px-1 py-0.5 rounded border border-transparent hover:border-violet-200 hover:bg-violet-50"
                                 title="Doi ten"
-                              >\u270f\ufe0f</button>
+                              >✏️</button>
                             )}
                           </div>
                         )}
@@ -494,7 +494,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
                           <button onClick={() => handleDeleteFeature(key)} disabled={isDeleting}
                             className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 text-sm p-1"
                             title="Xoa tinh nang"
-                          >{isDeleting ? '...' : '\ud83d\uddd1'}</button>
+                          >{isDeleting ? '...' : '🗑'}</button>
                         </td>
                       )}
                     </tr>
@@ -515,7 +515,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
       )}
       <div className="flex flex-wrap items-center gap-4 px-4 py-2.5 border-t border-gray-100 text-[11px] text-gray-500">
         <span className="flex items-center gap-1.5">
-          <span className="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">\u2714</span>
+          <span className="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">✔</span>
           Co / Dat chuan
         </span>
         <span className="flex items-center gap-1.5"><span className="text-gray-300 text-base">&mdash;</span> Khong ho tro</span>
