@@ -30,10 +30,37 @@ const STATUS_TYPES = [
   { key: 'cho_sua',      label: 'Chờ sửa',       color: '#8b5cf6' },
 ]
 
-const FAULT_TYPES = [
-  'POWER', 'POWER connector', 'GSM', 'GPS', 'RFID',
-  'Flash', 'SIM', 'Firmware', 'Khác'
-]
+// Per-status fault types — canonical defaults matching Google Sheets
+const DEFAULT_FAULT_TYPES_BY_STATUS: Record<string, string[]> = {
+  da_sua: [
+    'POWER', 'POWER connector', 'GSM', 'GPS', 'RFID', 'BUZZER', 'ACC',
+    'RS232', 'I/O', 'UPDATE', 'Lỗi cấu hình', 'Lỗi Sim', 'Lỗi audio',
+    'Lỗi IR', 'Lỗi thấu kính', 'Lỗi video cable', 'Lỗi thẻ nhớ',
+    'Lỗi màn hình hiển thị', 'Lost camera signal',
+  ],
+  gui_bao_hanh: [
+    'POWER', 'GSM', 'GPS', 'RFID', 'BUZZER', 'ACC', 'RS232', 'I/O',
+    'UPDATE', 'Lỗi cấu hình', 'Lỗi Sim', 'Lỗi audio', 'Lỗi IR',
+    'Lỗi thấu kính', 'Lỗi video cable', 'Lỗi thẻ nhớ',
+    'Lỗi màn hình hiển thị', 'Lost camera signal', 'Lỗi Loa', 'không xác định',
+  ],
+  khong_loi: [
+    'Installation (lắp đặt)', 'Power', 'Unuse (xóa xe)', 'RS232', 'Buzzer',
+    'Change vehicles', 'ACC', 'RFID', 'GSM', 'GPS', 'Roaming', 'Temperature',
+    'Config', 'Sim-card', 'audio', 'IR', 'Lens', 'video cable', 'SD card',
+    'Lỗi màn hình hiển thị', 'Lost camera signal',
+  ],
+  hong_han: [
+    'burnt components', 'RS232', 'POWER', 'Không nhận thẻ',
+    'Oxidation', 'Broken', 'Lỗi nhiệt',
+  ],
+  cho_sua: [
+    'POWER', 'POWER connector', 'GSM', 'GPS', 'RFID', 'BUZZER', 'ACC',
+    'RS232', 'I/O', 'UPDATE', 'Lỗi cấu hình', 'Lỗi Sim', 'Lỗi audio',
+    'Lỗi IR', 'Lỗi thấu kính', 'Lỗi video cable', 'Lỗi thẻ nhớ',
+    'Lỗi màn hình hiển thị', 'Lost camera signal', 'Không xác định',
+  ],
+}
 
 // ── Types ─────────────────────────────────────────────────────
 interface RepairWeek {
@@ -278,17 +305,23 @@ function AnalyticsSection({
     .filter(d => d.qty > 0)
     .sort((a, b) => b.qty - a.qty)
 
-  // By fault type
-  const byFault = FAULT_TYPES
-    .map(ft => ({ name: ft, qty: tabStats.filter(s => s.fault_type === ft).reduce((a, s) => a + s.quantity, 0) }))
-    .filter(f => f.qty > 0)
-    .sort((a, b) => b.qty - a.qty)
+  // By fault type — derived from actual data so all real fault types appear
+  const byFault = Object.entries(
+    tabStats.reduce((acc, s) => {
+      acc[s.fault_type] = (acc[s.fault_type] || 0) + s.quantity
+      return acc
+    }, {} as Record<string, number>)
+  )
+    .filter(([, qty]) => qty > 0)
+    .sort(([, a], [, b]) => b - a)
+    .map(([name, qty]) => ({ name, qty }))
 
   // Hỏng hẳn matrix
   const hhStats   = devStats.filter(s => s.status_type === 'hong_han')
   const hhTotal   = hhStats.reduce((a, s) => a + s.quantity, 0)
   const hhDevices = DEVICE_TYPES.filter(dt => hhStats.some(s => s.device_type === dt && s.quantity > 0))
-  const hhFaults  = FAULT_TYPES.filter(ft => hhStats.some(s => s.fault_type === ft && s.quantity > 0))
+  // Derive hỏng hẳn fault types from actual data
+  const hhFaults  = [...new Set(hhStats.filter(s => s.quantity > 0).map(s => s.fault_type))]
 
   const pct = (n: number) => grandTotal > 0 ? `${Math.round(n / grandTotal * 100)}%` : '0%'
   const pctOf = (n: number, base: number) => base > 0 ? `${Math.round(n / base * 100)}%` : '—'
@@ -828,8 +861,106 @@ function DashboardTab() {
   )
 }
 
+// ── Fault config management panel ────────────────────────────
+function FaultConfigPanel({
+  faultConfigs,
+  onAdd,
+  onDelete,
+}: {
+  faultConfigs: Record<string, string[]>
+  onAdd: (status: string, fault: string) => Promise<void>
+  onDelete: (status: string, fault: string) => Promise<void>
+}) {
+  const [activeStatus, setActiveStatus] = useState('da_sua')
+  const [newFault, setNewFault] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  async function handleAdd() {
+    if (!newFault.trim()) return
+    setSaving(true)
+    try {
+      await onAdd(activeStatus, newFault.trim())
+      setNewFault('')
+      setMsg('Đã thêm!')
+    } catch { setMsg('Lỗi khi thêm') }
+    setSaving(false)
+    setTimeout(() => setMsg(''), 2000)
+  }
+
+  async function handleDelete(fault: string) {
+    if (!confirm(`Xóa "${fault}" khỏi "${STATUS_TYPES.find(s => s.key === activeStatus)?.label}"?`)) return
+    try {
+      await onDelete(activeStatus, fault)
+      setMsg('Đã xóa!')
+    } catch { setMsg('Lỗi khi xóa') }
+    setTimeout(() => setMsg(''), 2000)
+  }
+
+  const faults = faultConfigs[activeStatus] ?? []
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-700">Cấu hình loại lỗi</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Danh sách loại lỗi xuất hiện trong form nhập liệu — chọn trạng thái để chỉnh sửa</p>
+        </div>
+
+        {/* Status tabs */}
+        <div className="flex border-b border-gray-100 overflow-x-auto">
+          {STATUS_TYPES.map(st => (
+            <button key={st.key} onClick={() => setActiveStatus(st.key)}
+              className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap transition ${activeStatus === st.key ? 'border-b-2' : 'text-gray-500 hover:text-gray-700'}`}
+              style={activeStatus === st.key ? { borderColor: st.color, background: st.color + '15', color: st.color } : {}}
+            >
+              {st.label}
+              <span className="ml-1 font-normal opacity-60">({(faultConfigs[st.key] ?? []).length})</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="p-4">
+          {/* Fault list */}
+          <div className="space-y-1 mb-4 max-h-96 overflow-y-auto">
+            {faults.length === 0 && (
+              <p className="text-xs text-gray-400 text-center py-6">Chưa có loại lỗi nào</p>
+            )}
+            {faults.map((fault, i) => (
+              <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50 hover:bg-gray-100 group">
+                <span className="text-xs text-gray-700 font-medium">{fault}</span>
+                <button onClick={() => handleDelete(fault)}
+                  className="text-gray-300 hover:text-red-500 text-xs opacity-0 group-hover:opacity-100 transition font-bold ml-2"
+                  title="Xóa"
+                >✕</button>
+              </div>
+            ))}
+          </div>
+
+          {/* Add new */}
+          <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
+            <input
+              type="text"
+              value={newFault}
+              onChange={e => setNewFault(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !saving && handleAdd()}
+              placeholder="Tên loại lỗi mới..."
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-400"
+            />
+            <button onClick={handleAdd} disabled={saving || !newFault.trim()}
+              className="px-4 py-1.5 text-xs font-semibold text-white rounded-lg transition disabled:opacity-50"
+              style={{ background: '#164d81' }}
+            >{saving ? '...' : '+ Thêm'}</button>
+            {msg && <span className="text-xs text-green-600 shrink-0">{msg}</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Tab: Nhập liệu ─────────────────────────────────────────────
-function EntryTab({ onSaved }: { onSaved: () => void }) {
+function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs: Record<string, string[]> }) {
   const now = new Date()
   // Default date_start = thứ Hai của tuần hiện tại, date_end = thứ Sáu
   function getMondayOfWeek(d: Date) {
@@ -867,14 +998,8 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
     ? `${formatDate(dateStart)} – ${formatDate(dateEnd)}`
     : derivedInfo.week_label
 
-  const [stats, setStats] = useState<Record<string, Record<string, Record<string, number>>>>(() => {
-    const s: Record<string, Record<string, Record<string, number>>> = {}
-    STATUS_TYPES.forEach(st => {
-      s[st.key] = {}
-      FAULT_TYPES.forEach(ft => { s[st.key][ft] = {}; DEVICE_TYPES.forEach(dt => { s[st.key][ft][dt] = 0 }) })
-    })
-    return s
-  })
+  // Sparse state — keys are created on demand when user types
+  const [stats, setStats] = useState<Record<string, Record<string, Record<string, number>>>>({})
 
   const [activeStatus, setActiveStatus] = useState('da_sua')
   const [mode, setMode] = useState<'entry' | 'preview'>('entry')
@@ -882,12 +1007,20 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
   const [msg, setMsg] = useState('')
 
   function setCellValue(statusKey: string, fault: string, device: string, val: number) {
-    setStats(prev => ({ ...prev, [statusKey]: { ...prev[statusKey], [fault]: { ...prev[statusKey][fault], [device]: val } } }))
+    setStats(prev => ({
+      ...prev,
+      [statusKey]: {
+        ...(prev[statusKey] ?? {}),
+        [fault]: { ...(prev[statusKey]?.[fault] ?? {}), [device]: val }
+      }
+    }))
   }
 
   // Tính tổng theo status × device cho preview
   function getStatusDeviceTotal(statusKey: string, deviceType: string): number {
-    return FAULT_TYPES.reduce((a, ft) => a + (stats[statusKey][ft][deviceType] || 0), 0)
+    return (faultConfigs[statusKey] ?? []).reduce(
+      (a, ft) => a + (stats[statusKey]?.[ft]?.[deviceType] || 0), 0
+    )
   }
   function getStatusTotal(statusKey: string): number {
     return DEVICE_TYPES.reduce((a, dt) => a + getStatusDeviceTotal(statusKey, dt), 0)
@@ -920,9 +1053,9 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
 
       const statsFlat: Array<{ status_type: string; fault_type: string; device_type: string; quantity: number }> = []
       STATUS_TYPES.forEach(st => {
-        FAULT_TYPES.forEach(ft => {
+        ;(faultConfigs[st.key] ?? []).forEach(ft => {
           DEVICE_TYPES.forEach(dt => {
-            statsFlat.push({ status_type: st.key, fault_type: ft, device_type: dt, quantity: stats[st.key][ft][dt] || 0 })
+            statsFlat.push({ status_type: st.key, fault_type: ft, device_type: dt, quantity: stats[st.key]?.[ft]?.[dt] || 0 })
           })
         })
       })
@@ -984,13 +1117,13 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {FAULT_TYPES.map((fault, fi) => (
+                  {(faultConfigs[activeStatus] ?? []).map((fault, fi) => (
                     <tr key={fault} className={fi % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                       <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-inherit">{fault}</td>
                       {DEVICE_TYPES.map(dt => (
                         <td key={dt} className="px-1 py-1">
                           <input type="number" min={0}
-                            value={stats[activeStatus][fault][dt] || ''}
+                            value={stats[activeStatus]?.[fault]?.[dt] || ''}
                             onChange={e => setCellValue(activeStatus, fault, dt, +e.target.value)}
                             className="w-full border border-gray-200 rounded px-1 py-0.5 text-center text-xs focus:outline-none focus:border-blue-400"
                             placeholder="0"
@@ -1251,13 +1384,48 @@ function EmptyState({ msg }: { msg: string }) {
 // ── Main ───────────────────────────────────────────────────────
 export default function RepairDashboard({ userEmail = '', permissions = [] }: { userEmail?: string; permissions?: string[] }) {
   const canWrite = permissions.includes('sua_chua:write') || permissions.includes('admin:users')
-  const [tab, setTab] = useState<'dashboard' | 'entry' | 'history'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'entry' | 'history' | 'config'>('dashboard')
   const [refreshKey, setRefreshKey] = useState(0)
 
-  const tabs: Array<{ key: 'dashboard' | 'entry' | 'history'; label: string }> = [
+  // ── Fault configs — fetched from DB, fallback to defaults ──
+  const [faultConfigs, setFaultConfigs] = useState<Record<string, string[]>>(DEFAULT_FAULT_TYPES_BY_STATUS)
+
+  useEffect(() => {
+    fetch('/api/sua-chua/fault-configs')
+      .then(r => r.json())
+      .then(d => { if (d.configs) setFaultConfigs(d.configs) })
+      .catch(() => {}) // keep defaults on error
+  }, [])
+
+  async function handleAddFault(status: string, fault: string) {
+    await fetch('/api/sua-chua/fault-configs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status_type: status, fault_type: fault }),
+    })
+    setFaultConfigs(prev => ({
+      ...prev,
+      [status]: [...(prev[status] ?? []), fault],
+    }))
+  }
+
+  async function handleDeleteFault(status: string, fault: string) {
+    await fetch('/api/sua-chua/fault-configs', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status_type: status, fault_type: fault }),
+    })
+    setFaultConfigs(prev => ({
+      ...prev,
+      [status]: (prev[status] ?? []).filter(f => f !== fault),
+    }))
+  }
+
+  const tabs: Array<{ key: 'dashboard' | 'entry' | 'history' | 'config'; label: string }> = [
     { key: 'dashboard', label: '📊 Biểu đồ' },
     ...(canWrite ? [{ key: 'entry' as const, label: '✏️ Nhập liệu' }] : []),
     { key: 'history',   label: '🗂 Lịch sử' },
+    ...(canWrite ? [{ key: 'config' as const, label: '⚙️ Cấu hình' }] : []),
   ]
 
   return (
@@ -1283,8 +1451,15 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
 
       <div className="px-6 py-5">
         {tab === 'dashboard' && <DashboardTab />}
-        {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} />}
+        {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} faultConfigs={faultConfigs} />}
         {tab === 'history'   && <HistoryTab refreshKey={refreshKey} />}
+        {tab === 'config'    && (
+          <FaultConfigPanel
+            faultConfigs={faultConfigs}
+            onAdd={handleAddFault}
+            onDelete={handleDeleteFault}
+          />
+        )}
       </div>
     </div>
   )
