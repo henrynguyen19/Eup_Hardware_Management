@@ -585,15 +585,16 @@ function DashboardTab() {
   const filteredWeeks: RepairWeek[] = dataReady ? (() => {
     switch (periodMode) {
       case 'tuan': {
+        // Primary match: exact week_number + year
+        const primaryWeek = allWeeks.find(w => w.year === weekYear && w.week_number === weekNum)
+        // Only include additional overlapping weeks if we don't have a clear primary match with dates
+        if (primaryWeek) return [primaryWeek]
+        // Fallback: no exact match → find by date overlap using ISO bounds
         const [mon, sun] = isoWeekBounds(weekYear, weekNum)
         return allWeeks.filter(w => {
-          // Primary: exact week_number + year match
-          if (w.year === weekYear && w.week_number === weekNum) return true
-          // Fallback: sheet date range overlaps with this ISO week's Mon–Sun range
           if (w.date_start) {
             const ds = new Date(w.date_start + 'T00:00:00Z')
             const de = w.date_end ? new Date(w.date_end + 'T00:00:00Z') : ds
-            // Overlap check: sheet range [ds, de] overlaps ISO week [mon, sun]
             return ds <= sun && de >= mon
           }
           return false
@@ -656,15 +657,17 @@ function DashboardTab() {
   const periodLabel = (() => {
     switch (periodMode) {
       case 'tuan': {
-        const matched = filteredWeeks[0]
-        if (matched?.date_start) {
-          const range = matched.date_end
-            ? `${fmtShortDate(matched.date_start)} – ${fmtShortDate(matched.date_end)}`
-            : fmtShortDate(matched.date_start)
+        // Use the SELECTED week's dates, not filteredWeeks[0] (which may be a different week)
+        const selectedWeek = allWeeks.find(w => w.year === weekYear && w.week_number === weekNum)
+          ?? filteredWeeks[0]
+        if (selectedWeek?.date_start) {
+          const range = selectedWeek.date_end
+            ? `${fmtShortDate(selectedWeek.date_start)} – ${fmtShortDate(selectedWeek.date_end)}`
+            : fmtShortDate(selectedWeek.date_start)
           return range
         }
         // Fallback nếu chưa có date_start
-        return matched?.week_label ?? `Tuần ${weekNum} / ${weekYear}`
+        return selectedWeek?.week_label ?? `Tuần ${weekNum} / ${weekYear}`
       }
       case 'thang': return `Tháng ${month} / ${monthYear}`
       case 'range': return rangeStart && rangeEnd ? `${fmtDateStr(rangeStart)} → ${fmtDateStr(rangeEnd)}` : 'Chọn khoảng ngày'
