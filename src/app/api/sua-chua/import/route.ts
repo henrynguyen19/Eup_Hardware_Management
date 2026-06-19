@@ -50,22 +50,45 @@ function parseSheetTitle(title: string) {
 }
 
 // Parse a single sheet's values into stats rows.
-// Dynamically detects label column position (can be col A or col B depending on row type).
+//
+// Chiến lược đọc dữ liệu:
+// - Đã sửa / Gửi bảo hành / Không lỗi / Hỏng hẳn: đọc hàng TỔNG cuối mỗi section
+// - Chờ sửa: đọc hàng "SỐ LƯỢNG" ở cột A (dòng data duy nhất của section này)
+// - Chỉ đọc trong phạm vi cột A–Q (1 label + 16 thiết bị)
+// - Bỏ qua tất cả hàng lỗi chi tiết, sub-header, v.v.
 function parseSheetData(values: string[][], weekId: string) {
   const statsRows: Array<{ week_id: string; status_type: string; fault_type: string; device_type: string; quantity: number }> = []
-  const totalsRows: Array<{ week_id: string; device_type: string; total_received: number }> = []
 
   let currentStatus: string | null = null
-  // dataStartCol: index of the first device-quantity column (auto-detected from header row)
-  let dataStartCol = 1  // default: col B
+  // dataStartCol: index cột đầu tiên chứa số lượng thiết bị (auto-detect từ header row)
+  let dataStartCol = 1  // mặc định: cột B (index 1)
 
-  // Helper: find first non-empty cell in first N cols, returns { label, col }
+  // Helper: tìm ô không rỗng đầu tiên trong N cột đầu → { label, col }
   function firstNonEmpty(row: string[], maxCols = 3): { label: string; col: number } | null {
     for (let i = 0; i < maxCols && i < row.length; i++) {
       const v = (row[i] || '').trim()
       if (v) return { label: v, col: i }
     }
     return null
+  }
+
+  // Đọc 16 thiết bị từ hàng, lưu với fault_type chỉ định
+  function readAggregateRow(row: string[], faultLabel: string): void {
+    if (!currentStatus) return
+    DEVICE_TYPES.forEach((deviceType, idx) => {
+      // Chỉ đọc trong phạm vi cột A–Q (dataStartCol + 16 thiết bị)
+      const rawVal = (row[dataStartCol + idx] || '').replace(/,/g, '').trim()
+      const qty = Math.min(parseInt(rawVal) || 0, MAX_QTY_PER_CELL)
+      if (qty > 0) {
+        statsRows.push({
+          week_id: weekId,
+          status_type: currentStatus!,
+          fault_type: faultLabel,
+          device_type: deviceType,
+          quantity: qty,
+        })
+      }
+    })
   }
 
   for (const row of values) {
@@ -75,68 +98,43 @@ function parseSheetData(values: string[][], weekId: string) {
     if (!found) continue
     const { label, col } = found
 
-    // === Auto-detect header row ("Lỗi \ Thiết Bị" + device type names) ===
-    // This row tells us exactly where device data starts
-    if (/lỗi|thiết\s*bị/i.test(label) || label.startsWith('Lỗi')) {
+    // === Detect header row "Lỗi \ Thiết Bị" → xác định dataStartCol ===
+    if (/lỗi|thiết\s*bị/i.test(label)) {
       dataStartCol = col + 1
       continue
     }
 
     // === Detect STATUS section headers ===
-    // Try exact match first, then normalize (remove extra spaces/diacritics sensitivity)
     let matchedStatus = STATUS_SECTIONS[label]
     if (!matchedStatus) {
-      // Fallback: check if any known key is contained within label
       for (const [key, val] of Object.entries(STATUS_SECTIONS)) {
         if (label.toLowerCase().includes(key.toLowerCase().slice(0, 5))) {
-          matchedStatus = val
-          break
+          matchedStatus = val; break
         }
       }
     }
     if (matchedStatus) {
       currentStatus = matchedStatus
-      // Section headers are often in a different column than fault types
-      // Don't change dataStartCol from what the header row told us
       continue
     }
 
-    // === Skip known non-data rows ===
-    // Exception: trong section "Chờ sửa", dòng "SỐ LƯỢNG" chính là dòng dữ liệu duy nhất
-    if (/^s[oố]\s*l[uư]/i.test(label) && currentStatus !== 'cho_sua') continue
-
-    // === Skip subtotal rows (e.g., "Tổng", "TỔNG") within a section ===
-    if (/^t[oổ]ng$/i.test(label.replace(/\s/g, ''))) {
-      // Check if this could be the grand total row (contains data for bàn giao)
-      // Heuristic: if we're NOT in a status section, it's likely the grand total
-      if (!currentStatus) {
-        // Treat as total devices received
-        DEVICE_TYPES.forEach((deviceType, idx) => {
-          const rawVal = (row[dataStartCol + idx] || '').replace(/,/g, '').trim()
-          const qty = parseInt(rawVal) || 0
-          if (qty > 0) {
-            totalsRows.push({ week_id: weekId, device_type: deviceType, total_received: qty })
-          }
-        })
-      }
-      // Skip this row either way (don't add subtotals as fault types)
+    // === Hàng TỔNG: đọc aggregate cho 4 trạng thái chính ===
+    if (/^t[oổ]ng$/i.test(label.replace(/\s/g, '')) && currentStatus && currentStatus !== 'cho_sua') {
+      readAggregateRow(row, 'TỔNG')
       continue
     }
 
-    // === Parse data row (fault type × device quantities) ===
-    if (currentStatus) {
-      const faultType = label
-      DEVICE_TYPES.forEach((deviceType, idx) => {
-        const rawVal = (row[dataStartCol + idx] || '').replace(/,/g, '').trim()
-        const qty = Math.min(parseInt(rawVal) || 0, MAX_QTY_PER_CELL)
-        if (qty > 0) {
-          statsRows.push({ week_id: weekId, status_type: currentStatus!, fault_type: faultType, device_type: deviceType, quantity: qty })
-        }
-      })
+    // === Chờ sửa: hàng "SỐ LƯỢNG" ở cột A (col===0) là dòng data duy nhất ===
+    // Sub-header "SỐ LƯỢNG" nằm ở cột B trở đi (col>0) → bỏ qua
+    if (currentStatus === 'cho_sua' && /^s[oố]\s*l[uư]/i.test(label) && col === 0) {
+      readAggregateRow(row, 'SỐ LƯỢNG')
+      continue
     }
+
+    // Bỏ qua tất cả các hàng khác (fault type chi tiết, sub-header, v.v.)
   }
 
-  return { statsRows, totalsRows }
+  return { statsRows }
 }
 
 // POST /api/sua-chua/import
@@ -203,20 +201,15 @@ export async function POST(req: NextRequest) {
           continue
         }
 
-        const { statsRows, totalsRows } = parseSheetData(values, weekRow.id)
+        const { statsRows } = parseSheetData(values, weekRow.id)
 
-        // Upsert stats
+        // Upsert stats (mỗi tuần có tối đa 5 status × 16 device = 80 rows)
         if (statsRows.length > 0) {
           await client.from('repair_stats')
             .upsert(statsRows, { onConflict: 'week_id,status_type,fault_type,device_type' })
         }
-        // Upsert totals
-        if (totalsRows.length > 0) {
-          await client.from('repair_totals')
-            .upsert(totalsRows, { onConflict: 'week_id,device_type' })
-        }
 
-        results.push({ title, status: 'ok', rows: statsRows.length + totalsRows.length })
+        results.push({ title, status: 'ok', rows: statsRows.length })
       } catch (e) {
         results.push({ title, status: 'error: ' + String(e) })
       }
