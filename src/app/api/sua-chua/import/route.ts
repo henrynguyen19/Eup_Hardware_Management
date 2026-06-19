@@ -106,6 +106,23 @@ function parseSheetData(values: string[][], weekId: string) {
     })
   }
 
+  const sectionNormMap: Record<string, string> = {
+    'dasua':       'da_sua',
+    'guibaohanh':  'gui_bao_hanh',
+    'khongloi':    'khong_loi',
+    'honghan':     'hong_han',
+    'chosua':      'cho_sua',
+  }
+
+  // Helper: check if a row has at least one non-zero value in device columns
+  function hasNumericData(row: string[]): boolean {
+    for (let i = 0; i < DEVICE_TYPES.length; i++) {
+      const rawVal = (row[dataStartCol + i] || '').replace(/,/g, '').trim()
+      if ((parseInt(rawVal) || 0) > 0) return true
+    }
+    return false
+  }
+
   for (const row of values) {
     if (!row || row.length === 0) continue
 
@@ -113,7 +130,7 @@ function parseSheetData(values: string[][], weekId: string) {
     if (!found) continue
     const { label, col } = found
 
-    // Normalize label — dùng function normalize() đã test ở trên
+    // Normalize label
     const labelNorm = normalize(label)
 
     // === Detect header row "Lỗi \ Thiết Bị" → xác định dataStartCol ===
@@ -122,39 +139,28 @@ function parseSheetData(values: string[][], weekId: string) {
       continue
     }
 
-    // === Detect STATUS section headers — dùng EXACT match để tránh nhầm fault types ===
-    // e.g. "không xác định" bắt đầu bằng "khong" nhưng KHÔNG phải "Không lỗi"
-    let matchedStatus: string | undefined = STATUS_SECTIONS[label]
-    if (!matchedStatus) {
-      const sectionNormMap: Record<string, string> = {
-        'dasua':       'da_sua',
-        'guibaohanh':  'gui_bao_hanh',
-        'khongloi':    'khong_loi',
-        'honghan':     'hong_han',
-        'chosua':      'cho_sua',
-      }
-      matchedStatus = sectionNormMap[labelNorm]
-    }
+    // === Detect STATUS section headers ===
+    const matchedStatus = STATUS_SECTIONS[label] || sectionNormMap[labelNorm]
     if (matchedStatus) {
       currentStatus = matchedStatus
       continue
     }
 
-    // === Hàng TỔNG: đọc aggregate cho 4 trạng thái chính ===
-    // labelNorm của "TỔNG"/"Tổng"/"tong" đều → "tong"
-    if (labelNorm === 'tong' && currentStatus && currentStatus !== 'cho_sua') {
-      readAggregateRow(row, 'TỔNG')
-      continue
-    }
+    if (!currentStatus) continue
 
-    // === Chờ sửa: hàng "SỐ LƯỢNG" ở cột A (col===0) là dòng data duy nhất ===
-    // Sub-header "SỐ LƯỢNG" nằm ở cột B trở đi (col>0) → bỏ qua
+    // === Bỏ qua hàng TỔNG — chúng ta đọc từng loại lỗi riêng ===
+    if (labelNorm === 'tong') continue
+
+    // === Chờ sửa: hàng "SỐ LƯỢNG" ở cột A là dòng data duy nhất ===
     if (currentStatus === 'cho_sua' && labelNorm.startsWith('so') && col === 0) {
       readAggregateRow(row, 'SỐ LƯỢNG')
       continue
     }
 
-    // Bỏ qua tất cả các hàng khác (fault type chi tiết, sub-header, v.v.)
+    // === Đọc từng hàng loại lỗi (cột A hoặc B) nếu có số liệu ===
+    if (currentStatus !== 'cho_sua' && col <= 1 && hasNumericData(row)) {
+      readAggregateRow(row, label.trim())
+    }
   }
 
   return { statsRows }
