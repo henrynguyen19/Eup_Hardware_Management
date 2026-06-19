@@ -35,7 +35,7 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro }: Props) {
     { icon: '📦', label: 'Quản lý thiết bị',  href: '/kho' },
     { icon: '🛠️', label: 'Hỗ trợ kỹ thuật',  href: '/ho-tro',      show: canHoTro || isAdmin },
     { icon: '📜', label: 'Giấy chứng nhận',   href: '/chung-nhan' },
-    { icon: '📊', label: 'Thống kê sửa chữa', href: '/thong-ke',    comingSoon: true },
+    { icon: '📊', label: 'Thống kê sửa chữa', href: '/sua-chua' },
     { icon: '🚚', label: 'Thông tin giao nhận',href: '/giao-nhan',  comingSoon: true },
     { icon: '👥', label: 'Phân quyền & User', href: '/admin/users', show: isAdmin },
   ]
