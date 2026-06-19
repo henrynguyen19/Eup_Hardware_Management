@@ -13,12 +13,15 @@ const DEVICE_TYPES = [
 
 // Mapping status section header → status_type key
 const STATUS_SECTIONS: Record<string, string> = {
-  'Đã sửa':         'da_sua',
-  'Gửi bảo hành':   'gui_bao_hanh',
-  'Không lỗi':      'khong_loi',
-  'Hỏng hẳn':       'hong_han',
-  'Chờ sửa':        'cho_sua',
+  'Đã sửa':       'da_sua',
+  'Gửi bảo hành': 'gui_bao_hanh',
+  'Không lỗi':    'khong_loi',
+  'Hỏng hẳn':     'hong_han',
+  'Chờ sửa':      'cho_sua',
 }
+
+// Giới hạn hợp lý cho số thiết bị/tuần — tránh đọc nhầm số tích lũy
+const MAX_QTY_PER_CELL = 999
 
 function getSheetsClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
@@ -99,7 +102,8 @@ function parseSheetData(values: string[][], weekId: string) {
     }
 
     // === Skip known non-data rows ===
-    if (/^s[oố]\s*l[uư]/i.test(label)) continue  // "Số lượng" / "SO LUONG"
+    // Exception: trong section "Chờ sửa", dòng "SỐ LƯỢNG" chính là dòng dữ liệu duy nhất
+    if (/^s[oố]\s*l[uư]/i.test(label) && currentStatus !== 'cho_sua') continue
 
     // === Skip subtotal rows (e.g., "Tổng", "TỔNG") within a section ===
     if (/^t[oổ]ng$/i.test(label.replace(/\s/g, ''))) {
@@ -122,16 +126,13 @@ function parseSheetData(values: string[][], weekId: string) {
     // === Parse data row (fault type × device quantities) ===
     if (currentStatus) {
       const faultType = label
-      let hasAny = false
       DEVICE_TYPES.forEach((deviceType, idx) => {
         const rawVal = (row[dataStartCol + idx] || '').replace(/,/g, '').trim()
-        const qty = parseInt(rawVal) || 0
+        const qty = Math.min(parseInt(rawVal) || 0, MAX_QTY_PER_CELL)
         if (qty > 0) {
           statsRows.push({ week_id: weekId, status_type: currentStatus!, fault_type: faultType, device_type: deviceType, quantity: qty })
-          hasAny = true
         }
       })
-      void hasAny
     }
   }
 
@@ -139,14 +140,29 @@ function parseSheetData(values: string[][], weekId: string) {
 }
 
 // POST /api/sua-chua/import
-// Body: { sheet_titles?: string[] }  — nếu bỏ qua thì import tất cả sheet
+// Body: {
+//   sheet_titles?: string[]   — nếu bỏ qua thì import tất cả sheet đủ điều kiện
+//   from_year?: number        — chỉ import từ năm này (default 2025)
+//   from_week?: number        — kết hợp từ tuần này trong from_year (default 40)
+//   clear_first?: boolean     — xóa data cũ trước khi import (default false)
+// }
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const filterTitles: string[] | undefined = body.sheet_titles
+    const fromYear: number  = body.from_year  ?? 2025
+    const fromWeek: number  = body.from_week  ?? 40
+    const clearFirst: boolean = body.clear_first ?? false
 
     const sheets = getSheetsClient()
     const client = sb()
+
+    // Xóa toàn bộ data nếu được yêu cầu
+    if (clearFirst) {
+      await client.from('repair_stats').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      await client.from('repair_totals').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      await client.from('repair_weeks').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    }
 
     // Lấy danh sách sheet
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID })
@@ -159,6 +175,10 @@ export async function POST(req: NextRequest) {
       const parsed = parseSheetTitle(title)
       if (!parsed) continue // skip trang tổng hợp, chart, etc.
       if (filterTitles && !filterTitles.includes(title)) continue
+
+      // Lọc: chỉ import từ fromYear/fromWeek trở đi
+      if (parsed.year < fromYear) continue
+      if (parsed.year === fromYear && parsed.week_number < fromWeek) continue
 
       try {
         // Đọc toàn bộ sheet

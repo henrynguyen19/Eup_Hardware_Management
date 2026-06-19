@@ -21,12 +21,13 @@ const DEVICE_COLORS: Record<string, string> = {
   'H5': '#9b59b6', 'Bewin': '#e91e63', 'Camera': '#607d8b'
 }
 
+// 5 trạng thái — Bàn giao = tổng tất cả
 const STATUS_TYPES = [
-  { key: 'da_sua',       label: 'Đã sửa',        color: '#00AF50' },
-  { key: 'gui_bao_hanh', label: 'Gửi bảo hành',  color: '#f59e0b' },
-  { key: 'khong_loi',    label: 'Không lỗi',      color: '#3b82f6' },
-  { key: 'hong_han',     label: 'Hỏng hẳn',       color: '#ef4444' },
-  { key: 'cho_sua',      label: 'Chờ sửa',        color: '#8b5cf6' },
+  { key: 'da_sua',       label: 'Đã sửa',       color: '#00AF50' },
+  { key: 'gui_bao_hanh', label: 'Gửi bảo hành', color: '#f59e0b' },
+  { key: 'khong_loi',    label: 'Không lỗi',     color: '#3b82f6' },
+  { key: 'hong_han',     label: 'Hỏng hẳn',      color: '#ef4444' },
+  { key: 'cho_sua',      label: 'Chờ sửa',       color: '#8b5cf6' },
 ]
 
 const FAULT_TYPES = [
@@ -68,92 +69,160 @@ function getWeekNumber(date: Date): number {
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
 }
 
-// ── Tab: Dashboard (biểu đồ) ──────────────────────────────────
+// Tính tổng bàn giao = sum 4 trạng thái (không dùng repair_totals vì có thể thiếu)
+function calcBanGiao(stats: RepairStat[], weekId: string, deviceType?: string): number {
+  return stats
+    .filter(s => s.week_id === weekId && (deviceType ? s.device_type === deviceType : true))
+    .reduce((a, s) => a + s.quantity, 0)
+}
+
+// ── Tab: Dashboard ────────────────────────────────────────────
 function DashboardTab({ year }: { year: number }) {
-  const [data, setData] = useState<{ weeks: RepairWeek[]; totals: RepairTotal[]; stats: RepairStat[] } | null>(null)
+  const [data, setData] = useState<{ weeks: RepairWeek[]; stats: RepairStat[] } | null>(null)
   const [loading, setLoading] = useState(true)
-  const [selectedDevices, setSelectedDevices] = useState<string[]>(['4G', '4GH', 'GO'])
-  const [chartMode, setChartMode] = useState<'totals' | 'outcomes'>('totals')
+  const [selectedDevices, setSelectedDevices] = useState<string[]>(['4G', '4GH', 'GO', 'SBOX'])
+  const [chartMode, setChartMode] = useState<'table' | 'line' | 'bar'>('table')
 
   useEffect(() => {
     setLoading(true)
     fetch(`/api/sua-chua/stats?year=${year}`)
       .then(r => r.json())
-      .then(setData)
+      .then(d => setData({ weeks: d.weeks ?? [], stats: d.stats ?? [] }))
       .finally(() => setLoading(false))
   }, [year])
 
   if (loading) return <LoadingSpinner />
   if (!data || data.weeks.length === 0) return <EmptyState msg="Chưa có dữ liệu năm này" />
 
-  // Build chart data for totals
-  const totalsChartData = data.weeks.map(week => {
-    const entry: Record<string, unknown> = { name: `T${week.week_number}` }
+  const { weeks, stats } = data
+
+  // Build totals per week per device (sum of all 4 statuses)
+  const weekDeviceTotals = weeks.map(week => {
+    const row: Record<string, number> = { total: 0 }
     DEVICE_TYPES.forEach(dt => {
-      const t = data.totals.find(t => t.week_id === week.id && t.device_type === dt)
-      entry[dt] = t?.total_received ?? 0
+      const qty = calcBanGiao(stats, week.id, dt)
+      row[dt] = qty
+      row.total += qty
     })
-    return entry
+    return { week, ...row }
   })
 
-  // Build chart data for outcomes (da_sua, gui_bao_hanh, etc.) per week, summed across devices
-  const outcomesChartData = data.weeks.map(week => {
+  // Chart data
+  const lineChartData = weekDeviceTotals.map(r => ({
+    name: `T${r.week.week_number}`,
+    ...Object.fromEntries(selectedDevices.map(dt => [dt, r[dt] ?? 0]))
+  }))
+
+  const barChartData = weeks.map(week => {
     const entry: Record<string, unknown> = { name: `T${week.week_number}` }
     STATUS_TYPES.forEach(st => {
-      const sum = data.stats
+      entry[st.label] = stats
         .filter(s => s.week_id === week.id && s.status_type === st.key)
         .reduce((a, s) => a + s.quantity, 0)
-      entry[st.label] = sum
     })
     return entry
   })
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Mode toggle */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setChartMode('totals')}
-          className={`px-4 py-1.5 text-xs font-medium rounded-lg transition ${chartMode === 'totals' ? 'bg-[#A70A0A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-        >📦 Thiết bị bàn giao</button>
-        <button
-          onClick={() => setChartMode('outcomes')}
-          className={`px-4 py-1.5 text-xs font-medium rounded-lg transition ${chartMode === 'outcomes' ? 'bg-[#A70A0A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-        >🔧 Kết quả sửa chữa</button>
+      <div className="flex gap-2 flex-wrap">
+        {([
+          { key: 'table', label: '📋 Bảng thiết bị' },
+          { key: 'line',  label: '📈 Biểu đồ đường' },
+          { key: 'bar',   label: '📊 Kết quả sửa chữa' },
+        ] as const).map(m => (
+          <button key={m.key} onClick={() => setChartMode(m.key)}
+            className={`px-4 py-1.5 text-xs font-medium rounded-lg transition ${chartMode === m.key ? 'bg-[#A70A0A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >{m.label}</button>
+        ))}
       </div>
 
-      {chartMode === 'totals' && (
+      {/* === TABLE VIEW (giống Google Sheets) === */}
+      {chartMode === 'table' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-700">Thiết bị bàn giao theo tuần × loại</h3>
+            <span className="text-xs text-gray-400">(= Đã sửa + Gửi bảo hành + Không lỗi + Hỏng hẳn + Chờ sửa)</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[120px]">Tuần</th>
+                  <th className="px-3 py-2 text-right font-semibold text-gray-800 border-r border-gray-200">Tổng</th>
+                  {DEVICE_TYPES.map(dt => (
+                    <th key={dt} className="px-2 py-2 text-right font-medium text-gray-500 min-w-[52px]"
+                      style={{ borderBottom: `2px solid ${DEVICE_COLORS[dt]}22` }}
+                    >{dt}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {weekDeviceTotals.map(({ week, total, ...deviceCounts }, i) => (
+                  <tr key={week.id} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'} hover:bg-blue-50/30 transition`}>
+                    <td className="px-3 py-2 font-medium text-gray-700 sticky left-0 bg-inherit z-10">{week.week_label}</td>
+                    <td className="px-3 py-2 text-right font-bold text-gray-900 border-r border-gray-100">
+                      {total > 0 ? total : <span className="text-gray-300">—</span>}
+                    </td>
+                    {DEVICE_TYPES.map(dt => {
+                      const qty = (deviceCounts as Record<string, number>)[dt] ?? 0
+                      return (
+                        <td key={dt} className="px-2 py-2 text-right">
+                          {qty > 0
+                            ? <span className="font-medium" style={{ color: DEVICE_COLORS[dt] }}>{qty}</span>
+                            : <span className="text-gray-200">—</span>
+                          }
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-gray-200 bg-gray-50">
+                  <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50 z-10">Tổng năm</td>
+                  <td className="px-3 py-2 text-right font-bold text-gray-900 border-r border-gray-100">
+                    {weekDeviceTotals.reduce((a, r) => a + (r.total as number), 0)}
+                  </td>
+                  {DEVICE_TYPES.map(dt => {
+                    const sum = weekDeviceTotals.reduce((a, r) => a + ((r[dt] as number) ?? 0), 0)
+                    return (
+                      <td key={dt} className="px-2 py-2 text-right font-semibold" style={{ color: sum > 0 ? DEVICE_COLORS[dt] : '#d1d5db' }}>
+                        {sum > 0 ? sum : '—'}
+                      </td>
+                    )
+                  })}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* === LINE CHART === */}
+      {chartMode === 'line' && (
         <>
-          {/* Device filter */}
           <div className="flex flex-wrap gap-2">
             {DEVICE_TYPES.map(dt => (
-              <button
-                key={dt}
-                onClick={() => setSelectedDevices(prev =>
-                  prev.includes(dt) ? prev.filter(d => d !== dt) : [...prev, dt]
-                )}
-                className={`px-2.5 py-1 text-xs rounded-full border transition ${
-                  selectedDevices.includes(dt)
-                    ? 'border-transparent text-white'
-                    : 'bg-white text-gray-500 border-gray-200'
-                }`}
+              <button key={dt}
+                onClick={() => setSelectedDevices(prev => prev.includes(dt) ? prev.filter(d => d !== dt) : [...prev, dt])}
+                className={`px-2.5 py-1 text-xs rounded-full border transition ${selectedDevices.includes(dt) ? 'border-transparent text-white' : 'bg-white text-gray-500 border-gray-200'}`}
                 style={selectedDevices.includes(dt) ? { background: DEVICE_COLORS[dt] } : {}}
               >{dt}</button>
             ))}
           </div>
-
           <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Tổng thiết bị bàn giao theo tuần</h3>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Thiết bị bàn giao mỗi tuần</h3>
             <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={totalsChartData}>
+              <LineChart data={lineChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {selectedDevices.map(dt => (
-                  <Line key={dt} type="monotone" dataKey={dt}
-                    stroke={DEVICE_COLORS[dt]} dot={false} strokeWidth={2} />
+                  <Line key={dt} type="monotone" dataKey={dt} stroke={DEVICE_COLORS[dt]} dot={false} strokeWidth={2} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -161,11 +230,12 @@ function DashboardTab({ year }: { year: number }) {
         </>
       )}
 
-      {chartMode === 'outcomes' && (
+      {/* === BAR CHART (outcomes) === */}
+      {chartMode === 'bar' && (
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Kết quả sửa chữa theo tuần</h3>
           <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={outcomesChartData}>
+            <BarChart data={barChartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
@@ -179,79 +249,44 @@ function DashboardTab({ year }: { year: number }) {
         </div>
       )}
 
-      {/* Summary table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-700">Tổng hợp theo tuần</h3>
+      {/* Summary row */}
+      {chartMode !== 'table' && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {STATUS_TYPES.map(st => {
+            const total = stats.filter(s => s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
+            return (
+              <div key={st.key} className="bg-white rounded-xl border border-gray-200 p-4">
+                <p className="text-xs text-gray-500 mb-1">{st.label}</p>
+                <p className="text-2xl font-bold" style={{ color: st.color }}>{total.toLocaleString()}</p>
+                <p className="text-[10px] text-gray-400 mt-1">cả năm {year}</p>
+              </div>
+            )
+          })}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-3 py-2 text-left font-medium text-gray-500">Tuần</th>
-                <th className="px-3 py-2 text-right font-medium text-gray-500">Bàn giao</th>
-                {STATUS_TYPES.map(st => (
-                  <th key={st.key} className="px-3 py-2 text-right font-medium text-gray-500">{st.label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.weeks.map(week => {
-                const totalReceived = data.totals
-                  .filter(t => t.week_id === week.id)
-                  .reduce((a, t) => a + t.total_received, 0)
-                return (
-                  <tr key={week.id} className="border-t border-gray-50 hover:bg-gray-50">
-                    <td className="px-3 py-2 font-medium text-gray-700">{week.week_label}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-gray-900">{totalReceived || '—'}</td>
-                    {STATUS_TYPES.map(st => {
-                      const sum = data.stats
-                        .filter(s => s.week_id === week.id && s.status_type === st.key)
-                        .reduce((a, s) => a + s.quantity, 0)
-                      return <td key={st.key} className="px-3 py-2 text-right text-gray-600">{sum || '—'}</td>
-                    })}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
     </div>
   )
 }
 
-// ── Tab: Nhập liệu tuần mới ───────────────────────────────────
+// ── Tab: Nhập liệu ─────────────────────────────────────────────
 function EntryTab({ onSaved }: { onSaved: () => void }) {
   const now = new Date()
   const weekNum = getWeekNumber(now)
   const year = now.getFullYear()
 
   const [form, setForm] = useState({
-    year: year,
-    week_number: weekNum,
+    year, week_number: weekNum,
     week_label: `Tuan ${weekNum} - ${year}`,
-    date_start: '',
-    date_end: '',
+    date_start: '', date_end: '',
   })
 
-  // stats[statusType][faultType][deviceType] = quantity
   const [stats, setStats] = useState<Record<string, Record<string, Record<string, number>>>>(() => {
     const s: Record<string, Record<string, Record<string, number>>> = {}
     STATUS_TYPES.forEach(st => {
       s[st.key] = {}
-      FAULT_TYPES.forEach(ft => {
-        s[st.key][ft] = {}
-        DEVICE_TYPES.forEach(dt => { s[st.key][ft][dt] = 0 })
-      })
+      FAULT_TYPES.forEach(ft => { s[st.key][ft] = {}; DEVICE_TYPES.forEach(dt => { s[st.key][ft][dt] = 0 }) })
     })
     return s
-  })
-
-  const [totals, setTotals] = useState<Record<string, number>>(() => {
-    const t: Record<string, number> = {}
-    DEVICE_TYPES.forEach(dt => { t[dt] = 0 })
-    return t
   })
 
   const [activeStatus, setActiveStatus] = useState('da_sua')
@@ -259,150 +294,76 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
   const [msg, setMsg] = useState('')
 
   function setCellValue(statusKey: string, fault: string, device: string, val: number) {
-    setStats(prev => ({
-      ...prev,
-      [statusKey]: {
-        ...prev[statusKey],
-        [fault]: { ...prev[statusKey][fault], [device]: val }
-      }
-    }))
+    setStats(prev => ({ ...prev, [statusKey]: { ...prev[statusKey], [fault]: { ...prev[statusKey][fault], [device]: val } } }))
   }
 
   async function handleSave() {
-    setSaving(true)
-    setMsg('')
+    setSaving(true); setMsg('')
     try {
-      // 1. Create/upsert the week
-      const weekRes = await fetch('/api/sua-chua/weeks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
-      })
+      const weekRes = await fetch('/api/sua-chua/weeks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
       const weekData = await weekRes.json()
       if (!weekRes.ok) throw new Error(weekData.error)
       const week_id = weekData.week.id
 
-      // 2. Save stats & totals
       const statsFlat: Array<{ status_type: string; fault_type: string; device_type: string; quantity: number }> = []
       STATUS_TYPES.forEach(st => {
         FAULT_TYPES.forEach(ft => {
-          DEVICE_TYPES.forEach(dt => {
-            const qty = stats[st.key][ft][dt] || 0
-            statsFlat.push({ status_type: st.key, fault_type: ft, device_type: dt, quantity: qty })
-          })
+          DEVICE_TYPES.forEach(dt => { statsFlat.push({ status_type: st.key, fault_type: ft, device_type: dt, quantity: stats[st.key][ft][dt] || 0 }) })
         })
       })
 
-      const totalsFlat = DEVICE_TYPES.map(dt => ({ device_type: dt, total_received: totals[dt] || 0 }))
-
-      const statsRes = await fetch('/api/sua-chua/stats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ week_id, stats: statsFlat, totals: totalsFlat })
-      })
+      const statsRes = await fetch('/api/sua-chua/stats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ week_id, stats: statsFlat, totals: [] }) })
       const statsData = await statsRes.json()
       if (!statsRes.ok) throw new Error(statsData.error)
-
-      setMsg('✅ Đã lưu thành công!')
-      onSaved()
-    } catch (e) {
-      setMsg('❌ ' + (e instanceof Error ? e.message : String(e)))
-    } finally {
-      setSaving(false)
-    }
+      setMsg('✅ Đã lưu!'); onSaved()
+    } catch (e) { setMsg('❌ ' + (e instanceof Error ? e.message : String(e))) }
+    finally { setSaving(false) }
   }
-
-  const activeStatusInfo = STATUS_TYPES.find(s => s.key === activeStatus)!
 
   return (
     <div className="space-y-5">
-      {/* Week info */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Thông tin tuần</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Năm</label>
-            <input type="number" value={form.year} onChange={e => setForm(f => ({ ...f, year: +e.target.value, week_label: `Tuan ${f.week_number} - ${e.target.value}` }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Tuần số</label>
-            <input type="number" value={form.week_number} onChange={e => setForm(f => ({ ...f, week_number: +e.target.value, week_label: `Tuan ${e.target.value} - ${f.year}` }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Từ ngày</label>
-            <input type="date" value={form.date_start} onChange={e => setForm(f => ({ ...f, date_start: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Đến ngày</label>
-            <input type="date" value={form.date_end} onChange={e => setForm(f => ({ ...f, date_end: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-          </div>
+          {[
+            { label: 'Năm', value: form.year, onChange: (v: number) => setForm(f => ({ ...f, year: v, week_label: `Tuan ${f.week_number} - ${v}` })) },
+            { label: 'Tuần số', value: form.week_number, onChange: (v: number) => setForm(f => ({ ...f, week_number: v, week_label: `Tuan ${v} - ${f.year}` })) },
+          ].map(({ label, value, onChange }) => (
+            <div key={label}>
+              <label className="text-xs text-gray-500 mb-1 block">{label}</label>
+              <input type="number" value={value} onChange={e => onChange(+e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+            </div>
+          ))}
+          {[
+            { label: 'Từ ngày', key: 'date_start' as const },
+            { label: 'Đến ngày', key: 'date_end' as const },
+          ].map(({ label, key }) => (
+            <div key={key}>
+              <label className="text-xs text-gray-500 mb-1 block">{label}</label>
+              <input type="date" value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+            </div>
+          ))}
         </div>
-        <div className="mt-2">
-          <p className="text-xs text-gray-400">Nhãn: <strong className="text-gray-700">{form.week_label}</strong></p>
-        </div>
+        <p className="text-xs text-gray-400 mt-2">Nhãn: <strong className="text-gray-700">{form.week_label}</strong></p>
       </div>
 
-      {/* Totals row */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Tổng thiết bị bàn giao</h3>
-        <div className="overflow-x-auto">
-          <table className="text-xs">
-            <thead>
-              <tr>
-                {DEVICE_TYPES.map(dt => (
-                  <th key={dt} className="px-2 py-1 text-center font-medium text-gray-500 min-w-[60px]">{dt}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                {DEVICE_TYPES.map(dt => (
-                  <td key={dt} className="px-1 py-1">
-                    <input
-                      type="number" min={0} value={totals[dt] || ''}
-                      onChange={e => setTotals(prev => ({ ...prev, [dt]: +e.target.value }))}
-                      className="w-full border border-gray-200 rounded px-1 py-0.5 text-center text-xs focus:outline-none focus:border-blue-400"
-                      placeholder="0"
-                    />
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Status tabs + matrix */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {/* Status tabs */}
         <div className="flex border-b border-gray-100 overflow-x-auto">
           {STATUS_TYPES.map(st => (
-            <button
-              key={st.key}
-              onClick={() => setActiveStatus(st.key)}
-              className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap transition ${
-                activeStatus === st.key
-                  ? 'border-b-2 text-white'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
+            <button key={st.key} onClick={() => setActiveStatus(st.key)}
+              className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap transition ${activeStatus === st.key ? 'border-b-2' : 'text-gray-500 hover:text-gray-700'}`}
               style={activeStatus === st.key ? { borderColor: st.color, background: st.color + '15', color: st.color } : {}}
             >{st.label}</button>
           ))}
         </div>
-
-        {/* Matrix */}
         <div className="p-4 overflow-x-auto">
           <table className="text-xs border-collapse">
             <thead>
               <tr>
-                <th className="px-3 py-2 text-left font-semibold text-gray-600 bg-gray-50 rounded-tl-lg sticky left-0 z-10 min-w-[120px]">Loại lỗi</th>
-                {DEVICE_TYPES.map(dt => (
-                  <th key={dt} className="px-2 py-2 text-center font-medium text-gray-500 bg-gray-50 min-w-[55px]">{dt}</th>
-                ))}
+                <th className="px-3 py-2 text-left font-semibold text-gray-600 bg-gray-50 sticky left-0 z-10 min-w-[120px]">Loại lỗi</th>
+                {DEVICE_TYPES.map(dt => <th key={dt} className="px-2 py-2 text-center font-medium text-gray-500 bg-gray-50 min-w-[55px]">{dt}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -411,8 +372,7 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
                   <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-inherit">{fault}</td>
                   {DEVICE_TYPES.map(dt => (
                     <td key={dt} className="px-1 py-1">
-                      <input
-                        type="number" min={0}
+                      <input type="number" min={0}
                         value={stats[activeStatus][fault][dt] || ''}
                         onChange={e => setCellValue(activeStatus, fault, dt, +e.target.value)}
                         className="w-full border border-gray-200 rounded px-1 py-0.5 text-center text-xs focus:outline-none focus:border-blue-400"
@@ -427,11 +387,8 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
 
-      {/* Save */}
       <div className="flex items-center gap-3">
-        <button
-          onClick={handleSave}
-          disabled={saving}
+        <button onClick={handleSave} disabled={saving}
           className="px-6 py-2 text-sm font-semibold text-white rounded-xl transition disabled:opacity-50"
           style={{ background: '#A70A0A' }}
         >{saving ? 'Đang lưu...' : '💾 Lưu dữ liệu'}</button>
@@ -441,7 +398,7 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
   )
 }
 
-// ── Tab: Lịch sử + Import ─────────────────────────────────────
+// ── Tab: Lịch sử + Import ──────────────────────────────────────
 function HistoryTab({ refreshKey }: { refreshKey: number }) {
   const [weeks, setWeeks] = useState<RepairWeek[]>([])
   const [loading, setLoading] = useState(true)
@@ -452,8 +409,7 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
 
   const loadWeeks = useCallback(async () => {
     setLoading(true)
-    const res = await fetch('/api/sua-chua/weeks')
-    const d = await res.json()
+    const d = await fetch('/api/sua-chua/weeks').then(r => r.json())
     setWeeks(d.weeks ?? [])
     setLoading(false)
   }, [])
@@ -462,22 +418,23 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
 
   async function loadWeekDetail(week: RepairWeek) {
     setSelectedWeek(week)
-    const res = await fetch(`/api/sua-chua/stats?week_id=${week.id}`)
-    const d = await res.json()
+    const d = await fetch(`/api/sua-chua/stats?week_id=${week.id}`).then(r => r.json())
     setWeekData(d)
   }
 
   async function handleImport() {
-    if (!confirm('Import toàn bộ lịch sử từ Google Sheets? Thao tác này có thể mất 1-2 phút.')) return
-    setImporting(true)
-    setImportResult('')
-    const res = await fetch('/api/sua-chua/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    if (!confirm('Xóa toàn bộ data cũ và import lại từ Google Sheets (từ tuần 40/2025)?')) return
+    setImporting(true); setImportResult('')
+    const res = await fetch('/api/sua-chua/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_year: 2025, from_week: 40, clear_first: true })
+    })
     const d = await res.json()
-    if (d.error) {
-      setImportResult('❌ ' + d.error)
-    } else {
+    if (d.error) { setImportResult('❌ ' + d.error) }
+    else {
       const ok = d.results.filter((r: { status: string }) => r.status === 'ok').length
-      setImportResult(`✅ Import xong: ${ok}/${d.results.length} sheet`)
+      setImportResult(`✅ Import xong: ${ok}/${d.results.length} tuần`)
       loadWeeks()
     }
     setImporting(false)
@@ -486,26 +443,21 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
   async function handleDelete(weekId: string) {
     if (!confirm('Xóa dữ liệu tuần này?')) return
     await fetch('/api/sua-chua/weeks', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ week_id: weekId }) })
-    setSelectedWeek(null)
-    setWeekData(null)
-    loadWeeks()
+    setSelectedWeek(null); setWeekData(null); loadWeeks()
   }
 
   if (loading) return <LoadingSpinner />
 
   return (
     <div className="space-y-4">
-      {/* Import button */}
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
         <div>
           <p className="text-sm font-semibold text-amber-800">Import lịch sử từ Google Sheets</p>
-          <p className="text-xs text-amber-600 mt-0.5">Chạy 1 lần để đồng bộ dữ liệu cũ. Cần share Sheets với service account trước.</p>
+          <p className="text-xs text-amber-600 mt-0.5">Import từ tuần 40/2025 trở đi. Sẽ xóa và ghi đè toàn bộ data cũ.</p>
         </div>
         <div className="flex items-center gap-3">
           {importResult && <p className="text-xs">{importResult}</p>}
-          <button
-            onClick={handleImport}
-            disabled={importing}
+          <button onClick={handleImport} disabled={importing}
             className="px-4 py-2 text-xs font-semibold text-white rounded-lg transition disabled:opacity-50"
             style={{ background: '#164d81' }}
           >{importing ? 'Đang import...' : '⬇ Import từ Sheets'}</button>
@@ -513,92 +465,70 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Week list */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-sm font-semibold text-gray-700">Danh sách tuần ({weeks.length})</p>
           </div>
           <div className="divide-y divide-gray-50 max-h-[500px] overflow-y-auto">
-            {weeks.length === 0 && (
-              <p className="text-xs text-gray-400 text-center py-8">Chưa có dữ liệu</p>
-            )}
+            {weeks.length === 0 && <p className="text-xs text-gray-400 text-center py-8">Chưa có dữ liệu</p>}
             {weeks.map(week => (
-              <button
-                key={week.id}
-                onClick={() => loadWeekDetail(week)}
+              <button key={week.id} onClick={() => loadWeekDetail(week)}
                 className={`w-full px-4 py-3 text-left hover:bg-gray-50 transition ${selectedWeek?.id === week.id ? 'bg-red-50' : ''}`}
               >
                 <p className={`text-sm font-medium ${selectedWeek?.id === week.id ? 'text-[#A70A0A]' : 'text-gray-800'}`}>{week.week_label}</p>
-                {week.date_start && (
-                  <p className="text-[11px] text-gray-400 mt-0.5">
-                    {new Date(week.date_start).toLocaleDateString('vi-VN')}
-                    {week.date_end ? ` – ${new Date(week.date_end).toLocaleDateString('vi-VN')}` : ''}
-                  </p>
-                )}
+                {week.date_start && <p className="text-[11px] text-gray-400 mt-0.5">{new Date(week.date_start).toLocaleDateString('vi-VN')}</p>}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Week detail */}
         <div className="md:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
           {!selectedWeek ? (
-            <div className="flex items-center justify-center h-full min-h-[200px] text-gray-400 text-sm">
-              Chọn một tuần để xem chi tiết
-            </div>
+            <div className="flex items-center justify-center h-full min-h-[200px] text-gray-400 text-sm">Chọn một tuần để xem chi tiết</div>
           ) : !weekData ? (
             <LoadingSpinner />
           ) : (
             <div>
               <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
-                <p className="text-sm font-semibold text-gray-700">{selectedWeek.week_label}</p>
+                <div>
+                  <p className="text-sm font-semibold text-gray-700">{selectedWeek.week_label}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Bàn giao: <strong className="text-gray-700">{calcBanGiao(weekData.stats, selectedWeek.id)}</strong> thiết bị
+                  </p>
+                </div>
                 <button onClick={() => handleDelete(selectedWeek.id)} className="text-xs text-red-500 hover:text-red-700">🗑 Xóa</button>
               </div>
 
-              {/* Totals */}
+              {/* Breakdown by device */}
               <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2">Tổng bàn giao</p>
+                <p className="text-xs font-semibold text-gray-500 mb-2">Theo loại thiết bị</p>
                 <div className="flex flex-wrap gap-2">
-                  {weekData.totals.filter(t => t.total_received > 0).map(t => (
-                    <span key={t.device_type} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                      {t.device_type}: <strong>{t.total_received}</strong>
-                    </span>
-                  ))}
+                  {DEVICE_TYPES.map(dt => {
+                    const qty = calcBanGiao(weekData.stats, selectedWeek.id, dt)
+                    if (qty === 0) return null
+                    return (
+                      <span key={dt} className="text-xs px-2 py-0.5 rounded-full text-white" style={{ background: DEVICE_COLORS[dt] }}>
+                        {dt}: {qty}
+                      </span>
+                    )
+                  })}
                 </div>
               </div>
 
-              {/* Stats breakdown */}
-              <div className="px-4 py-3 overflow-x-auto">
+              {/* Breakdown by status */}
+              <div className="px-4 py-3">
                 <p className="text-xs font-semibold text-gray-500 mb-2">Kết quả sửa chữa</p>
-                <table className="text-xs w-full">
-                  <thead>
-                    <tr className="border-b border-gray-100">
-                      <th className="text-left py-1 pr-3 text-gray-500 font-medium">Trạng thái</th>
-                      <th className="text-left py-1 pr-3 text-gray-500 font-medium">Loại thiết bị</th>
-                      <th className="text-right py-1 text-gray-500 font-medium">SL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {STATUS_TYPES.map(st => {
-                      const stRows = weekData.stats.filter(s => s.status_type === st.key)
-                      if (stRows.length === 0) return null
-                      // Group by device_type
-                      const byDevice: Record<string, number> = {}
-                      stRows.forEach(r => { byDevice[r.device_type] = (byDevice[r.device_type] || 0) + r.quantity })
-                      return Object.entries(byDevice).map(([dt, qty], i) => (
-                        <tr key={`${st.key}-${dt}`} className="border-b border-gray-50">
-                          {i === 0 && (
-                            <td rowSpan={Object.keys(byDevice).length} className="py-1 pr-3 font-medium align-top" style={{ color: st.color }}>
-                              {st.label}
-                            </td>
-                          )}
-                          <td className="py-1 pr-3 text-gray-600">{dt}</td>
-                          <td className="py-1 text-right font-semibold text-gray-800">{qty}</td>
-                        </tr>
-                      ))
-                    })}
-                  </tbody>
-                </table>
+                <div className="grid grid-cols-2 gap-2">
+                  {STATUS_TYPES.map(st => {
+                    const sum = weekData.stats.filter(s => s.week_id === selectedWeek.id && s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
+                    return (
+                      <div key={st.key} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: st.color + '12' }}>
+                        <span className="text-xs font-medium" style={{ color: st.color }}>{st.label}</span>
+                        <span className="text-sm font-bold text-gray-800">{sum || '—'}</span>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           )}
@@ -608,7 +538,6 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
   )
 }
 
-// ── Shared helpers ─────────────────────────────────────────────
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-48 gap-2 text-gray-400">
@@ -627,7 +556,7 @@ function EmptyState({ msg }: { msg: string }) {
   )
 }
 
-// ── Main component ─────────────────────────────────────────────
+// ── Main ───────────────────────────────────────────────────────
 export default function RepairDashboard() {
   const [tab, setTab] = useState<'dashboard' | 'entry' | 'history'>('dashboard')
   const [year, setYear] = useState(currentYear())
@@ -641,7 +570,6 @@ export default function RepairDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -649,33 +577,22 @@ export default function RepairDashboard() {
             <p className="text-xs text-gray-400 mt-0.5">Theo dõi tình trạng sửa chữa thiết bị hàng tuần</p>
           </div>
           {tab === 'dashboard' && (
-            <select
-              value={year}
-              onChange={e => setYear(+e.target.value)}
+            <select value={year} onChange={e => setYear(+e.target.value)}
               className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700"
             >
-              {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+              {[2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           )}
         </div>
-
-        {/* Tabs */}
         <div className="flex gap-1 mt-3 border-b border-gray-100">
           {tabs.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-4 py-2 text-xs font-medium rounded-t-lg transition ${
-                tab === t.key
-                  ? 'bg-white text-[#A70A0A] border border-b-white border-gray-200 -mb-px'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`px-4 py-2 text-xs font-medium rounded-t-lg transition ${tab === t.key ? 'bg-white text-[#A70A0A] border border-b-white border-gray-200 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}
             >{t.label}</button>
           ))}
         </div>
       </div>
 
-      {/* Content */}
       <div className="px-6 py-5">
         {tab === 'dashboard' && <DashboardTab year={year} />}
         {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} />}
