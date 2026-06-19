@@ -28,7 +28,7 @@ export default async function SuaChuaPage() {
 
   return (
     <AppShell userEmail={user.email ?? ''} permissions={permissions}>
-      <RepairDashboard />
+      <RepairDashboard userEmail={user.email ?? ''} permissions={permissions} />
     </AppShell>
   )
 }

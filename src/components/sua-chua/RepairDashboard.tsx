@@ -271,14 +271,41 @@ function DashboardTab({ year }: { year: number }) {
 // ── Tab: Nhập liệu ─────────────────────────────────────────────
 function EntryTab({ onSaved }: { onSaved: () => void }) {
   const now = new Date()
-  const weekNum = getWeekNumber(now)
-  const year = now.getFullYear()
+  // Default date_start = thứ Hai của tuần hiện tại, date_end = thứ Sáu
+  function getMondayOfWeek(d: Date) {
+    const day = d.getDay() || 7
+    const mon = new Date(d)
+    mon.setDate(d.getDate() - day + 1)
+    return mon
+  }
+  function toDateInput(d: Date) {
+    return d.toISOString().split('T')[0]
+  }
+  const defaultMonday = getMondayOfWeek(now)
+  const defaultFriday = new Date(defaultMonday)
+  defaultFriday.setDate(defaultMonday.getDate() + 4)
 
-  const [form, setForm] = useState({
-    year, week_number: weekNum,
-    week_label: `Tuan ${weekNum} - ${year}`,
-    date_start: '', date_end: '',
-  })
+  const [dateStart, setDateStart] = useState(toDateInput(defaultMonday))
+  const [dateEnd, setDateEnd]     = useState(toDateInput(defaultFriday))
+
+  // Derive week_number, year, week_label from dateStart
+  const derivedInfo = (() => {
+    if (!dateStart) return { year: now.getFullYear(), week_number: getWeekNumber(now), week_label: '' }
+    const d = new Date(dateStart)
+    const y = d.getFullYear()
+    const wn = getWeekNumber(d)
+    return { year: y, week_number: wn, week_label: `Tuan ${wn} - ${y}` }
+  })()
+
+  function formatDate(s: string) {
+    if (!s) return ''
+    const [y, m, d] = s.split('-')
+    return `${d}/${m}/${y}`
+  }
+
+  const displayLabel = dateStart && dateEnd
+    ? `${formatDate(dateStart)} – ${formatDate(dateEnd)}`
+    : derivedInfo.week_label
 
   const [stats, setStats] = useState<Record<string, Record<string, Record<string, number>>>>(() => {
     const s: Record<string, Record<string, Record<string, number>>> = {}
@@ -290,6 +317,7 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
   })
 
   const [activeStatus, setActiveStatus] = useState('da_sua')
+  const [mode, setMode] = useState<'entry' | 'preview'>('entry')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -297,10 +325,35 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
     setStats(prev => ({ ...prev, [statusKey]: { ...prev[statusKey], [fault]: { ...prev[statusKey][fault], [device]: val } } }))
   }
 
+  // Tính tổng theo status × device cho preview
+  function getStatusDeviceTotal(statusKey: string, deviceType: string): number {
+    return FAULT_TYPES.reduce((a, ft) => a + (stats[statusKey][ft][deviceType] || 0), 0)
+  }
+  function getStatusTotal(statusKey: string): number {
+    return DEVICE_TYPES.reduce((a, dt) => a + getStatusDeviceTotal(statusKey, dt), 0)
+  }
+  function getDeviceTotal(deviceType: string): number {
+    return STATUS_TYPES.reduce((a, st) => a + getStatusDeviceTotal(st.key, deviceType), 0)
+  }
+  function getGrandTotal(): number {
+    return STATUS_TYPES.reduce((a, st) => a + getStatusTotal(st.key), 0)
+  }
+
   async function handleSave() {
     setSaving(true); setMsg('')
     try {
-      const weekRes = await fetch('/api/sua-chua/weeks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+      const form = {
+        year: derivedInfo.year,
+        week_number: derivedInfo.week_number,
+        week_label: derivedInfo.week_label,
+        date_start: dateStart || null,
+        date_end: dateEnd || null,
+      }
+      const weekRes = await fetch('/api/sua-chua/weeks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
       const weekData = await weekRes.json()
       if (!weekRes.ok) throw new Error(weekData.error)
       const week_id = weekData.week.id
@@ -308,92 +361,171 @@ function EntryTab({ onSaved }: { onSaved: () => void }) {
       const statsFlat: Array<{ status_type: string; fault_type: string; device_type: string; quantity: number }> = []
       STATUS_TYPES.forEach(st => {
         FAULT_TYPES.forEach(ft => {
-          DEVICE_TYPES.forEach(dt => { statsFlat.push({ status_type: st.key, fault_type: ft, device_type: dt, quantity: stats[st.key][ft][dt] || 0 }) })
+          DEVICE_TYPES.forEach(dt => {
+            statsFlat.push({ status_type: st.key, fault_type: ft, device_type: dt, quantity: stats[st.key][ft][dt] || 0 })
+          })
         })
       })
 
-      const statsRes = await fetch('/api/sua-chua/stats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ week_id, stats: statsFlat, totals: [] }) })
+      const statsRes = await fetch('/api/sua-chua/stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ week_id, stats: statsFlat, totals: [] }),
+      })
       const statsData = await statsRes.json()
       if (!statsRes.ok) throw new Error(statsData.error)
-      setMsg('✅ Đã lưu!'); onSaved()
+      setMsg('✅ Đã lưu!'); setMode('entry'); onSaved()
     } catch (e) { setMsg('❌ ' + (e instanceof Error ? e.message : String(e))) }
     finally { setSaving(false) }
   }
 
   return (
     <div className="space-y-5">
+      {/* Week date range */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Thông tin tuần</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { label: 'Năm', value: form.year, onChange: (v: number) => setForm(f => ({ ...f, year: v, week_label: `Tuan ${f.week_number} - ${v}` })) },
-            { label: 'Tuần số', value: form.week_number, onChange: (v: number) => setForm(f => ({ ...f, week_number: v, week_label: `Tuan ${v} - ${f.year}` })) },
-          ].map(({ label, value, onChange }) => (
-            <div key={label}>
-              <label className="text-xs text-gray-500 mb-1 block">{label}</label>
-              <input type="number" value={value} onChange={e => onChange(+e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-            </div>
-          ))}
-          {[
-            { label: 'Từ ngày', key: 'date_start' as const },
-            { label: 'Đến ngày', key: 'date_end' as const },
-          ].map(({ label, key }) => (
-            <div key={key}>
-              <label className="text-xs text-gray-500 mb-1 block">{label}</label>
-              <input type="date" value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
-            </div>
-          ))}
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Thời gian tuần</h3>
+        <div className="grid grid-cols-2 gap-4 max-w-sm">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Từ ngày</label>
+            <input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Đến ngày</label>
+            <input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+          </div>
         </div>
-        <p className="text-xs text-gray-400 mt-2">Nhãn: <strong className="text-gray-700">{form.week_label}</strong></p>
+        <p className="text-xs text-gray-400 mt-2">
+          Tuần: <strong className="text-gray-700">
+            {derivedInfo.week_label} {displayLabel !== derivedInfo.week_label ? `(${displayLabel})` : ''}
+          </strong>
+        </p>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="flex border-b border-gray-100 overflow-x-auto">
-          {STATUS_TYPES.map(st => (
-            <button key={st.key} onClick={() => setActiveStatus(st.key)}
-              className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap transition ${activeStatus === st.key ? 'border-b-2' : 'text-gray-500 hover:text-gray-700'}`}
-              style={activeStatus === st.key ? { borderColor: st.color, background: st.color + '15', color: st.color } : {}}
-            >{st.label}</button>
-          ))}
-        </div>
-        <div className="p-4 overflow-x-auto">
-          <table className="text-xs border-collapse">
-            <thead>
-              <tr>
-                <th className="px-3 py-2 text-left font-semibold text-gray-600 bg-gray-50 sticky left-0 z-10 min-w-[120px]">Loại lỗi</th>
-                {DEVICE_TYPES.map(dt => <th key={dt} className="px-2 py-2 text-center font-medium text-gray-500 bg-gray-50 min-w-[55px]">{dt}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {FAULT_TYPES.map((fault, fi) => (
-                <tr key={fault} className={fi % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                  <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-inherit">{fault}</td>
-                  {DEVICE_TYPES.map(dt => (
-                    <td key={dt} className="px-1 py-1">
-                      <input type="number" min={0}
-                        value={stats[activeStatus][fault][dt] || ''}
-                        onChange={e => setCellValue(activeStatus, fault, dt, +e.target.value)}
-                        className="w-full border border-gray-200 rounded px-1 py-0.5 text-center text-xs focus:outline-none focus:border-blue-400"
-                        placeholder="0"
-                      />
-                    </td>
-                  ))}
-                </tr>
+      {/* Entry table (hidden in preview mode) */}
+      {mode === 'entry' && (
+        <>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="flex border-b border-gray-100 overflow-x-auto">
+              {STATUS_TYPES.map(st => (
+                <button key={st.key} onClick={() => setActiveStatus(st.key)}
+                  className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap transition ${activeStatus === st.key ? 'border-b-2' : 'text-gray-500 hover:text-gray-700'}`}
+                  style={activeStatus === st.key ? { borderColor: st.color, background: st.color + '15', color: st.color } : {}}
+                >{st.label}</button>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </div>
+            <div className="p-4 overflow-x-auto">
+              <table className="text-xs border-collapse">
+                <thead>
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600 bg-gray-50 sticky left-0 z-10 min-w-[120px]">Loại lỗi</th>
+                    {DEVICE_TYPES.map(dt => <th key={dt} className="px-2 py-2 text-center font-medium text-gray-500 bg-gray-50 min-w-[55px]">{dt}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {FAULT_TYPES.map((fault, fi) => (
+                    <tr key={fault} className={fi % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                      <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-inherit">{fault}</td>
+                      {DEVICE_TYPES.map(dt => (
+                        <td key={dt} className="px-1 py-1">
+                          <input type="number" min={0}
+                            value={stats[activeStatus][fault][dt] || ''}
+                            onChange={e => setCellValue(activeStatus, fault, dt, +e.target.value)}
+                            className="w-full border border-gray-200 rounded px-1 py-0.5 text-center text-xs focus:outline-none focus:border-blue-400"
+                            placeholder="0"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-      <div className="flex items-center gap-3">
-        <button onClick={handleSave} disabled={saving}
-          className="px-6 py-2 text-sm font-semibold text-white rounded-xl transition disabled:opacity-50"
-          style={{ background: '#A70A0A' }}
-        >{saving ? 'Đang lưu...' : '💾 Lưu dữ liệu'}</button>
-        {msg && <p className="text-sm">{msg}</p>}
-      </div>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setMode('preview')}
+              className="px-6 py-2 text-sm font-semibold text-white rounded-xl transition"
+              style={{ background: '#164d81' }}
+            >📊 Xem thống kê</button>
+            {msg && <p className="text-sm">{msg}</p>}
+          </div>
+        </>
+      )}
+
+      {/* Preview mode */}
+      {mode === 'preview' && (
+        <>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700">Xem lại thống kê trước khi lưu</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{derivedInfo.week_label} — {displayLabel}</p>
+              </div>
+              <span className="text-xs font-bold text-gray-800 bg-gray-100 px-3 py-1 rounded-full">
+                Tổng bàn giao: {getGrandTotal()}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[110px]">Trạng thái</th>
+                    {DEVICE_TYPES.map(dt => (
+                      <th key={dt} className="px-2 py-2 text-right font-medium text-gray-500 min-w-[48px]">{dt}</th>
+                    ))}
+                    <th className="px-3 py-2 text-right font-semibold text-gray-700 border-l border-gray-200">Tổng</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {STATUS_TYPES.map((st, i) => (
+                    <tr key={st.key} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                      <td className="px-3 py-2 font-medium sticky left-0 bg-inherit" style={{ color: st.color }}>{st.label}</td>
+                      {DEVICE_TYPES.map(dt => {
+                        const qty = getStatusDeviceTotal(st.key, dt)
+                        return (
+                          <td key={dt} className="px-2 py-2 text-right">
+                            {qty > 0 ? <span className="font-medium" style={{ color: st.color }}>{qty}</span> : <span className="text-gray-200">—</span>}
+                          </td>
+                        )
+                      })}
+                      <td className="px-3 py-2 text-right font-bold border-l border-gray-100" style={{ color: st.color }}>
+                        {getStatusTotal(st.key) || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-200 bg-gray-50">
+                    <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50">Bàn giao</td>
+                    {DEVICE_TYPES.map(dt => {
+                      const qty = getDeviceTotal(dt)
+                      return (
+                        <td key={dt} className="px-2 py-2 text-right font-semibold text-gray-700">
+                          {qty > 0 ? qty : <span className="text-gray-300">—</span>}
+                        </td>
+                      )
+                    })}
+                    <td className="px-3 py-2 text-right font-bold text-gray-900 border-l border-gray-200">{getGrandTotal()}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button onClick={() => { setMode('entry'); setMsg('') }}
+              className="px-5 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition"
+            >← Quay lại chỉnh sửa</button>
+            <button onClick={handleSave} disabled={saving}
+              className="px-6 py-2 text-sm font-semibold text-white rounded-xl transition disabled:opacity-50"
+              style={{ background: '#A70A0A' }}
+            >{saving ? 'Đang lưu...' : '💾 Xác nhận & Lưu'}</button>
+            {msg && <p className="text-sm">{msg}</p>}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -557,16 +689,17 @@ function EmptyState({ msg }: { msg: string }) {
 }
 
 // ── Main ───────────────────────────────────────────────────────
-export default function RepairDashboard() {
+export default function RepairDashboard({ userEmail = '', permissions = [] }: { userEmail?: string; permissions?: string[] }) {
+  const canWrite = permissions.includes('sua_chua:write') || permissions.includes('admin:users')
   const [tab, setTab] = useState<'dashboard' | 'entry' | 'history'>('dashboard')
   const [year, setYear] = useState(currentYear())
   const [refreshKey, setRefreshKey] = useState(0)
 
-  const tabs = [
+  const tabs: Array<{ key: 'dashboard' | 'entry' | 'history'; label: string }> = [
     { key: 'dashboard', label: '📊 Biểu đồ' },
-    { key: 'entry',     label: '✏️ Nhập liệu' },
+    ...(canWrite ? [{ key: 'entry' as const, label: '✏️ Nhập liệu' }] : []),
     { key: 'history',   label: '🗂 Lịch sử' },
-  ] as const
+  ]
 
   return (
     <div className="min-h-screen bg-gray-50">

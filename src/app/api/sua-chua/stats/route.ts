@@ -1,10 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createSupabaseServerClient } from '@/lib/supabase-server'
 
 const sb = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+async function getAuthUser() {
+  const supabase = createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  return user
+}
+
+async function checkWritePermission(userId: string): Promise<boolean> {
+  const { data } = await sb()
+    .from('user_permissions_view')
+    .select('permissions')
+    .eq('user_id', userId)
+    .single()
+  const perms: string[] = data?.permissions ?? []
+  return perms.includes('sua_chua:write') || perms.includes('admin:users')
+}
 
 // GET — lấy stats của 1 tuần hoặc nhiều tuần (cho chart)
 // ?week_id=xxx         → chi tiết 1 tuần
@@ -61,6 +78,12 @@ export async function GET(req: NextRequest) {
 //   totals: [{ device_type, total_received }]
 // }
 export async function POST(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
+
+  const canWrite = await checkWritePermission(user.id)
+  if (!canWrite) return NextResponse.json({ error: 'Không có quyền nhập liệu sửa chữa' }, { status: 403 })
+
   const { week_id, stats, totals } = await req.json()
   if (!week_id) return NextResponse.json({ error: 'Thiếu week_id' }, { status: 400 })
 
@@ -103,5 +126,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (errors.length > 0) return NextResponse.json({ error: errors.join('; ') }, { status: 500 })
+
+  // Audit log
+  await client.from('repair_entry_logs').insert({
+    week_id,
+    action: 'create',
+    entered_by: user.email ?? user.id,
+    entered_at: new Date().toISOString(),
+  })
+
   return NextResponse.json({ ok: true })
 }
