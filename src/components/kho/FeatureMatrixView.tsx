@@ -1,162 +1,302 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-interface DeviceInfo { equipment_id: string; name: string; status: string; device_type: string }
-interface CellVal { value: string; notes: string | null }
+// ── Types ─────────────────────────────────────────────────────
+interface DeviceInfo  { equipment_id: string; name: string; status: string; device_type: string }
+interface CellVal     { value: string; notes: string | null }
+interface FeatureMeta { feature_key: string; group_label: string; sort_order: number }
+interface GroupDef    { label: string; icon: string; color: string; sort_order: number }
 interface MatrixData {
   devices: DeviceInfo[]
   featureKeys: string[]
   matrix: Record<string, Record<string, CellVal>>
+  featureMeta: FeatureMeta[]
+  groupDefs: GroupDef[]
 }
 interface Props { isAdmin: boolean }
 
-// ── Nhóm tính năng (thứ tự chính xác theo file Excel) ─────────────────────
-interface FeatureGroup {
-  label: string
-  icon: string
-  bg: string
-  text: string
-  border: string
-  keys: string[]
+// ── Color map ─────────────────────────────────────────────────
+const COLOR_MAP: Record<string, { bg: string; text: string; border: string; groupBg: string }> = {
+  amber:  { bg: 'bg-amber-50',  text: 'text-amber-800',  border: 'border-amber-200',  groupBg: 'bg-amber-50'  },
+  blue:   { bg: 'bg-blue-50',   text: 'text-blue-800',   border: 'border-blue-200',   groupBg: 'bg-blue-50'   },
+  orange: { bg: 'bg-orange-50', text: 'text-orange-800', border: 'border-orange-200', groupBg: 'bg-orange-50' },
+  purple: { bg: 'bg-purple-50', text: 'text-purple-800', border: 'border-purple-200', groupBg: 'bg-purple-50' },
+  teal:   { bg: 'bg-teal-50',   text: 'text-teal-800',   border: 'border-teal-200',   groupBg: 'bg-teal-50'   },
+  green:  { bg: 'bg-green-50',  text: 'text-green-800',  border: 'border-green-200',  groupBg: 'bg-green-50'  },
+  gray:   { bg: 'bg-gray-50',   text: 'text-gray-700',   border: 'border-gray-200',   groupBg: 'bg-gray-50'   },
 }
-const FEATURE_GROUPS: FeatureGroup[] = [
-  {
-    label: 'Tieu chuan phap ly', icon: '📜',
-    bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200',
-    keys: ['QCVN06', 'QCVN31', 'Nghi Dinh 10'],
-  },
-  {
-    label: 'RFID & Tai xe', icon: '🪪',
-    bg: 'bg-blue-50', text: 'text-blue-800', border: 'border-blue-200',
-    keys: ['Canh bao quet the', 'Quet The lai xe', 'Tu dong dang xuat'],
-  },
-  {
-    label: 'Canh bao toc do', icon: '⚡',
-    bg: 'bg-orange-50', text: 'text-orange-800', border: 'border-orange-200',
-    keys: ['Canh bao Toc do theo cung duong', 'Canh bao qua toc do'],
-  },
-  {
-    label: 'Camera', icon: '📷',
-    bg: 'bg-purple-50', text: 'text-purple-800', border: 'border-purple-200',
-    keys: ['Tich hop cam'],
-  },
-  {
-    label: 'Cam bien dau', icon: '🛢️',
-    bg: 'bg-teal-50', text: 'text-teal-800', border: 'border-teal-200',
-    keys: ['Cam bien dau Taiwan - Soji', 'Cam bien dau doi', 'Cam bien dau chuyen doi'],
-  },
-  {
-    label: 'Cam bien & Mo rong', icon: '🔌',
-    bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-200',
-    keys: ['Cam bien nhiet do', 'Cam bien be tong', 'Cong tac nang ha', 'Cam bien va cham', 'Cam bien romooc etag'],
-  },
-]
+const COLOR_OPTIONS = ['amber', 'blue', 'orange', 'purple', 'teal', 'green', 'gray']
+const colorStyle = (color: string) => COLOR_MAP[color] ?? COLOR_MAP.gray
 
-// Vietnamese canonical feature names (must match DB exactly)
-const VI_FEATURE_NAMES: Record<string, string> = {
-  'QCVN06':             'QCVN06',
-  'QCVN31':             'QCVN31',
-  'Nghi Dinh 10':       'Nghị Định 10',
-  'Canh bao quet the':  'Cảnh báo quẹt thẻ',
-  'Quet The lai xe':    'Quẹt Thẻ lái xe',
-  'Tu dong dang xuat':  'Tự động đăng xuất',
-  'Canh bao Toc Do theo cung duong': 'Cảnh báo Tốc độ theo cung đường',
-  'Canh bao qua toc do':'Cảnh báo quá tốc độ',
-  'Tich hop cam':        'Tích hợp cam',
-  'Cam bien dau Taiwan - Soji': 'Cảm biến dầu Taiwan - Soji',
-  'Cam bien dau doi':   'Cảm biến dầu đôi',
-  'Cam bien dau chuyen doi': 'Cảm biến dầu chuyển đổi',
-  'Cam bien nhiet do':  'Cảm biến nhiệt độ',
-  'Cam bien be tong':   'Cảm biến bê tông',
-  'Cong tac nang ha':   'Công tắc nâng hạ ben, cửa, điều hòa, Sos, Công tắc chở hàng',
-  'Cam bien va cham':   'Cảm biến va chạm',
-  'Cam bien romooc etag':'Cảm biến rơmooc etag',
-}
-
-// Build lookup from vi_name -> group
-const KEY_TO_GROUP = new Map<string, FeatureGroup>()
-const CANONICAL_ORDER: string[] = []
-for (const g of FEATURE_GROUPS) {
-  for (const slug of g.keys) {
-    const viName = VI_FEATURE_NAMES[slug] ?? slug
-    KEY_TO_GROUP.set(viName, g)
-    CANONICAL_ORDER.push(viName)
-  }
-}
-
-const STORAGE_KEY = 'kho_feature_order_v3'
-
-function loadOrder(apiKeys: string[]): string[] {
-  try {
-    const stored: string[] = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]')
-    if (stored.length > 0) {
-      return [...stored.filter(k => apiKeys.includes(k)), ...apiKeys.filter(k => !stored.includes(k))]
-    }
-  } catch {}
-  // Default: follow CANONICAL_ORDER, then extras
-  return [...CANONICAL_ORDER.filter(k => apiKeys.includes(k)), ...apiKeys.filter(k => !CANONICAL_ORDER.includes(k))]
-}
-function saveOrder(keys: string[]) { localStorage.setItem(STORAGE_KEY, JSON.stringify(keys)) }
-
-// Device type -> header color
-function deviceHeaderStyle(deviceType: string): string {
+function deviceHeaderStyle(deviceType: string) {
   const t = (deviceType ?? '').toLowerCase()
-  if (t.includes('ai') || t.includes('adas'))      return 'bg-violet-600 text-white'
-  if (t.includes('camera') || t.includes('dvr'))   return 'bg-purple-600 text-white'
+  if (t.includes('ai') || t.includes('adas'))    return 'bg-violet-600 text-white'
+  if (t.includes('camera') || t.includes('dvr')) return 'bg-purple-600 text-white'
   return 'bg-blue-600 text-white'
 }
 
-function renderValue(value: string, notes: string | null) {
+// ── Cell renderer ─────────────────────────────────────────────
+function CellDisplay({ value, notes }: { value: string; notes: string | null }) {
   const v = value.trim()
-  const posLower = ['co', 'yes', '1']
-  const negLower = ['khong', 'no', '0']
-  const isCheck = v === 'check' || v === '✔' || posLower.includes(v.toLowerCase())
-  const isCross = v === '✘' || negLower.includes(v.toLowerCase())
+  const isCheck = v === 'check' || v === '\u2714' || ['co', 'yes', '1'].includes(v.toLowerCase())
+  const isCross = v === 'Khong' || v === '\u2718' || ['khong', 'no', '0', ''].includes(v.toLowerCase())
 
   if (isCheck) return (
-    <span className="flex flex-col items-center gap-0.5" title={notes ?? undefined}>
-      <span className="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">✔</span>
+    <span className="flex flex-col items-center gap-0.5">
+      <span className="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">\u2714</span>
       {notes && <span className="text-[10px] text-gray-400 text-center leading-tight max-w-[80px] break-words">{notes}</span>}
     </span>
   )
-  if (isCross) return (
-    <span className="flex justify-center text-gray-300 text-base" title={notes ?? undefined}>&mdash;</span>
-  )
-  // Text value (e.g. 'Soji')
+  if (isCross) return <span className="text-gray-300 text-base">&mdash;</span>
   return (
-    <span className="flex flex-col items-center gap-0.5" title={notes ?? undefined}>
+    <span className="flex flex-col items-center gap-0.5">
       <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-[11px] font-medium text-center max-w-[80px] break-words">{v}</span>
       {notes && <span className="text-[10px] text-gray-400 text-center leading-tight max-w-[80px] break-words">{notes}</span>}
     </span>
   )
 }
 
-export default function FeatureMatrixView({ isAdmin }: Props) {
-  const [data, setData]             = useState<MatrixData | null>(null)
-  const [loading, setLoading]       = useState(true)
-  const [error, setError]           = useState<string | null>(null)
-  const [sortedKeys, setSortedKeys] = useState<string[]>([])
-  const [editingKey, setEditingKey] = useState<string | null>(null)
-  const [editVal, setEditVal]       = useState('')
-  const [renaming, setRenaming]     = useState(false)
-  const [renameErr, setRenameErr]   = useState<string | null>(null)
-  const dragIdx = useRef<number | null>(null)
-  const [dropIdx, setDropIdx]       = useState<number | null>(null)
+// ── Cell Edit Popup ────────────────────────────────────────────
+interface CellEditState {
+  equipmentId: string
+  featureKey: string
+  value: string
+  notes: string
+  anchorRect: DOMRect
+}
 
-  const loadData = () => {
+function CellEditPopup({
+  state, onClose, onSave,
+}: {
+  state: CellEditState
+  onClose: () => void
+  onSave: (equipmentId: string, featureKey: string, value: string, notes: string) => Promise<void>
+}) {
+  const [valueType, setValueType] = useState<'check' | 'cross' | 'text'>(() => {
+    const v = state.value.trim()
+    if (v === 'check' || v === '\u2714' || ['co', 'yes', '1'].includes(v.toLowerCase())) return 'check'
+    if (v === 'Khong' || ['khong', 'no', '0', ''].includes(v.toLowerCase())) return 'cross'
+    return 'text'
+  })
+  const [textVal, setTextVal] = useState(() => {
+    const v = state.value.trim()
+    const isSpecial = ['check', '\u2714', 'Khong', '\u2718', 'co', 'yes', '1', 'khong', 'no', '0', ''].includes(v.toLowerCase())
+    return isSpecial ? '' : v
+  })
+  const [notes, setNotes] = useState(state.notes)
+  const [saving, setSaving] = useState(false)
+
+  const top  = Math.min(state.anchorRect.bottom + 4, window.innerHeight - 260)
+  const left = Math.min(state.anchorRect.left, window.innerWidth - 280)
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  async function handleSave() {
+    setSaving(true)
+    const val = valueType === 'check' ? 'check' : valueType === 'cross' ? 'Khong' : textVal.trim() || 'Khong'
+    await onSave(state.equipmentId, state.featureKey, val, notes)
+    setSaving(false)
+    onClose()
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="fixed z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64" style={{ top, left }}>
+        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 truncate">{state.featureKey}</p>
+        <div className="flex gap-1.5 mb-3">
+          {(['check','cross','text'] as const).map(t => (
+            <button key={t} onClick={() => setValueType(t)}
+              className={\`flex-1 py-1.5 rounded-lg text-xs font-medium border transition \${
+                valueType === t
+                  ? t === 'check' ? 'bg-green-100 border-green-400 text-green-700'
+                  : t === 'cross' ? 'bg-gray-200 border-gray-400 text-gray-700'
+                  : 'bg-blue-100 border-blue-400 text-blue-700'
+                  : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300'
+              }\`}
+            >{t === 'check' ? '\u2714 Co' : t === 'cross' ? '\u2014 Khong' : '\ud83d\udcdd Text'}</button>
+          ))}
+        </div>
+        {valueType === 'text' && (
+          <input autoFocus value={textVal} onChange={e => setTextVal(e.target.value)}
+            placeholder="Vi du: Soji, DVR88..."
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 mb-3"
+          />
+        )}
+        <label className="block text-[11px] font-medium text-gray-500 mb-1">Chu thich (hien duoi gia tri)</label>
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+          placeholder="Vi du: Can them cap ket noi..."
+          className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none mb-3"
+        />
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Huy</button>
+          <button onClick={handleSave} disabled={saving}
+            className="flex-1 py-1.5 text-xs font-medium text-white rounded-lg disabled:opacity-50"
+            style={{ background: '#A70A0A' }}
+          >{saving ? '...' : 'Luu'}</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Add Feature Modal ─────────────────────────────────────────
+function AddFeatureModal({ groups, defaultGroup, onClose, onAdd }: {
+  groups: GroupDef[]; defaultGroup: string
+  onClose: () => void; onAdd: (key: string, group: string) => Promise<void>
+}) {
+  const [name, setName]   = useState('')
+  const [group, setGroup] = useState(defaultGroup)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function handleAdd() {
+    if (!name.trim()) { setErr('Nhap ten tinh nang'); return }
+    setSaving(true); setErr(null)
+    try { await onAdd(name.trim(), group) }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-80 p-5" onClick={e => e.stopPropagation()}>
+        <h3 className="text-sm font-bold text-gray-900 mb-4">+ Them tinh nang moi</h3>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Ten tinh nang</label>
+        <input autoFocus value={name} onChange={e => setName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleAdd()}
+          placeholder="Vi du: Cam bien ap suat lop"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 mb-3"
+        />
+        <label className="block text-xs font-medium text-gray-600 mb-1">Thuoc nhom</label>
+        <select value={group} onChange={e => setGroup(e.target.value)}
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 mb-4"
+        >
+          {groups.map(g => <option key={g.label} value={g.label}>{g.icon} {g.label}</option>)}
+        </select>
+        {err && <p className="text-xs text-red-600 mb-3">{err}</p>}
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Huy</button>
+          <button onClick={handleAdd} disabled={saving}
+            className="flex-1 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50"
+            style={{ background: '#A70A0A' }}
+          >{saving ? 'Dang them...' : 'Them'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Add Group Modal ────────────────────────────────────────────
+function AddGroupModal({ onClose, onAdd }: {
+  onClose: () => void; onAdd: (label: string, icon: string, color: string) => Promise<void>
+}) {
+  const [label, setLabel] = useState('')
+  const [icon, setIcon]   = useState('\u2699\ufe0f')
+  const [color, setColor] = useState('gray')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const EMOJI_OPTIONS = ['\u2699\ufe0f','\ud83d\udcdc','\ud83e\ude9e','\u26a1','\ud83d\udcf7','\ud83d\udee2\ufe0f','\ud83d\udd0c','\ud83d\udd27','\ud83d\udce1','\ud83d\udca1','\ud83d\udd12','\ud83c\udf21\ufe0f','\ud83d\udcf2','\ud83d\udea8','\ud83d\udd0b','\ud83d\udee1\ufe0f']
+
+  async function handleAdd() {
+    if (!label.trim()) { setErr('Nhap ten nhom'); return }
+    setSaving(true); setErr(null)
+    try { await onAdd(label.trim(), icon, color) }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-80 p-5" onClick={e => e.stopPropagation()}>
+        <h3 className="text-sm font-bold text-gray-900 mb-4">Them nhom moi</h3>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Ten nhom</label>
+        <input autoFocus value={label} onChange={e => setLabel(e.target.value)}
+          placeholder="Vi du: Dinh vi & GPS"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 mb-3"
+        />
+        <label className="block text-xs font-medium text-gray-600 mb-1">Bieu tuong</label>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {EMOJI_OPTIONS.map(e => (
+            <button key={e} onClick={() => setIcon(e)}
+              className={\`w-8 h-8 rounded-lg text-base border transition \${icon === e ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300'}\`}
+            >{e}</button>
+          ))}
+        </div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Mau sac</label>
+        <div className="flex gap-1.5 mb-4">
+          {COLOR_OPTIONS.map(c => {
+            const s = colorStyle(c)
+            return (
+              <button key={c} onClick={() => setColor(c)}
+                className={\`flex-1 h-7 rounded-lg border text-[10px] font-medium transition \${s.bg} \${s.text} \${color === c ? 'ring-2 ring-offset-1 ring-gray-400' : 'border-transparent'}\`}
+              >{c}</button>
+            )
+          })}
+        </div>
+        {err && <p className="text-xs text-red-600 mb-3">{err}</p>}
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Huy</button>
+          <button onClick={handleAdd} disabled={saving}
+            className="flex-1 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50"
+            style={{ background: '#164d81' }}
+          >{saving ? 'Dang tao...' : 'Tao nhom'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main ──────────────────────────────────────────────────────
+export default function FeatureMatrixView({ isAdmin }: Props) {
+  const [data, setData]       = useState<MatrixData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
+  const [sortedKeys, setSorted] = useState<string[]>([])
+
+  const [cellEdit, setCellEdit]             = useState<CellEditState | null>(null)
+  const [editingKey, setEditingKey]         = useState<string | null>(null)
+  const [editVal, setEditVal]               = useState('')
+  const [renaming, setRenaming]             = useState(false)
+  const [renameErr, setRenameErr]           = useState<string | null>(null)
+  const [showAddFeature, setShowAddFeature] = useState<string | null>(null)
+  const [showAddGroup, setShowAddGroup]     = useState(false)
+  const [deletingKey, setDeletingKey]       = useState<string | null>(null)
+  const dragIdx = useRef<number | null>(null)
+  const [dropIdx, setDropIdx] = useState<number | null>(null)
+
+  const loadData = useCallback(() => {
     setLoading(true)
     fetch('/api/kho/features-matrix')
       .then(r => r.json())
       .then(d => {
         if (d.error) { setError(d.error); return }
-        setData(d)
-        setSortedKeys(loadOrder(d.featureKeys))
+        setData(d); setSorted(d.featureKeys)
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  async function handleCellSave(eqId: string, fk: string, value: string, notes: string) {
+    const res = await fetch(\`/api/kho/equipment/\${eqId}/features\`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feature_key: fk, value, notes: notes || null }),
+    })
+    if (!res.ok) { const j = await res.json(); throw new Error(j.error) }
+    setData(prev => {
+      if (!prev) return prev
+      const m = { ...prev.matrix, [eqId]: { ...prev.matrix[eqId], [fk]: { value, notes: notes || null } } }
+      return { ...prev, matrix: m }
+    })
   }
-  useEffect(() => { loadData() }, [])
 
   async function confirmRename(oldKey: string) {
     const newKey = editVal.trim()
@@ -168,13 +308,39 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ old_key: oldKey, new_key: newKey }),
       })
-      const json = await res.json()
-      if (!res.ok) { setRenameErr(json.error ?? 'Loi'); return }
-      setSortedKeys(prev => { const next = prev.map(k => k === oldKey ? newKey : k); saveOrder(next); return next })
-      setEditingKey(null)
-      loadData()
-    } catch (e: unknown) { setRenameErr(e instanceof Error ? e.message : 'Loi mang') }
-    finally { setRenaming(false) }
+      if (!res.ok) { const j = await res.json(); setRenameErr(j.error ?? 'Loi'); return }
+      setEditingKey(null); loadData()
+    } finally { setRenaming(false) }
+  }
+
+  async function handleAddFeature(key: string, group: string) {
+    const res = await fetch('/api/kho/features-matrix', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feature_key: key, group_label: group }),
+    })
+    const j = await res.json()
+    if (!res.ok) throw new Error(j.error)
+    setShowAddFeature(null); loadData()
+  }
+
+  async function handleAddGroup(label: string, icon: string, color: string) {
+    const res = await fetch('/api/kho/feature-groups', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label, icon, color }),
+    })
+    const j = await res.json()
+    if (!res.ok) throw new Error(j.error)
+    setShowAddGroup(false); loadData()
+  }
+
+  async function handleDeleteFeature(key: string) {
+    if (!confirm(\`Xoa tinh nang "\${key}"?\nTat ca du lieu tren moi thiet bi se bi xoa.\`)) return
+    setDeletingKey(key)
+    await fetch('/api/kho/features-matrix', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feature_key: key }),
+    })
+    setDeletingKey(null); loadData()
   }
 
   function handleDragStart(idx: number) { dragIdx.current = idx }
@@ -182,11 +348,8 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
   function handleDrop(targetIdx: number) {
     const src = dragIdx.current
     if (src === null || src === targetIdx) { dragIdx.current = null; setDropIdx(null); return }
-    const next = [...sortedKeys]
-    const [moved] = next.splice(src, 1)
-    next.splice(targetIdx, 0, moved)
-    setSortedKeys(next); saveOrder(next)
-    dragIdx.current = null; setDropIdx(null)
+    const next = [...sortedKeys]; const [moved] = next.splice(src, 1); next.splice(targetIdx, 0, moved)
+    setSorted(next); dragIdx.current = null; setDropIdx(null)
   }
 
   if (loading) return (
@@ -201,142 +364,169 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
   if (error) return <div className="text-red-500 text-sm bg-red-50 rounded-xl p-4 m-4">{error}</div>
   if (!data || data.devices.length === 0) return (
     <div className="flex flex-col items-center justify-center py-16 text-gray-400 text-sm gap-2">
-      <span className="text-4xl">⚙️</span>
-      Chua co du lieu tinh nang. Chay seed script sau khi da chay SQL migration.
+      <span className="text-4xl">\u2699\ufe0f</span>
+      Chua co du lieu tinh nang.
     </div>
   )
 
-  const devices = data.devices
+  const { devices, matrix, featureMeta, groupDefs } = data
+  const metaMap = new Map(featureMeta.map(m => [m.feature_key, m]))
+
+  const keysByGroup = new Map<string, string[]>()
+  const noGroupKeys: string[] = []
+  for (const key of sortedKeys) {
+    const meta = metaMap.get(key)
+    if (meta) {
+      const arr = keysByGroup.get(meta.group_label) ?? []; arr.push(key)
+      keysByGroup.set(meta.group_label, arr)
+    } else { noGroupKeys.push(key) }
+  }
+
+  const orderedGroups: { group: GroupDef | null; label: string; keys: string[] }[] = []
+  for (const g of groupDefs) orderedGroups.push({ group: g, label: g.label, keys: keysByGroup.get(g.label) ?? [] })
+  if (noGroupKeys.length > 0) orderedGroups.push({ group: null, label: 'Khac', keys: noGroupKeys })
 
   return (
     <div className="overflow-x-auto">
-      {renameErr && (
-        <div className="mx-4 mt-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{renameErr}</div>
-      )}
-      <table className="w-full text-xs border-collapse" style={{ minWidth: `${240 + devices.length * 110}px` }}>
+      {renameErr && <div className="mx-4 mt-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{renameErr}</div>}
+      <table className="w-full text-xs border-collapse" style={{ minWidth: \`\${260 + devices.length * 110}px\` }}>
         <thead>
           <tr>
-            {/* drag col */}
             {isAdmin && <th className="w-6 bg-gray-50 border-b-2 border-gray-200" />}
-            {/* feature name col */}
             <th className="text-left px-4 py-3 font-bold text-gray-700 bg-gray-50 border-b-2 border-gray-200 sticky left-0 z-10 border-r border-gray-300" style={{ width: 220, minWidth: 180 }}>
               Tinh nang
             </th>
-            {/* device columns - colored header */}
             {devices.map(dev => (
-              <th key={dev.equipment_id} className={'text-center px-2 py-0 border-b-2 border-gray-200 border-l border-gray-100'} style={{ minWidth: 100 }}>
-                <div className={deviceHeaderStyle(dev.device_type) + ' py-2.5 px-2 flex flex-col items-center gap-1 m-0'}>
+              <th key={dev.equipment_id} className="text-center px-2 py-0 border-b-2 border-gray-200 border-l border-gray-100" style={{ minWidth: 100 }}>
+                <div className={\`\${deviceHeaderStyle(dev.device_type)} py-2.5 px-2 flex flex-col items-center gap-1\`}>
                   <span className="font-bold text-sm leading-snug">{dev.name}</span>
-                  <span className={'text-[10px] font-normal px-2 py-0.5 rounded-full bg-white/20'}>
-                    {dev.status}
-                  </span>
+                  <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-white/20">{dev.status}</span>
                 </div>
               </th>
             ))}
+            {isAdmin && <th className="w-8 bg-gray-50 border-b-2 border-gray-200" />}
           </tr>
         </thead>
         <tbody>
-          {(() => {
-            const rows: React.ReactNode[] = []
-            let lastGroup: FeatureGroup | null = null
-
-            for (let idx = 0; idx < sortedKeys.length; idx++) {
-              const key = sortedKeys[idx]
-              const group = KEY_TO_GROUP.get(key) ?? null
-              const isDragging = dragIdx.current === idx
-              const isDropTarget = dropIdx === idx && dragIdx.current !== idx
-              const isEditing = editingKey === key
-
-              // Insert group header when group changes
-              if (group && group !== lastGroup) {
-                lastGroup = group
-                rows.push(
-                  <tr key={`grp-${group.label}`} className={group.bg + ' border-b ' + group.border + ' border-t'}>
-                    <td colSpan={devices.length + (isAdmin ? 2 : 1)} className={'px-4 py-1.5 font-bold text-[11px] tracking-wider uppercase ' + group.text + ' sticky left-0 ' + group.bg}>
-                      {group.icon} {group.label}
-                    </td>
-                  </tr>
-                )
-              }
-
-              rows.push(
-                <tr
-                  key={key}
-                  draggable={isAdmin}
-                  onDragStart={() => isAdmin && handleDragStart(idx)}
-                  onDragOver={e => isAdmin && handleDragOver(e, idx)}
-                  onDrop={() => isAdmin && handleDrop(idx)}
-                  onDragEnd={() => { dragIdx.current = null; setDropIdx(null) }}
-                  className={
-                    'border-b border-gray-100 transition-colors group ' +
-                    (isDragging ? 'opacity-40 ' : '') +
-                    (isDropTarget ? 'bg-violet-50 border-violet-300 ' : (idx % 2 === 0 ? 'bg-white ' : 'bg-gray-50/40 ')) +
-                    (isAdmin ? 'cursor-grab' : '')
-                  }
-                >
-                  {isAdmin && (
-                    <td className="text-center w-6 border-r border-gray-100 text-gray-300 group-hover:text-gray-400 select-none text-base" title="Keo de sap xep">
-                      &#8942;
-                    </td>
-                  )}
-                  <td className="px-4 py-2 sticky left-0 bg-inherit z-10 border-r border-gray-100">
-                    {isAdmin && isEditing ? (
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          autoFocus value={editVal}
-                          onChange={e => setEditVal(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') confirmRename(key); if (e.key === 'Escape') setEditingKey(null) }}
-                          className="flex-1 border border-violet-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white"
-                          style={{ minWidth: 120 }}
-                        />
-                        <button onClick={() => confirmRename(key)} disabled={renaming} className="text-green-600 font-bold text-sm px-1 disabled:opacity-40">✔</button>
-                        <button onClick={() => setEditingKey(null)} className="text-gray-400 text-sm px-1">×</button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-800 font-medium leading-snug">{key}</span>
-                        {isAdmin && (
-                          <button
-                            onClick={() => { setEditingKey(key); setEditVal(key); setRenameErr(null) }}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-violet-600 text-[10px] px-1 py-0.5 rounded border border-transparent hover:border-violet-200 hover:bg-violet-50"
-                          >✏️</button>
-                        )}
-                      </div>
-                    )}
+          {orderedGroups.map(({ group, label, keys }) => {
+            const s = colorStyle(group?.color ?? 'gray')
+            return (
+              <React.Fragment key={label}>
+                <tr className={\`\${s.groupBg} border-b \${s.border} border-t\`}>
+                  {isAdmin && <td className={s.groupBg} />}
+                  <td colSpan={devices.length + (isAdmin ? 2 : 1)} className={\`px-4 py-2 sticky left-0 \${s.groupBg} z-10\`}>
+                    <div className="flex items-center justify-between">
+                      <span className={\`font-bold text-[11px] tracking-wider uppercase \${s.text}\`}>
+                        {group?.icon ?? '\u2699\ufe0f'} {label}
+                      </span>
+                      {isAdmin && (
+                        <button onClick={() => setShowAddFeature(label)}
+                          className={\`text-[10px] font-medium px-2 py-0.5 rounded-full \${s.bg} \${s.text} border \${s.border} hover:brightness-95 transition\`}
+                        >+ Tinh nang</button>
+                      )}
+                    </div>
                   </td>
-                  {devices.map(dev => {
-                    const cell = data.matrix[dev.equipment_id]?.[key]
-                    return (
-                      <td key={dev.equipment_id} className="py-2 px-2 text-center border-l border-gray-100 align-top">
-                        {cell ? renderValue(cell.value, cell.notes) : (
-                          <span className="text-gray-200 text-base">&mdash;</span>
+                </tr>
+                {keys.map((key, idx) => {
+                  const globalIdx    = sortedKeys.indexOf(key)
+                  const isDragging   = dragIdx.current === globalIdx
+                  const isDropTarget = dropIdx === globalIdx && dragIdx.current !== globalIdx
+                  const isEditing    = editingKey === key
+                  const isDeleting   = deletingKey === key
+                  return (
+                    <tr key={key}
+                      draggable={isAdmin}
+                      onDragStart={() => isAdmin && handleDragStart(globalIdx)}
+                      onDragOver={e => isAdmin && handleDragOver(e, globalIdx)}
+                      onDrop={() => isAdmin && handleDrop(globalIdx)}
+                      onDragEnd={() => { dragIdx.current = null; setDropIdx(null) }}
+                      className={
+                        'border-b border-gray-100 transition-colors group ' +
+                        (isDragging ? 'opacity-40 ' : '') +
+                        (isDropTarget ? 'bg-violet-50 border-violet-300 ' : (idx % 2 === 0 ? 'bg-white ' : 'bg-gray-50/40 ')) +
+                        (isAdmin ? 'cursor-grab' : '')
+                      }
+                    >
+                      {isAdmin && (
+                        <td className="text-center w-6 border-r border-gray-100 text-gray-300 group-hover:text-gray-400 select-none" title="Keo de sap xep">\u22ee</td>
+                      )}
+                      <td className="px-4 py-2 sticky left-0 bg-inherit z-10 border-r border-gray-100">
+                        {isAdmin && isEditing ? (
+                          <div className="flex items-center gap-1.5">
+                            <input autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') confirmRename(key); if (e.key === 'Escape') setEditingKey(null) }}
+                              className="flex-1 border border-violet-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white"
+                            />
+                            <button onClick={() => confirmRename(key)} disabled={renaming} className="text-green-600 font-bold text-sm px-1 disabled:opacity-40">\u2714</button>
+                            <button onClick={() => setEditingKey(null)} className="text-gray-400 text-sm px-1">\xd7</button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-800 font-medium leading-snug">{key}</span>
+                            {isAdmin && (
+                              <button onClick={() => { setEditingKey(key); setEditVal(key); setRenameErr(null) }}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-violet-600 text-[10px] px-1 py-0.5 rounded border border-transparent hover:border-violet-200 hover:bg-violet-50"
+                                title="Doi ten"
+                              >\u270f\ufe0f</button>
+                            )}
+                          </div>
                         )}
                       </td>
-                    )
-                  })}
-                </tr>
-              )
-            }
-            return rows
-          })()}
+                      {devices.map(dev => {
+                        const cell = matrix[dev.equipment_id]?.[key]
+                        return (
+                          <td key={dev.equipment_id}
+                            className={\`py-2 px-2 text-center border-l border-gray-100 align-top \${isAdmin ? 'cursor-pointer hover:bg-blue-50/40 transition-colors' : ''}\`}
+                            onClick={isAdmin ? (e) => {
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                              setCellEdit({ equipmentId: dev.equipment_id, featureKey: key, value: cell?.value ?? 'Khong', notes: cell?.notes ?? '', anchorRect: rect })
+                            } : undefined}
+                            title={isAdmin ? 'Click de chinh sua' : undefined}
+                          >
+                            {cell ? <CellDisplay value={cell.value} notes={cell.notes} /> : (
+                              <span className="text-gray-200 text-base">&mdash;</span>
+                            )}
+                          </td>
+                        )
+                      })}
+                      {isAdmin && (
+                        <td className="text-center w-8 border-l border-gray-100">
+                          <button onClick={() => handleDeleteFeature(key)} disabled={isDeleting}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 text-sm p-1"
+                            title="Xoa tinh nang"
+                          >{isDeleting ? '...' : '\ud83d\uddd1'}</button>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </React.Fragment>
+            )
+          })}
         </tbody>
       </table>
-      {/* Legend */}
-      <div className="flex flex-wrap items-center gap-4 px-4 py-3 border-t border-gray-100 bg-gray-50/40 text-[11px] text-gray-500">
+      {isAdmin && (
+        <div className="flex items-center gap-3 px-4 py-3 border-t border-gray-100 bg-gray-50/40">
+          <button onClick={() => setShowAddGroup(true)}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-gray-400 hover:text-gray-700 transition"
+          >+ Them nhom moi</button>
+          <span className="ml-auto text-[11px] text-gray-300">Hover de sua ten · Click o de chinh gia tri · Keo de sap xep</span>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-4 px-4 py-2.5 border-t border-gray-100 text-[11px] text-gray-500">
         <span className="flex items-center gap-1.5">
-          <span className="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">✔</span>
+          <span className="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">\u2714</span>
           Co / Dat chuan
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="text-gray-300 text-base">&mdash;</span>
-          Khong ho tro
-        </span>
+        <span className="flex items-center gap-1.5"><span className="text-gray-300 text-base">&mdash;</span> Khong ho tro</span>
         <span className="flex items-center gap-1.5">
           <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-[11px] font-medium">Gia tri</span>
           Thong so cu the
         </span>
-        {isAdmin && <span className="ml-auto text-gray-300">Hover de sua ten · Keo ⋮ de sap xep hang</span>}
       </div>
+      {cellEdit && <CellEditPopup state={cellEdit} onClose={() => setCellEdit(null)} onSave={handleCellSave} />}
+      {showAddFeature && <AddFeatureModal groups={groupDefs} defaultGroup={showAddFeature} onClose={() => setShowAddFeature(null)} onAdd={handleAddFeature} />}
+      {showAddGroup && <AddGroupModal onClose={() => setShowAddGroup(false)} onAdd={handleAddGroup} />}
     </div>
   )
 }
