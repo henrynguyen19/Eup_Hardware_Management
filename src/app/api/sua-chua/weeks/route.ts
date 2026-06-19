@@ -66,6 +66,26 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ week: data })
 }
 
+// PATCH — cập nhật date_start / date_end cho một tuần
+// Body: { week_id, date_start?, date_end? }
+export async function PATCH(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
+
+  const { week_id, date_start, date_end } = await req.json()
+  if (!week_id) return NextResponse.json({ error: 'Thiếu week_id' }, { status: 400 })
+
+  const { data, error } = await sb()
+    .from('repair_weeks')
+    .update({ date_start: date_start ?? null, date_end: date_end ?? null, updated_at: new Date().toISOString() })
+    .eq('id', week_id)
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ week: data })
+}
+
 // DELETE — xóa tuần (cascade xóa stats + totals)
 // Body: { week_id }
 export async function DELETE(req: NextRequest) {

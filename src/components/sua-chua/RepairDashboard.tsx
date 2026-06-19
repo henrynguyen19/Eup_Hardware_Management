@@ -1401,6 +1401,10 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
   const [weekData, setWeekData] = useState<{ stats: RepairStat[]; totals: RepairTotal[] } | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState('')
+  const [editingDates, setEditingDates] = useState(false)
+  const [editDateStart, setEditDateStart] = useState('')
+  const [editDateEnd, setEditDateEnd] = useState('')
+  const [savingDates, setSavingDates] = useState(false)
 
   const loadWeeks = useCallback(async () => {
     setLoading(true)
@@ -1413,8 +1417,29 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
 
   async function loadWeekDetail(week: RepairWeek) {
     setSelectedWeek(week)
+    setEditingDates(false)
+    setEditDateStart(week.date_start ?? '')
+    setEditDateEnd(week.date_end ?? '')
     const d = await fetch(`/api/sua-chua/stats?week_id=${week.id}`).then(r => r.json())
     setWeekData(d)
+  }
+
+  async function handleSaveDates() {
+    if (!selectedWeek) return
+    setSavingDates(true)
+    const res = await fetch('/api/sua-chua/weeks', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ week_id: selectedWeek.id, date_start: editDateStart || null, date_end: editDateEnd || null }),
+    })
+    const d = await res.json()
+    if (!res.ok) { alert('Lỗi: ' + d.error); setSavingDates(false); return }
+    // Update local state
+    const updated = { ...selectedWeek, date_start: editDateStart || null, date_end: editDateEnd || null }
+    setSelectedWeek(updated)
+    setWeeks(prev => prev.map(w => w.id === updated.id ? updated : w))
+    setEditingDates(false)
+    setSavingDates(false)
   }
 
   async function handleImport() {
@@ -1484,14 +1509,44 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
             <LoadingSpinner />
           ) : (
             <div>
-              <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-semibold text-gray-700">{selectedWeek.week_label}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Bàn giao: <strong className="text-gray-700">{calcBanGiao(weekData.stats, selectedWeek.id)}</strong> thiết bị
-                  </p>
+              <div className="px-4 py-3 border-b border-gray-100">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-700">{selectedWeek.week_label}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Bàn giao: <strong className="text-gray-700">{calcBanGiao(weekData.stats, selectedWeek.id)}</strong> thiết bị
+                    </p>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <button onClick={() => setEditingDates(e => !e)} className="text-xs text-blue-500 hover:underline">📅 Sửa ngày</button>
+                    <button onClick={() => handleDelete(selectedWeek.id)} className="text-xs text-red-500 hover:text-red-700">🗑 Xóa</button>
+                  </div>
                 </div>
-                <button onClick={() => handleDelete(selectedWeek.id)} className="text-xs text-red-500 hover:text-red-700">🗑 Xóa</button>
+                {/* Date edit form */}
+                {editingDates && (
+                  <div className="mt-3 flex gap-2 items-end flex-wrap">
+                    <div>
+                      <label className="text-[10px] text-gray-500 block mb-1">Từ ngày</label>
+                      <input type="date" value={editDateStart} onChange={e => setEditDateStart(e.target.value)}
+                        className="border border-gray-200 rounded px-2 py-1 text-xs" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-500 block mb-1">Đến ngày</label>
+                      <input type="date" value={editDateEnd} onChange={e => setEditDateEnd(e.target.value)}
+                        className="border border-gray-200 rounded px-2 py-1 text-xs" />
+                    </div>
+                    <button onClick={handleSaveDates} disabled={savingDates}
+                      className="px-3 py-1 text-xs font-semibold text-white rounded-lg disabled:opacity-50"
+                      style={{ background: '#164d81' }}
+                    >{savingDates ? 'Đang lưu...' : '✓ Lưu ngày'}</button>
+                    <button onClick={() => setEditingDates(false)} className="text-xs text-gray-400 hover:text-gray-600">Huỷ</button>
+                  </div>
+                )}
+                {selectedWeek.date_start && !editingDates && (
+                  <p className="text-xs text-blue-500 mt-1">
+                    📅 {fmtDateStr(selectedWeek.date_start)}{selectedWeek.date_end ? ` – ${fmtDateStr(selectedWeek.date_end)}` : ''}
+                  </p>
+                )}
               </div>
 
               {/* Breakdown by device */}

@@ -80,34 +80,48 @@ function extractDateRange(values: string[][], fallbackYear: number): {
   isoWeek: number; isoYear: number;
   dateStart: string | null; dateEnd: string | null
 } | null {
-  const dateRe = /(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{4}))?/g
+  // Matches dd/mm or dd-mm (with optional year), robust to mixed separators
+  const dateRe = /(\d{1,2})[\/\-\.](\d{1,2})(?:[\/\-\.](\d{2,4}))?/g
 
-  for (let i = 0; i < Math.min(15, values.length); i++) {
+  for (let i = 0; i < Math.min(20, values.length); i++) {
     for (const cell of values[i] ?? []) {
       const cellStr = (cell || '').trim()
       if (!cellStr) continue
       const matches = [...cellStr.matchAll(dateRe)]
       if (matches.length === 0) continue
 
-      const m0 = matches[0]
-      const d0 = parseInt(m0[1]), mo0 = parseInt(m0[2]), yr0 = m0[3] ? parseInt(m0[3]) : fallbackYear
-      if (d0 < 1 || d0 > 31 || mo0 < 1 || mo0 > 12) continue
+      // Try each match as a potential start date (skip invalid ones)
+      let startIdx = -1
+      let d0 = 0, mo0 = 0, yr0 = 0
+      for (let mi = 0; mi < matches.length; mi++) {
+        const m = matches[mi]
+        const dd = parseInt(m[1]), mm = parseInt(m[2])
+        const yy = m[3] ? parseInt(m[3]) : fallbackYear
+        // Normalize 2-digit years
+        const fullYr = yy < 100 ? 2000 + yy : yy
+        if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12) {
+          d0 = dd; mo0 = mm; yr0 = fullYr; startIdx = mi; break
+        }
+      }
+      if (startIdx === -1) continue  // no valid date in this cell
 
       const dateStart = `${yr0}-${String(mo0).padStart(2, '0')}-${String(d0).padStart(2, '0')}`
 
       let dateEnd: string | null = null
       let endDate: Date | null = null
-      if (matches.length >= 2) {
-        const m1 = matches[1]
-        const d1 = parseInt(m1[1]), mo1 = parseInt(m1[2]), yr1 = m1[3] ? parseInt(m1[3]) : fallbackYear
+      // Look for a second valid date after the first
+      for (let mi = startIdx + 1; mi < matches.length; mi++) {
+        const m1 = matches[mi]
+        const d1 = parseInt(m1[1]), mo1 = parseInt(m1[2])
+        const yr1 = m1[3] ? (parseInt(m1[3]) < 100 ? 2000 + parseInt(m1[3]) : parseInt(m1[3])) : yr0
         if (d1 >= 1 && d1 <= 31 && mo1 >= 1 && mo1 <= 12) {
           dateEnd = `${yr1}-${String(mo1).padStart(2, '0')}-${String(d1).padStart(2, '0')}`
           endDate = new Date(yr1, mo1 - 1, d1)
+          break
         }
       }
 
-      // Use midpoint (or end date) to determine ISO week, so weeks spanning
-      // two ISO boundaries (e.g. Sun–Fri) map to the week with more overlap.
+      // Use midpoint to determine ISO week (avoids Sun→Mon boundary issue)
       const startDate = new Date(yr0, mo0 - 1, d0)
       const refDate = endDate
         ? new Date((startDate.getTime() + endDate.getTime()) / 2)
