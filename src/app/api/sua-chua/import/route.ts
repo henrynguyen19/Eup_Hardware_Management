@@ -204,8 +204,7 @@ export async function GET(req: NextRequest) {
         dataStartCol = col + 1; action = `header→dataStartCol=${dataStartCol}`
       } else {
         // Check section — EXACT match only
-        let matched = STATUS_SECTIONS[label] || sectionNormMap[norm]
-        if (matched) {
+        const matched = STATUS_SECTIONS[label] || sectionNormMap[norm]
         if (matched) {
           currentStatus = matched; action = `section→${matched}`
         } else if (norm === 'tong' && currentStatus && currentStatus !== 'cho_sua') {
