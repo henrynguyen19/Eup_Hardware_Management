@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
 
@@ -60,8 +60,6 @@ interface RepairTotal {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
-function currentYear() { return new Date().getFullYear() }
-
 function getWeekNumber(date: Date): number {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
   d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
@@ -76,193 +74,755 @@ function calcBanGiao(stats: RepairStat[], weekId: string, deviceType?: string): 
     .reduce((a, s) => a + s.quantity, 0)
 }
 
+// ── Period helpers ────────────────────────────────────────────
+type PeriodMode = 'tuan' | 'thang' | 'range' | 'nam'
+
+function toISODate(d: Date): string {
+  return d.toISOString().split('T')[0]
+}
+
+function dashMondayOfWeek(d: Date): Date {
+  const day = d.getDay() || 7
+  const mon = new Date(d)
+  mon.setDate(d.getDate() - day + 1)
+  mon.setHours(0, 0, 0, 0)
+  return mon
+}
+
+function getISOWeekYear(date: Date): { week: number; year: number } {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
+  const isoYear = d.getUTCFullYear()
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1))
+  const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+  return { week, year: isoYear }
+}
+
+function navigateWeek(year: number, week: number, delta: number): { year: number; week: number } {
+  // Jan 4 is always in ISO week 1; offset to target week then apply delta
+  const jan4 = new Date(year, 0, 4)
+  jan4.setDate(jan4.getDate() + (week - 1) * 7 + delta * 7)
+  return getISOWeekYear(jan4)
+}
+
+function navigateMonth(year: number, month: number, delta: number): { year: number; month: number } {
+  let m = month + delta, y = year
+  if (m > 12) { m -= 12; y++ }
+  if (m < 1)  { m += 12; y-- }
+  return { year: y, month: m }
+}
+
+function fmtDateStr(s: string | null | undefined): string {
+  if (!s) return ''
+  const [y, m, d] = s.split('-')
+  return `${d}/${m}/${y}`
+}
+
+// ── Single-week breakdown view ─────────────────────────────────
+function SingleWeekView({
+  week, stats, deviceFilter = 'all'
+}: {
+  week: RepairWeek
+  stats: RepairStat[]
+  deviceFilter?: string
+}) {
+  const devStats = deviceFilter === 'all' ? stats : stats.filter(s => s.device_type === deviceFilter)
+  const banGiao = calcBanGiao(devStats, week.id)
+  return (
+    <div className="space-y-4">
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <p className="text-xs text-gray-500 mb-1">Bàn giao</p>
+          <p className="text-2xl font-bold text-gray-900">{banGiao || '—'}</p>
+          <p className="text-[10px] text-gray-400 mt-1">thiết bị</p>
+        </div>
+        {STATUS_TYPES.map(st => {
+          const total = devStats.filter(s => s.week_id === week.id && s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
+          return (
+            <div key={st.key} className="bg-white rounded-xl border border-gray-200 p-4">
+              <p className="text-xs text-gray-500 mb-1">{st.label}</p>
+              <p className="text-2xl font-bold" style={{ color: st.color }}>{total || '—'}</p>
+              {banGiao > 0 && total > 0 && (
+                <p className="text-[10px] text-gray-400 mt-1">{Math.round(total / banGiao * 100)}%</p>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Status × Device table */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">Kết quả theo thiết bị</h3>
+            {week.date_start && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                {fmtDateStr(week.date_start)}{week.date_end ? ` – ${fmtDateStr(week.date_end)}` : ''}
+              </p>
+            )}
+          </div>
+          <span className="text-xs font-bold text-gray-800 bg-gray-100 px-3 py-1 rounded-full">
+            {week.week_label}
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[110px]">Trạng thái</th>
+                {DEVICE_TYPES.map(dt => {
+                  const active = deviceFilter === 'all' || deviceFilter === dt
+                  return (
+                    <th key={dt} className="px-2 py-2 text-right font-medium min-w-[48px] transition"
+                      style={{ color: active ? DEVICE_COLORS[dt] : '#d1d5db', borderBottom: `2px solid ${active ? DEVICE_COLORS[dt] + '55' : '#f3f4f6'}` }}
+                    >{dt}</th>
+                  )
+                })}
+                <th className="px-3 py-2 text-right font-semibold text-gray-700 border-l border-gray-200">Tổng</th>
+              </tr>
+            </thead>
+            <tbody>
+              {STATUS_TYPES.map((st, i) => {
+                const stStats = stats.filter(s => s.week_id === week.id && s.status_type === st.key)
+                const stDevStats = devStats.filter(s => s.week_id === week.id && s.status_type === st.key)
+                const stTotal = stDevStats.reduce((a, s) => a + s.quantity, 0)
+                return (
+                  <tr key={st.key} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                    <td className="px-3 py-2 font-medium sticky left-0 bg-inherit z-10" style={{ color: st.color }}>{st.label}</td>
+                    {DEVICE_TYPES.map(dt => {
+                      const qty = stStats.filter(s => s.device_type === dt).reduce((a, s) => a + s.quantity, 0)
+                      const dimmed = deviceFilter !== 'all' && deviceFilter !== dt
+                      return (
+                        <td key={dt} className="px-2 py-2 text-right">
+                          {qty > 0
+                            ? <span className="font-medium" style={{ color: dimmed ? '#d1d5db' : st.color }}>{qty}</span>
+                            : <span className="text-gray-200">—</span>}
+                        </td>
+                      )
+                    })}
+                    <td className="px-3 py-2 text-right font-bold border-l border-gray-100" style={{ color: st.color }}>
+                      {stTotal > 0 ? stTotal : <span className="text-gray-200">—</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-gray-200 bg-gray-50">
+                <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50 z-10">Bàn giao</td>
+                {DEVICE_TYPES.map(dt => {
+                  const qty = calcBanGiao(stats, week.id, dt)
+                  const dimmed = deviceFilter !== 'all' && deviceFilter !== dt
+                  return (
+                    <td key={dt} className="px-2 py-2 text-right font-semibold" style={{ color: dimmed ? '#d1d5db' : '#374151' }}>
+                      {qty > 0 ? qty : <span className="text-gray-300">—</span>}
+                    </td>
+                  )
+                })}
+                <td className="px-3 py-2 text-right font-bold text-gray-900 border-l border-gray-200">{banGiao}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* Status bar chart */}
+      {banGiao > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Biểu đồ kết quả sửa chữa</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart
+              data={STATUS_TYPES.map(st => ({
+                name: st.label,
+                'Số lượng': devStats.filter(s => s.week_id === week.id && s.status_type === st.key).reduce((a, s) => a + s.quantity, 0),
+              }))}
+              margin={{ top: 5, right: 10, bottom: 5, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Bar dataKey="Số lượng" radius={4}>
+                {STATUS_TYPES.map((st, i) => <Cell key={i} fill={st.color} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Analytics: status breakdown by device & fault type ────────
+function AnalyticsSection({
+  stats,
+  selectedDevice,
+}: {
+  stats: RepairStat[]
+  selectedDevice: string
+}) {
+  const [tab, setTab] = useState('da_sua')
+
+  // Apply device filter
+  const devStats = selectedDevice === 'all' ? stats : stats.filter(s => s.device_type === selectedDevice)
+  const grandTotal = devStats.reduce((a, s) => a + s.quantity, 0)
+
+  const stInfo = STATUS_TYPES.find(s => s.key === tab) ?? STATUS_TYPES[0]
+  const tabStats  = devStats.filter(s => s.status_type === tab)
+  const tabTotal  = tabStats.reduce((a, s) => a + s.quantity, 0)
+
+  // By device (meaningful only when showing all)
+  const byDevice = DEVICE_TYPES
+    .map(dt => ({ name: dt, qty: tabStats.filter(s => s.device_type === dt).reduce((a, s) => a + s.quantity, 0), color: DEVICE_COLORS[dt] }))
+    .filter(d => d.qty > 0)
+    .sort((a, b) => b.qty - a.qty)
+
+  // By fault type
+  const byFault = FAULT_TYPES
+    .map(ft => ({ name: ft, qty: tabStats.filter(s => s.fault_type === ft).reduce((a, s) => a + s.quantity, 0) }))
+    .filter(f => f.qty > 0)
+    .sort((a, b) => b.qty - a.qty)
+
+  // Hỏng hẳn matrix
+  const hhStats   = devStats.filter(s => s.status_type === 'hong_han')
+  const hhTotal   = hhStats.reduce((a, s) => a + s.quantity, 0)
+  const hhDevices = DEVICE_TYPES.filter(dt => hhStats.some(s => s.device_type === dt && s.quantity > 0))
+  const hhFaults  = FAULT_TYPES.filter(ft => hhStats.some(s => s.fault_type === ft && s.quantity > 0))
+
+  const pct = (n: number) => grandTotal > 0 ? `${Math.round(n / grandTotal * 100)}%` : '0%'
+  const pctOf = (n: number, base: number) => base > 0 ? `${Math.round(n / base * 100)}%` : '—'
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+        <h3 className="text-sm font-semibold text-gray-700">Phân tích chi tiết</h3>
+        {selectedDevice !== 'all' && (
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full text-white"
+            style={{ background: DEVICE_COLORS[selectedDevice] ?? '#6b7280' }}>
+            {selectedDevice}
+          </span>
+        )}
+      </div>
+
+      {/* Status tabs */}
+      <div className="flex border-b border-gray-100 overflow-x-auto">
+        {STATUS_TYPES.map(st => {
+          const cnt = devStats.filter(s => s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
+          return (
+            <button key={st.key} onClick={() => setTab(st.key)}
+              className={`px-4 py-2.5 text-xs whitespace-nowrap transition border-b-2 shrink-0 ${tab === st.key ? '' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+              style={tab === st.key ? { borderColor: st.color, color: st.color, background: st.color + '12' } : {}}
+            >
+              <span className="font-medium">{st.label}</span>
+              <span className="ml-1.5 font-normal opacity-70">{cnt > 0 ? `${cnt} · ${pct(cnt)}` : '0'}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="p-4">
+        {/* Đã sửa / Gửi BH / Không lỗi / Chờ sửa → device + fault breakdown */}
+        {tab !== 'hong_han' && (
+          <>
+            {tabTotal === 0 ? (
+              <p className="text-sm text-gray-400 py-4 text-center">Không có dữ liệu</p>
+            ) : (
+              <div className={`grid gap-6 ${selectedDevice === 'all' && byDevice.length > 0 ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
+                {/* By device (only when viewing all) */}
+                {selectedDevice === 'all' && byDevice.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">
+                      Theo loại thiết bị <span className="font-normal normal-case text-gray-400">({tabTotal} thiết bị)</span>
+                    </p>
+                    <ResponsiveContainer width="100%" height={Math.max(160, byDevice.length * 28)}>
+                      <BarChart data={byDevice} layout="vertical" margin={{ top: 0, right: 50, bottom: 0, left: 52 }}>
+                        <XAxis type="number" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={48} axisLine={false} tickLine={false} />
+                        <Tooltip
+                          formatter={(v: unknown) => {
+                            const n = Number(v)
+                            return [`${n} (${pctOf(n, tabTotal)})`, stInfo.label]
+                          }}
+                        />
+                        <Bar dataKey="qty" radius={3} label={{ position: 'right', fontSize: 10, fill: '#6b7280', formatter: (v: number) => pctOf(v, tabTotal) }}>
+                          {byDevice.map((d, i) => <Cell key={i} fill={d.color} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* By fault type */}
+                {byFault.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">
+                      Theo loại lỗi <span className="font-normal normal-case text-gray-400">({tabTotal} trường hợp)</span>
+                    </p>
+                    <ResponsiveContainer width="100%" height={Math.max(160, byFault.length * 28)}>
+                      <BarChart data={byFault} layout="vertical" margin={{ top: 0, right: 50, bottom: 0, left: 62 }}>
+                        <XAxis type="number" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={58} axisLine={false} tickLine={false} />
+                        <Tooltip
+                          formatter={(v: unknown) => {
+                            const n = Number(v)
+                            return [`${n} (${pctOf(n, tabTotal)})`, 'Số lượng']
+                          }}
+                        />
+                        <Bar dataKey="qty" fill={stInfo.color} radius={3}
+                          label={{ position: 'right', fontSize: 10, fill: '#6b7280', formatter: (v: number) => pctOf(v, tabTotal) }}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Hỏng hẳn → fault × device matrix */}
+        {tab === 'hong_han' && (
+          hhTotal === 0 ? (
+            <p className="text-sm text-gray-400 py-4 text-center">Không có thiết bị hỏng hẳn</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <p className="text-xs text-gray-500 mb-3">Tổng <strong className="text-red-600">{hhTotal}</strong> thiết bị hỏng hẳn</p>
+              <table className="text-xs border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 min-w-[110px]">Loại lỗi</th>
+                    {hhDevices.map(dt => (
+                      <th key={dt} className="px-2 py-2 text-right font-medium min-w-[44px]" style={{ color: DEVICE_COLORS[dt] }}>{dt}</th>
+                    ))}
+                    <th className="px-3 py-2 text-right font-semibold text-red-600 border-l border-gray-200">Tổng</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hhFaults.map((ft, i) => {
+                    const fTotal = hhStats.filter(s => s.fault_type === ft).reduce((a, s) => a + s.quantity, 0)
+                    return (
+                      <tr key={ft} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                        <td className="px-3 py-2 font-medium text-gray-700 sticky left-0 bg-inherit">{ft}</td>
+                        {hhDevices.map(dt => {
+                          const qty = hhStats.filter(s => s.device_type === dt && s.fault_type === ft).reduce((a, s) => a + s.quantity, 0)
+                          return (
+                            <td key={dt} className="px-2 py-2 text-right">
+                              {qty > 0 ? <span className="font-bold text-red-600">{qty}</span> : <span className="text-gray-200">—</span>}
+                            </td>
+                          )
+                        })}
+                        <td className="px-3 py-2 text-right font-bold text-red-600 border-l border-gray-100">{fTotal}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-200 bg-gray-50">
+                    <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50">Tổng</td>
+                    {hhDevices.map(dt => {
+                      const dtTotal = hhStats.filter(s => s.device_type === dt).reduce((a, s) => a + s.quantity, 0)
+                      return (
+                        <td key={dt} className="px-2 py-2 text-right font-semibold text-red-600">
+                          {dtTotal > 0 ? dtTotal : <span className="text-gray-300">—</span>}
+                        </td>
+                      )
+                    })}
+                    <td className="px-3 py-2 text-right font-bold text-red-700 border-l border-gray-200">{hhTotal}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Tab: Dashboard ────────────────────────────────────────────
-function DashboardTab({ year }: { year: number }) {
-  const [data, setData] = useState<{ weeks: RepairWeek[]; stats: RepairStat[] } | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [selectedDevices, setSelectedDevices] = useState<string[]>(['4G', '4GH', 'GO', 'SBOX'])
+function DashboardTab() {
+  const now = new Date()
+  const todayISO = getISOWeekYear(now)
+
+  // ── Period state ──
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('tuan')
+  const [weekYear, setWeekYear] = useState(todayISO.year)
+  const [weekNum, setWeekNum]   = useState(todayISO.week)
+  const [monthYear, setMonthYear] = useState(now.getFullYear())
+  const [month, setMonth]         = useState(now.getMonth() + 1)
+  const [rangeStart, setRangeStart] = useState(toISODate(dashMondayOfWeek(now)))
+  const [rangeEnd, setRangeEnd]     = useState(toISODate(now))
+  const [nam, setNam] = useState(now.getFullYear())
+
+  // ── Device filter ──
+  const [selectedDevice, setSelectedDevice] = useState<string>('all')
+
+  // ── Chart state (multi-week) ──
   const [chartMode, setChartMode] = useState<'table' | 'line' | 'bar'>('table')
+  const [selectedDevices, setSelectedDevices] = useState<string[]>(['4G', '4GH', 'GO', 'SBOX'])
+
+  // ── Data cache ──
+  const [cache, setCache] = useState<Record<number, { weeks: RepairWeek[]; stats: RepairStat[] }>>({})
+  const [loading, setLoading] = useState(true)
+
+  // Determine years to fetch
+  const yearsNeeded: number[] = (() => {
+    switch (periodMode) {
+      case 'tuan':  return [weekYear]
+      case 'thang': return [monthYear]
+      case 'range': {
+        if (!rangeStart || !rangeEnd) return [now.getFullYear()]
+        const sy = new Date(rangeStart).getFullYear()
+        const ey = new Date(rangeEnd).getFullYear()
+        return sy === ey ? [sy] : [sy, ey]
+      }
+      case 'nam': return [nam]
+    }
+  })()
+  const yearsKey = [...yearsNeeded].sort().join(',')
 
   useEffect(() => {
+    const missing = yearsNeeded.filter(y => !(y in cache))
+    if (missing.length === 0) { setLoading(false); return }
     setLoading(true)
-    fetch(`/api/sua-chua/stats?year=${year}`)
-      .then(r => r.json())
-      .then(d => setData({ weeks: d.weeks ?? [], stats: d.stats ?? [] }))
-      .finally(() => setLoading(false))
-  }, [year])
+    Promise.all(
+      missing.map(y =>
+        fetch(`/api/sua-chua/stats?year=${y}`)
+          .then(r => r.json())
+          .then(d => ({ y, weeks: d.weeks ?? [], stats: d.stats ?? [] }))
+      )
+    ).then(results => {
+      setCache(prev => {
+        const next = { ...prev }
+        results.forEach(({ y, weeks, stats }) => { next[y] = { weeks, stats } })
+        return next
+      })
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yearsKey])
 
-  if (loading) return <LoadingSpinner />
-  if (!data || data.weeks.length === 0) return <EmptyState msg="Chưa có dữ liệu năm này" />
+  // Combine from cache
+  const allWeeks  = yearsNeeded.flatMap(y => cache[y]?.weeks ?? [])
+  const allStats  = yearsNeeded.flatMap(y => cache[y]?.stats ?? [])
+  const dataReady = yearsNeeded.every(y => y in cache)
 
-  const { weeks, stats } = data
+  // Filter weeks to selected period
+  const filteredWeeks: RepairWeek[] = dataReady ? (() => {
+    switch (periodMode) {
+      case 'tuan':
+        return allWeeks.filter(w => w.year === weekYear && w.week_number === weekNum)
+      case 'thang':
+        return allWeeks.filter(w => {
+          if (!w.date_start) return w.year === monthYear
+          const d = new Date(w.date_start)
+          return d.getFullYear() === monthYear && (d.getMonth() + 1) === month
+        })
+      case 'range': {
+        if (!rangeStart || !rangeEnd) return []
+        const s = new Date(rangeStart), e = new Date(rangeEnd)
+        return allWeeks.filter(w => {
+          if (!w.date_start) return false
+          const ws = new Date(w.date_start)
+          const we = w.date_end ? new Date(w.date_end) : ws
+          return ws <= e && we >= s
+        })
+      }
+      case 'nam':
+        return allWeeks.filter(w => w.year === nam)
+    }
+  })() : []
 
-  // Build totals per week per device (sum of all 4 statuses)
-  const weekDeviceTotals = weeks.map(week => {
+  const filteredWeekIds = new Set(filteredWeeks.map(w => w.id))
+  const filteredStats   = allStats.filter(s => filteredWeekIds.has(s.week_id))
+
+  // Period label
+  const periodLabel = (() => {
+    switch (periodMode) {
+      case 'tuan':  return `Tuần ${weekNum} / ${weekYear}`
+      case 'thang': return `Tháng ${month} / ${monthYear}`
+      case 'range': return rangeStart && rangeEnd ? `${fmtDateStr(rangeStart)} → ${fmtDateStr(rangeEnd)}` : 'Chọn khoảng ngày'
+      case 'nam':   return `Năm ${nam}`
+    }
+  })()
+
+  // Multi-week chart data
+  const weekDeviceTotals = filteredWeeks.map(week => {
     const row: Record<string, number> = { total: 0 }
     DEVICE_TYPES.forEach(dt => {
-      const qty = calcBanGiao(stats, week.id, dt)
-      row[dt] = qty
-      row.total += qty
+      const qty = calcBanGiao(filteredStats, week.id, dt)
+      row[dt] = qty; row.total += qty
     })
     return { week, ...row }
   })
 
-  // Chart data
   const lineChartData = weekDeviceTotals.map(r => ({
     name: `T${r.week.week_number}`,
     ...Object.fromEntries(selectedDevices.map(dt => [dt, r[dt] ?? 0]))
   }))
 
-  const barChartData = weeks.map(week => {
+  const barChartData = filteredWeeks.map(week => {
     const entry: Record<string, unknown> = { name: `T${week.week_number}` }
     STATUS_TYPES.forEach(st => {
-      entry[st.label] = stats
+      entry[st.label] = filteredStats
         .filter(s => s.week_id === week.id && s.status_type === st.key)
         .reduce((a, s) => a + s.quantity, 0)
     })
     return entry
   })
 
+  // Nav button style
+  const navBtn = 'w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-100 text-gray-600 text-sm font-bold'
+
   return (
     <div className="space-y-5">
-      {/* Mode toggle */}
-      <div className="flex gap-2 flex-wrap">
-        {([
-          { key: 'table', label: '📋 Bảng thiết bị' },
-          { key: 'line',  label: '📈 Biểu đồ đường' },
-          { key: 'bar',   label: '📊 Kết quả sửa chữa' },
-        ] as const).map(m => (
-          <button key={m.key} onClick={() => setChartMode(m.key)}
-            className={`px-4 py-1.5 text-xs font-medium rounded-lg transition ${chartMode === m.key ? 'bg-[#A70A0A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-          >{m.label}</button>
-        ))}
-      </div>
 
-      {/* === TABLE VIEW (giống Google Sheets) === */}
-      {chartMode === 'table' && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-700">Thiết bị bàn giao theo tuần × loại</h3>
-            <span className="text-xs text-gray-400">(= Đã sửa + Gửi bảo hành + Không lỗi + Hỏng hẳn + Chờ sửa)</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[120px]">Tuần</th>
-                  <th className="px-3 py-2 text-right font-semibold text-gray-800 border-r border-gray-200">Tổng</th>
-                  {DEVICE_TYPES.map(dt => (
-                    <th key={dt} className="px-2 py-2 text-right font-medium text-gray-500 min-w-[52px]"
-                      style={{ borderBottom: `2px solid ${DEVICE_COLORS[dt]}22` }}
-                    >{dt}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {weekDeviceTotals.map(({ week, total, ...deviceCounts }, i) => (
-                  <tr key={week.id} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'} hover:bg-blue-50/30 transition`}>
-                    <td className="px-3 py-2 font-medium text-gray-700 sticky left-0 bg-inherit z-10">{week.week_label}</td>
-                    <td className="px-3 py-2 text-right font-bold text-gray-900 border-r border-gray-100">
-                      {total > 0 ? total : <span className="text-gray-300">—</span>}
-                    </td>
-                    {DEVICE_TYPES.map(dt => {
-                      const qty = (deviceCounts as Record<string, number>)[dt] ?? 0
-                      return (
-                        <td key={dt} className="px-2 py-2 text-right">
-                          {qty > 0
-                            ? <span className="font-medium" style={{ color: DEVICE_COLORS[dt] }}>{qty}</span>
-                            : <span className="text-gray-200">—</span>
-                          }
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-gray-200 bg-gray-50">
-                  <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50 z-10">Tổng năm</td>
-                  <td className="px-3 py-2 text-right font-bold text-gray-900 border-r border-gray-100">
-                    {weekDeviceTotals.reduce((a, r) => a + (r.total as number), 0)}
-                  </td>
-                  {DEVICE_TYPES.map(dt => {
-                    const sum = weekDeviceTotals.reduce((a, r) => a + ((r[dt] as number) ?? 0), 0)
-                    return (
-                      <td key={dt} className="px-2 py-2 text-right font-semibold" style={{ color: sum > 0 ? DEVICE_COLORS[dt] : '#d1d5db' }}>
-                        {sum > 0 ? sum : '—'}
-                      </td>
-                    )
-                  })}
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* === LINE CHART === */}
-      {chartMode === 'line' && (
-        <>
-          <div className="flex flex-wrap gap-2">
-            {DEVICE_TYPES.map(dt => (
-              <button key={dt}
-                onClick={() => setSelectedDevices(prev => prev.includes(dt) ? prev.filter(d => d !== dt) : [...prev, dt])}
-                className={`px-2.5 py-1 text-xs rounded-full border transition ${selectedDevices.includes(dt) ? 'border-transparent text-white' : 'bg-white text-gray-500 border-gray-200'}`}
-                style={selectedDevices.includes(dt) ? { background: DEVICE_COLORS[dt] } : {}}
-              >{dt}</button>
+      {/* ── Period selector ── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          {/* Mode tabs */}
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-xl shrink-0">
+            {([
+              { key: 'tuan',  label: 'Tuần'        },
+              { key: 'thang', label: 'Tháng'       },
+              { key: 'range', label: 'Khoảng ngày' },
+              { key: 'nam',   label: 'Năm'         },
+            ] as const).map(m => (
+              <button key={m.key} onClick={() => setPeriodMode(m.key)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${periodMode === m.key ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+              >{m.label}</button>
             ))}
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Thiết bị bàn giao mỗi tuần</h3>
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={lineChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                {selectedDevices.map(dt => (
-                  <Line key={dt} type="monotone" dataKey={dt} stroke={DEVICE_COLORS[dt]} dot={false} strokeWidth={2} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+
+          {/* Navigator */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {periodMode === 'tuan' && (
+              <>
+                <button className={navBtn}
+                  onClick={() => { const n = navigateWeek(weekYear, weekNum, -1); setWeekYear(n.year); setWeekNum(n.week) }}>‹</button>
+                <span className="text-sm font-semibold text-gray-800 min-w-[130px] text-center">{periodLabel}</span>
+                <button className={navBtn}
+                  onClick={() => { const n = navigateWeek(weekYear, weekNum, 1); setWeekYear(n.year); setWeekNum(n.week) }}>›</button>
+                <button onClick={() => { setWeekYear(todayISO.year); setWeekNum(todayISO.week) }}
+                  className="text-xs text-[#164d81] hover:underline ml-1">Hôm nay</button>
+              </>
+            )}
+            {periodMode === 'thang' && (
+              <>
+                <button className={navBtn}
+                  onClick={() => { const n = navigateMonth(monthYear, month, -1); setMonthYear(n.year); setMonth(n.month) }}>‹</button>
+                <span className="text-sm font-semibold text-gray-800 min-w-[130px] text-center">{periodLabel}</span>
+                <button className={navBtn}
+                  onClick={() => { const n = navigateMonth(monthYear, month, 1); setMonthYear(n.year); setMonth(n.month) }}>›</button>
+              </>
+            )}
+            {periodMode === 'range' && (
+              <>
+                <input type="date" value={rangeStart} onChange={e => setRangeStart(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700" />
+                <span className="text-gray-400 text-sm">→</span>
+                <input type="date" value={rangeEnd} onChange={e => setRangeEnd(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700" />
+              </>
+            )}
+            {periodMode === 'nam' && (
+              <>
+                <button className={navBtn} onClick={() => setNam(y => y - 1)}>‹</button>
+                <span className="text-sm font-semibold text-gray-800 min-w-[70px] text-center">{periodLabel}</span>
+                <button className={navBtn} onClick={() => setNam(y => y + 1)}>›</button>
+              </>
+            )}
           </div>
-        </>
-      )}
-
-      {/* === BAR CHART (outcomes) === */}
-      {chartMode === 'bar' && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Kết quả sửa chữa theo tuần</h3>
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={barChartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              {STATUS_TYPES.map(st => (
-                <Bar key={st.key} dataKey={st.label} stackId="a" fill={st.color} />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
         </div>
+
+        {/* Device filter pills */}
+        <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-100">
+          <span className="text-xs text-gray-500 shrink-0">Thiết bị:</span>
+          <button
+            onClick={() => setSelectedDevice('all')}
+            className={`px-3 py-1 text-xs rounded-full border transition ${selectedDevice === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}
+          >Tất cả</button>
+          {DEVICE_TYPES.map(dt => (
+            <button key={dt}
+              onClick={() => setSelectedDevice(selectedDevice === dt ? 'all' : dt)}
+              className={`px-2.5 py-1 text-xs rounded-full border transition ${selectedDevice === dt ? 'text-white border-transparent' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
+              style={selectedDevice === dt ? { background: DEVICE_COLORS[dt] } : {}}
+            >{dt}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Loading ── */}
+      {(loading || !dataReady) && <LoadingSpinner />}
+
+      {/* ── Empty ── */}
+      {!loading && dataReady && filteredWeeks.length === 0 && (
+        <EmptyState msg={`Không có dữ liệu cho ${periodLabel}`} />
       )}
 
-      {/* Summary row */}
-      {chartMode !== 'table' && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {STATUS_TYPES.map(st => {
-            const total = stats.filter(s => s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
+      {/* ── Single-week view ── */}
+      {!loading && dataReady && filteredWeeks.length === 1 && (
+        <SingleWeekView week={filteredWeeks[0]} stats={filteredStats} deviceFilter={selectedDevice} />
+      )}
+
+      {/* ── Multi-week view ── */}
+      {!loading && dataReady && filteredWeeks.length > 1 && (
+        <div className="space-y-5">
+          {/* Mode toggle */}
+          <div className="flex gap-2 flex-wrap">
+            {([
+              { key: 'table', label: '📋 Bảng thiết bị'    },
+              { key: 'line',  label: '📈 Biểu đồ đường'   },
+              { key: 'bar',   label: '📊 Kết quả sửa chữa' },
+            ] as const).map(m => (
+              <button key={m.key} onClick={() => setChartMode(m.key)}
+                className={`px-4 py-1.5 text-xs font-medium rounded-lg transition ${chartMode === m.key ? 'bg-[#A70A0A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >{m.label}</button>
+            ))}
+          </div>
+
+          {/* TABLE */}
+          {chartMode === 'table' && (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-700">Thiết bị bàn giao theo tuần × loại</h3>
+                <span className="text-xs text-gray-400">{filteredWeeks.length} tuần</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[120px]">Tuần</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-800 border-r border-gray-200">Tổng</th>
+                      {DEVICE_TYPES.map(dt => (
+                        <th key={dt} className="px-2 py-2 text-right font-medium text-gray-500 min-w-[52px]"
+                          style={{ borderBottom: `2px solid ${DEVICE_COLORS[dt]}22` }}
+                        >{dt}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {weekDeviceTotals.map(({ week, total, ...deviceCounts }, i) => (
+                      <tr key={week.id} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'} hover:bg-blue-50/30 transition`}>
+                        <td className="px-3 py-2 font-medium text-gray-700 sticky left-0 bg-inherit z-10">{week.week_label}</td>
+                        <td className="px-3 py-2 text-right font-bold text-gray-900 border-r border-gray-100">
+                          {total > 0 ? total : <span className="text-gray-300">—</span>}
+                        </td>
+                        {DEVICE_TYPES.map(dt => {
+                          const qty = (deviceCounts as Record<string, number>)[dt] ?? 0
+                          return (
+                            <td key={dt} className="px-2 py-2 text-right">
+                              {qty > 0
+                                ? <span className="font-medium" style={{ color: DEVICE_COLORS[dt] }}>{qty}</span>
+                                : <span className="text-gray-200">—</span>}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-200 bg-gray-50">
+                      <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50 z-10">Tổng</td>
+                      <td className="px-3 py-2 text-right font-bold text-gray-900 border-r border-gray-100">
+                        {weekDeviceTotals.reduce((a, r) => a + (r.total as number), 0)}
+                      </td>
+                      {DEVICE_TYPES.map(dt => {
+                        const sum = weekDeviceTotals.reduce((a, r) => a + ((r[dt] as number) ?? 0), 0)
+                        return (
+                          <td key={dt} className="px-2 py-2 text-right font-semibold" style={{ color: sum > 0 ? DEVICE_COLORS[dt] : '#d1d5db' }}>
+                            {sum > 0 ? sum : '—'}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* LINE CHART */}
+          {chartMode === 'line' && (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {DEVICE_TYPES.map(dt => (
+                  <button key={dt}
+                    onClick={() => setSelectedDevices(prev => prev.includes(dt) ? prev.filter(d => d !== dt) : [...prev, dt])}
+                    className={`px-2.5 py-1 text-xs rounded-full border transition ${selectedDevices.includes(dt) ? 'border-transparent text-white' : 'bg-white text-gray-500 border-gray-200'}`}
+                    style={selectedDevices.includes(dt) ? { background: DEVICE_COLORS[dt] } : {}}
+                  >{dt}</button>
+                ))}
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Thiết bị bàn giao mỗi tuần</h3>
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={lineChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    {selectedDevices.map(dt => (
+                      <Line key={dt} type="monotone" dataKey={dt} stroke={DEVICE_COLORS[dt]} dot={false} strokeWidth={2} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
+
+          {/* BAR CHART */}
+          {chartMode === 'bar' && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Kết quả sửa chữa theo tuần</h3>
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={barChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  {STATUS_TYPES.map(st => (
+                    <Bar key={st.key} dataKey={st.label} stackId="a" fill={st.color} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Summary KPI cards */}
+          {(() => {
+            const devFilteredStats = selectedDevice === 'all' ? filteredStats : filteredStats.filter(s => s.device_type === selectedDevice)
+            const totalBanGiao = devFilteredStats.reduce((a, s) => a + s.quantity, 0)
             return (
-              <div key={st.key} className="bg-white rounded-xl border border-gray-200 p-4">
-                <p className="text-xs text-gray-500 mb-1">{st.label}</p>
-                <p className="text-2xl font-bold" style={{ color: st.color }}>{total.toLocaleString()}</p>
-                <p className="text-[10px] text-gray-400 mt-1">cả năm {year}</p>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <p className="text-xs text-gray-500 mb-1">Bàn giao</p>
+                  <p className="text-2xl font-bold text-gray-900">{totalBanGiao.toLocaleString() || '—'}</p>
+                  <p className="text-[10px] text-gray-400 mt-1">{periodLabel}</p>
+                </div>
+                {STATUS_TYPES.map(st => {
+                  const total = devFilteredStats.filter(s => s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
+                  const pct = totalBanGiao > 0 ? Math.round(total / totalBanGiao * 100) : 0
+                  return (
+                    <div key={st.key} className="bg-white rounded-xl border border-gray-200 p-4">
+                      <p className="text-xs text-gray-500 mb-1">{st.label}</p>
+                      <p className="text-2xl font-bold" style={{ color: st.color }}>{total.toLocaleString() || '—'}</p>
+                      {totalBanGiao > 0 && total > 0 && <p className="text-[10px] text-gray-400 mt-1">{pct}%</p>}
+                    </div>
+                  )
+                })}
               </div>
             )
-          })}
+          })()}
         </div>
+      )}
+
+      {/* ── Analytics section (always shown when data exists) ── */}
+      {!loading && dataReady && filteredWeeks.length > 0 && (
+        <AnalyticsSection stats={filteredStats} selectedDevice={selectedDevice} />
       )}
     </div>
   )
@@ -692,7 +1252,6 @@ function EmptyState({ msg }: { msg: string }) {
 export default function RepairDashboard({ userEmail = '', permissions = [] }: { userEmail?: string; permissions?: string[] }) {
   const canWrite = permissions.includes('sua_chua:write') || permissions.includes('admin:users')
   const [tab, setTab] = useState<'dashboard' | 'entry' | 'history'>('dashboard')
-  const [year, setYear] = useState(currentYear())
   const [refreshKey, setRefreshKey] = useState(0)
 
   const tabs: Array<{ key: 'dashboard' | 'entry' | 'history'; label: string }> = [
@@ -709,12 +1268,8 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
             <h1 className="text-xl font-bold text-gray-900">🔧 Thống kê Sửa chữa</h1>
             <p className="text-xs text-gray-400 mt-0.5">Theo dõi tình trạng sửa chữa thiết bị hàng tuần</p>
           </div>
-          {tab === 'dashboard' && (
-            <select value={year} onChange={e => setYear(+e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700"
-            >
-              {[2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
+          {userEmail && (
+            <span className="text-xs text-gray-400">{userEmail}</span>
           )}
         </div>
         <div className="flex gap-1 mt-3 border-b border-gray-100">
@@ -727,7 +1282,7 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
       </div>
 
       <div className="px-6 py-5">
-        {tab === 'dashboard' && <DashboardTab year={year} />}
+        {tab === 'dashboard' && <DashboardTab />}
         {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} />}
         {tab === 'history'   && <HistoryTab refreshKey={refreshKey} />}
       </div>
