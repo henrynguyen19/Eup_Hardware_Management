@@ -543,6 +543,28 @@ function DashboardTab() {
   const allStats  = yearsNeeded.flatMap(y => cache[y]?.stats ?? [])
   const dataReady = yearsNeeded.every(y => y in cache)
 
+  // Khi data load lần đầu và tuần hiện tại không có data,
+  // tự động nhảy đến tuần gần nhất có data trong DB
+  const [autoNavigated, setAutoNavigated] = useState(false)
+  useEffect(() => {
+    if (!dataReady || autoNavigated || periodMode !== 'tuan') return
+    // Kiểm tra xem tuần hiện tại có data không
+    const currentHasData = allWeeks.some(
+      w => w.year === weekYear && w.week_number === weekNum
+    )
+    if (!currentHasData && allWeeks.length > 0) {
+      // Tìm tuần có week_number lớn nhất (mới nhất)
+      const sorted = [...allWeeks].sort((a, b) =>
+        a.year !== b.year ? b.year - a.year : b.week_number - a.week_number
+      )
+      const latest = sorted[0]
+      setWeekYear(latest.year)
+      setWeekNum(latest.week_number)
+    }
+    setAutoNavigated(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataReady])
+
   // Helper: get Mon–Sun bounds of an ISO week
   const isoWeekBounds = (year: number, week: number): [Date, Date] => {
     // Jan 4 is always in ISO week 1

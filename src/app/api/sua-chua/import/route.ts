@@ -289,7 +289,26 @@ export async function GET(req: NextRequest) {
       trace.push({ row: i + 1, label, norm, col, action })
     })
 
-    return NextResponse.json({ sheet: sheetName, dataStartCol, statsCount: statsRows.length, stats: statsRows.slice(0, 20), trace: trace.filter(t => t.action !== 'skip').slice(0, 50) })
+    // Also run date extraction for debug
+    const parsed = parseSheetTitle(sheetName)
+    const dateInfo = parsed ? extractDateRange(values, parsed.year) : null
+
+    // Show first 15 rows raw for date debug
+    const first15 = values.slice(0, 15).map((row, i) => ({
+      row: i + 1,
+      cells: row.slice(0, 4).map(c => c || '(empty)'),
+    }))
+
+    return NextResponse.json({
+      sheet: sheetName,
+      dateExtraction: dateInfo ?? 'NOT FOUND',
+      parsedTitle: parsed ?? 'parse failed',
+      first15Rows: first15,
+      dataStartCol,
+      statsCount: statsRows.length,
+      stats: statsRows.slice(0, 20),
+      trace: trace.filter(t => t.action !== 'skip').slice(0, 50),
+    })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
