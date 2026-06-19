@@ -52,16 +52,64 @@ function normalize(s: string): string {
     .replace(/\s+/g, '')
 }
 
-// Parse sheet title to extract year and week_number
-// e.g. "Tuan 21 - 2026" → { year: 2026, week_number: 21 }
-// Yêu cầu năm phải là 20XX (2020-2029) để tránh nhầm format ngày "24052024"
+// ISO week calculation (same as frontend)
+function getISOWeekYear(date: Date): { week: number; year: number } {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
+  const isoYear = d.getUTCFullYear()
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1))
+  const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+  return { week, year: isoYear }
+}
+
+// Parse sheet title to extract year (for fallback).
+// e.g. "Tuan 21 - 2026" → { title_week: 21, year: 2026 }
 function parseSheetTitle(title: string) {
   const m = title.match(/(\d+)\s*-\s*(20\d{2})\b/)
   if (!m) return null
   const week_number = parseInt(m[1])
   const year = parseInt(m[2])
-  if (week_number < 1 || week_number > 53) return null  // sanity check
+  if (week_number < 1 || week_number > 53) return null
   return { week_number, year }
+}
+
+// Extract date range from sheet cells (first 15 rows, any column).
+// Looks for patterns like "07/06", "07/06/2026", "07/06-12/06", "07/06/2026-12/06/2026"
+// Returns ISO week/year from the start date, plus date_start / date_end strings.
+function extractDateRange(values: string[][], fallbackYear: number): {
+  isoWeek: number; isoYear: number;
+  dateStart: string | null; dateEnd: string | null
+} | null {
+  const dateRe = /(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{4}))?/g
+
+  for (let i = 0; i < Math.min(15, values.length); i++) {
+    for (const cell of values[i] ?? []) {
+      const cellStr = (cell || '').trim()
+      if (!cellStr) continue
+      const matches = [...cellStr.matchAll(dateRe)]
+      if (matches.length === 0) continue
+
+      const m0 = matches[0]
+      const d0 = parseInt(m0[1]), mo0 = parseInt(m0[2]), yr0 = m0[3] ? parseInt(m0[3]) : fallbackYear
+      if (d0 < 1 || d0 > 31 || mo0 < 1 || mo0 > 12) continue
+
+      const startDate = new Date(yr0, mo0 - 1, d0)
+      const { week, year } = getISOWeekYear(startDate)
+      const dateStart = `${yr0}-${String(mo0).padStart(2, '0')}-${String(d0).padStart(2, '0')}`
+
+      let dateEnd: string | null = null
+      if (matches.length >= 2) {
+        const m1 = matches[1]
+        const d1 = parseInt(m1[1]), mo1 = parseInt(m1[2]), yr1 = m1[3] ? parseInt(m1[3]) : fallbackYear
+        if (d1 >= 1 && d1 <= 31 && mo1 >= 1 && mo1 <= 12) {
+          dateEnd = `${yr1}-${String(mo1).padStart(2, '0')}-${String(d1).padStart(2, '0')}`
+        }
+      }
+
+      return { isoWeek: week, isoYear: year, dateStart, dateEnd }
+    }
+  }
+  return null
 }
 
 // Parse a single sheet's values into stats rows.
@@ -288,11 +336,26 @@ export async function POST(req: NextRequest) {
         })
         const values = (resp.data.values ?? []) as string[][]
 
+        // Ưu tiên dùng ISO week từ ngày thực tế trong sheet
+        // (tránh lệch tuần khi sheet dùng số tuần khác ISO)
+        const dateInfo = extractDateRange(values, parsed.year)
+        const isoWeek = dateInfo?.isoWeek ?? parsed.week_number
+        const isoYear = dateInfo?.isoYear ?? parsed.year
+        const dateStart = dateInfo?.dateStart ?? null
+        const dateEnd   = dateInfo?.dateEnd   ?? null
+
         // Upsert repair_week
         const { data: weekRow, error: weekErr } = await client
           .from('repair_weeks')
           .upsert(
-            { year: parsed.year, week_number: parsed.week_number, week_label: title, updated_at: new Date().toISOString() },
+            {
+              year: isoYear,
+              week_number: isoWeek,
+              week_label: title,
+              date_start: dateStart,
+              date_end: dateEnd,
+              updated_at: new Date().toISOString()
+            },
             { onConflict: 'year,week_number' }
           )
           .select('id')
