@@ -46,72 +46,92 @@ function parseSheetTitle(title: string) {
   return { week_number: parseInt(m[1]), year: parseInt(m[2]) }
 }
 
-// Parse a single sheet's values into stats rows
-// Sheet structure: col A (idx 0) = empty, col B (idx 1) = labels, col C+ (idx 2+) = device quantities
+// Parse a single sheet's values into stats rows.
+// Dynamically detects label column position (can be col A or col B depending on row type).
 function parseSheetData(values: string[][], weekId: string) {
   const statsRows: Array<{ week_id: string; status_type: string; fault_type: string; device_type: string; quantity: number }> = []
   const totalsRows: Array<{ week_id: string; device_type: string; total_received: number }> = []
 
   let currentStatus: string | null = null
-  let inTotal = false
-  // Track which column offset device data starts (default: idx 2 = col C)
-  let dataColOffset = 2
+  // dataStartCol: index of the first device-quantity column (auto-detected from header row)
+  let dataStartCol = 1  // default: col B
+
+  // Helper: find first non-empty cell in first N cols, returns { label, col }
+  function firstNonEmpty(row: string[], maxCols = 3): { label: string; col: number } | null {
+    for (let i = 0; i < maxCols && i < row.length; i++) {
+      const v = (row[i] || '').trim()
+      if (v) return { label: v, col: i }
+    }
+    return null
+  }
 
   for (const row of values) {
     if (!row || row.length === 0) continue
 
-    // Check both col A and col B for labels (handle both possible layouts)
-    const cellA = (row[0] || '').trim()
-    const cellB = (row[1] || '').trim()
-    // Use whichever has content; prefer col B if both have content
-    const label = cellB || cellA
-    // Data starts after the label column
-    const labelCol = cellB ? 1 : 0
-    dataColOffset = labelCol + 1
+    const found = firstNonEmpty(row, 3)
+    if (!found) continue
+    const { label, col } = found
 
-    if (!label) continue
-
-    // Detect section header ("Đã sửa", "Gửi bảo hành", ...)
-    if (STATUS_SECTIONS[label]) {
-      currentStatus = STATUS_SECTIONS[label]
-      inTotal = false
+    // === Auto-detect header row ("Lỗi \ Thiết Bị" + device type names) ===
+    // This row tells us exactly where device data starts
+    if (/lỗi|thiết\s*bị/i.test(label) || label.startsWith('Lỗi')) {
+      dataStartCol = col + 1
       continue
     }
 
-    // Detect totals section — look for it both before and after status sections
-    if (/tổng|total|bàn\s*giao/i.test(label)) {
-      // If we see this after we've been parsing a status, reset
-      // If label is JUST "tổng" type, treat next data row as totals
-      inTotal = true
-      currentStatus = null
+    // === Detect STATUS section headers ===
+    // Try exact match first, then normalize (remove extra spaces/diacritics sensitivity)
+    let matchedStatus = STATUS_SECTIONS[label]
+    if (!matchedStatus) {
+      // Fallback: check if any known key is contained within label
+      for (const [key, val] of Object.entries(STATUS_SECTIONS)) {
+        if (label.toLowerCase().includes(key.toLowerCase().slice(0, 5))) {
+          matchedStatus = val
+          break
+        }
+      }
+    }
+    if (matchedStatus) {
+      currentStatus = matchedStatus
+      // Section headers are often in a different column than fault types
+      // Don't change dataStartCol from what the header row told us
       continue
     }
 
-    // Skip known non-data rows
-    if (/số\s*lượng|lỗi.*thiết|thiết.*bị/i.test(label)) continue
+    // === Skip known non-data rows ===
+    if (/^s[oố]\s*l[uư]/i.test(label)) continue  // "Số lượng" / "SO LUONG"
 
+    // === Skip subtotal rows (e.g., "Tổng", "TỔNG") within a section ===
+    if (/^t[oổ]ng$/i.test(label.replace(/\s/g, ''))) {
+      // Check if this could be the grand total row (contains data for bàn giao)
+      // Heuristic: if we're NOT in a status section, it's likely the grand total
+      if (!currentStatus) {
+        // Treat as total devices received
+        DEVICE_TYPES.forEach((deviceType, idx) => {
+          const rawVal = (row[dataStartCol + idx] || '').replace(/,/g, '').trim()
+          const qty = parseInt(rawVal) || 0
+          if (qty > 0) {
+            totalsRows.push({ week_id: weekId, device_type: deviceType, total_received: qty })
+          }
+        })
+      }
+      // Skip this row either way (don't add subtotals as fault types)
+      continue
+    }
+
+    // === Parse data row (fault type × device quantities) ===
     if (currentStatus) {
-      // Data row inside a status section: label = fault type, cols after = quantities
       const faultType = label
+      let hasAny = false
       DEVICE_TYPES.forEach((deviceType, idx) => {
-        const rawVal = (row[dataColOffset + idx] || '').replace(/,/g, '').trim()
+        const rawVal = (row[dataStartCol + idx] || '').replace(/,/g, '').trim()
         const qty = parseInt(rawVal) || 0
         if (qty > 0) {
           statsRows.push({ week_id: weekId, status_type: currentStatus!, fault_type: faultType, device_type: deviceType, quantity: qty })
+          hasAny = true
         }
       })
-    } else if (inTotal) {
-      // Totals row: cols after label = total_received per device type
-      let hasData = false
-      DEVICE_TYPES.forEach((deviceType, idx) => {
-        const rawVal = (row[dataColOffset + idx] || '').replace(/,/g, '').trim()
-        const qty = parseInt(rawVal) || 0
-        if (qty > 0) {
-          totalsRows.push({ week_id: weekId, device_type: deviceType, total_received: qty })
-          hasData = true
-        }
-      })
-      if (hasData) inTotal = false // consumed the totals row
+      void hasAny
     }
   }
 
