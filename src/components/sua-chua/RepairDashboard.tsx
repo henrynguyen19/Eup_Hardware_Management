@@ -78,6 +78,8 @@ interface RepairStat {
   fault_type: string
   device_type: string
   quantity: number
+  submitted_by?: string | null
+  submitted_at?: string | null
 }
 
 interface RepairTotal {
@@ -541,11 +543,38 @@ function DashboardTab() {
   const allStats  = yearsNeeded.flatMap(y => cache[y]?.stats ?? [])
   const dataReady = yearsNeeded.every(y => y in cache)
 
+  // Helper: get Mon–Sun bounds of an ISO week
+  const isoWeekBounds = (year: number, week: number): [Date, Date] => {
+    // Jan 4 is always in ISO week 1
+    const jan4 = new Date(Date.UTC(year, 0, 4))
+    // Monday of week 1
+    const w1mon = new Date(jan4)
+    w1mon.setUTCDate(jan4.getUTCDate() - (jan4.getUTCDay() || 7) + 1)
+    const monday = new Date(w1mon)
+    monday.setUTCDate(w1mon.getUTCDate() + (week - 1) * 7)
+    const sunday = new Date(monday)
+    sunday.setUTCDate(monday.getUTCDate() + 6)
+    return [monday, sunday]
+  }
+
   // Filter weeks to selected period
   const filteredWeeks: RepairWeek[] = dataReady ? (() => {
     switch (periodMode) {
-      case 'tuan':
-        return allWeeks.filter(w => w.year === weekYear && w.week_number === weekNum)
+      case 'tuan': {
+        const [mon, sun] = isoWeekBounds(weekYear, weekNum)
+        return allWeeks.filter(w => {
+          // Primary: exact week_number + year match
+          if (w.year === weekYear && w.week_number === weekNum) return true
+          // Fallback: sheet date range overlaps with this ISO week's Mon–Sun range
+          if (w.date_start) {
+            const ds = new Date(w.date_start + 'T00:00:00Z')
+            const de = w.date_end ? new Date(w.date_end + 'T00:00:00Z') : ds
+            // Overlap check: sheet range [ds, de] overlaps ISO week [mon, sun]
+            return ds <= sun && de >= mon
+          }
+          return false
+        })
+      }
       case 'thang':
         return allWeeks.filter(w => {
           if (!w.date_start) return w.year === monthYear
@@ -573,7 +602,16 @@ function DashboardTab() {
   // Period label
   const periodLabel = (() => {
     switch (periodMode) {
-      case 'tuan':  return `Tuần ${weekNum} / ${weekYear}`
+      case 'tuan': {
+        const [mon, sun] = isoWeekBounds(weekYear, weekNum)
+        const fmt = (d: Date) => `${d.getUTCDate()}/${d.getUTCMonth()+1}`
+        // If we matched a week with a label (from sheets), show it
+        const matchedLabel = filteredWeeks.length > 0 ? filteredWeeks[0].week_label : null
+        const dateRange = `(${fmt(mon)}-${fmt(sun)})`
+        return matchedLabel
+          ? `${matchedLabel} · ISO W${weekNum}/${weekYear} ${dateRange}`
+          : `Tuần ${weekNum} / ${weekYear} ${dateRange}`
+      }
       case 'thang': return `Tháng ${month} / ${monthYear}`
       case 'range': return rangeStart && rangeEnd ? `${fmtDateStr(rangeStart)} → ${fmtDateStr(rangeEnd)}` : 'Chọn khoảng ngày'
       case 'nam':   return `Năm ${nam}`
@@ -1000,11 +1038,65 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
 
   // Sparse state — keys are created on demand when user types
   const [stats, setStats] = useState<Record<string, Record<string, Record<string, number>>>>({})
+  // Dữ liệu hiện có trong DB (để hiển thị "ai đã nhập")
+  const [existingStats, setExistingStats] = useState<RepairStat[]>([])
+  const [loadingExisting, setLoadingExisting] = useState(false)
 
   const [activeStatus, setActiveStatus] = useState('da_sua')
   const [mode, setMode] = useState<'entry' | 'preview'>('entry')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+
+  // Tải dữ liệu hiện có mỗi khi tuần thay đổi
+  useEffect(() => {
+    const wn = derivedInfo.week_number
+    const yr = derivedInfo.year
+    if (!wn || !yr) return
+    setLoadingExisting(true)
+    fetch(`/api/sua-chua/stats?year=${yr}`)
+      .then(r => r.json())
+      .then(d => {
+        const weeks: Array<{ id: string; week_number: number; year: number }> = d.weeks ?? []
+        const week = weeks.find(w => w.week_number === wn && w.year === yr)
+        if (!week) { setExistingStats([]); setLoadingExisting(false); return }
+        return fetch(`/api/sua-chua/stats?week_id=${week.id}`)
+          .then(r => r.json())
+          .then(d2 => {
+            const existingRows: RepairStat[] = d2.stats ?? []
+            setExistingStats(existingRows)
+            // Pre-populate stats state với giá trị hiện có
+            setStats(prev => {
+              const next = { ...prev }
+              existingRows.forEach(s => {
+                if (!next[s.status_type]) next[s.status_type] = {}
+                if (!next[s.status_type][s.fault_type]) next[s.status_type][s.fault_type] = {}
+                // Chỉ điền nếu chưa có (không ghi đè giá trị đang nhập)
+                if (!next[s.status_type][s.fault_type][s.device_type]) {
+                  next[s.status_type][s.fault_type][s.device_type] = s.quantity
+                }
+              })
+              return next
+            })
+          })
+      })
+      .catch(() => {})
+      .finally(() => setLoadingExisting(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derivedInfo.week_number, derivedInfo.year])
+
+  // Helper: lấy thông tin người đã nhập ô này từ DB
+  function getExistingStat(status: string, fault: string, device: string): RepairStat | undefined {
+    return existingStats.find(
+      s => s.status_type === status && s.fault_type === fault && s.device_type === device && s.quantity > 0
+    )
+  }
+
+  // Rút gọn tên người nhập để hiển thị nhỏ (lấy phần trước @ hoặc tên đầu)
+  function shortName(name: string | null | undefined): string {
+    if (!name) return '?'
+    const n = name.split('@')[0] // nếu là email, lấy phần trước @
+    return n.length > 8 ? n.substring(0, 8) : n
+  }
 
   function setCellValue(statusKey: string, fault: string, device: string, val: number) {
     setStats(prev => ({
@@ -1100,13 +1192,21 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
       {mode === 'entry' && (
         <>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="flex border-b border-gray-100 overflow-x-auto">
+            <div className="flex border-b border-gray-100 overflow-x-auto items-center">
               {STATUS_TYPES.map(st => (
                 <button key={st.key} onClick={() => setActiveStatus(st.key)}
                   className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap transition ${activeStatus === st.key ? 'border-b-2' : 'text-gray-500 hover:text-gray-700'}`}
                   style={activeStatus === st.key ? { borderColor: st.color, background: st.color + '15', color: st.color } : {}}
                 >{st.label}</button>
               ))}
+              {loadingExisting && (
+                <span className="ml-auto px-3 text-xs text-blue-400 animate-pulse">Đang tải dữ liệu tuần...</span>
+              )}
+              {!loadingExisting && existingStats.length > 0 && (
+                <span className="ml-auto px-3 text-xs text-gray-400">
+                  🔵 = đã có dữ liệu (hover để xem ai nhập)
+                </span>
+              )}
             </div>
             <div className="p-4 overflow-x-auto">
               <table className="text-xs border-collapse">
@@ -1120,16 +1220,32 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
                   {(faultConfigs[activeStatus] ?? []).map((fault, fi) => (
                     <tr key={fault} className={fi % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                       <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-inherit">{fault}</td>
-                      {DEVICE_TYPES.map(dt => (
-                        <td key={dt} className="px-1 py-1">
-                          <input type="number" min={0}
-                            value={stats[activeStatus]?.[fault]?.[dt] || ''}
-                            onChange={e => setCellValue(activeStatus, fault, dt, +e.target.value)}
-                            className="w-full border border-gray-200 rounded px-1 py-0.5 text-center text-xs focus:outline-none focus:border-blue-400"
-                            placeholder="0"
-                          />
-                        </td>
-                      ))}
+                      {DEVICE_TYPES.map(dt => {
+                        const existing = getExistingStat(activeStatus, fault, dt)
+                        const hasExisting = !!existing
+                        return (
+                          <td key={dt} className="px-1 py-1">
+                            <div className="relative">
+                              <input type="number" min={0}
+                                value={stats[activeStatus]?.[fault]?.[dt] || ''}
+                                onChange={e => setCellValue(activeStatus, fault, dt, +e.target.value)}
+                                className={`w-full border rounded px-1 py-0.5 text-center text-xs focus:outline-none focus:border-blue-400 ${hasExisting ? 'border-blue-200 bg-blue-50' : 'border-gray-200'}`}
+                                placeholder="0"
+                                title={hasExisting ? `Đã nhập bởi: ${existing.submitted_by || '?'}` : ''}
+                              />
+                              {hasExisting && existing.submitted_by && (
+                                <span
+                                  className="absolute -top-1.5 -right-1 text-[8px] font-bold px-1 rounded-full leading-none"
+                                  style={{ background: '#3b82f6', color: '#fff' }}
+                                  title={`Nhập bởi: ${existing.submitted_by}`}
+                                >
+                                  {shortName(existing.submitted_by)}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        )
+                      })}
                     </tr>
                   ))}
                 </tbody>

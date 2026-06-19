@@ -93,18 +93,26 @@ function extractDateRange(values: string[][], fallbackYear: number): {
       const d0 = parseInt(m0[1]), mo0 = parseInt(m0[2]), yr0 = m0[3] ? parseInt(m0[3]) : fallbackYear
       if (d0 < 1 || d0 > 31 || mo0 < 1 || mo0 > 12) continue
 
-      const startDate = new Date(yr0, mo0 - 1, d0)
-      const { week, year } = getISOWeekYear(startDate)
       const dateStart = `${yr0}-${String(mo0).padStart(2, '0')}-${String(d0).padStart(2, '0')}`
 
       let dateEnd: string | null = null
+      let endDate: Date | null = null
       if (matches.length >= 2) {
         const m1 = matches[1]
         const d1 = parseInt(m1[1]), mo1 = parseInt(m1[2]), yr1 = m1[3] ? parseInt(m1[3]) : fallbackYear
         if (d1 >= 1 && d1 <= 31 && mo1 >= 1 && mo1 <= 12) {
           dateEnd = `${yr1}-${String(mo1).padStart(2, '0')}-${String(d1).padStart(2, '0')}`
+          endDate = new Date(yr1, mo1 - 1, d1)
         }
       }
+
+      // Use midpoint (or end date) to determine ISO week, so weeks spanning
+      // two ISO boundaries (e.g. Sun–Fri) map to the week with more overlap.
+      const startDate = new Date(yr0, mo0 - 1, d0)
+      const refDate = endDate
+        ? new Date((startDate.getTime() + endDate.getTime()) / 2)
+        : startDate
+      const { week, year } = getISOWeekYear(refDate)
 
       return { isoWeek: week, isoYear: year, dateStart, dateEnd }
     }

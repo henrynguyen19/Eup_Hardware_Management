@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     // Tất cả tuần trong năm kèm totals (cho dashboard chart)
     const weeksRes = await client
       .from('repair_weeks')
-      .select('id, year, week_number, week_label, date_start')
+      .select('id, year, week_number, week_label, date_start, date_end')
       .eq('year', parseInt(year))
       .order('week_number')
 
@@ -90,12 +90,24 @@ export async function POST(req: NextRequest) {
   const client = sb()
   const errors: string[] = []
 
-  // Upsert stats
+  // Lấy tên hiển thị của người dùng
+  const { data: userRow } = await client
+    .from('users')
+    .select('full_name, username, email')
+    .eq('id', user.id)
+    .single()
+  const submittedBy = userRow?.full_name || userRow?.username || userRow?.email || user.email || user.id
+
+  // Upsert stats — CHỈ upsert ô có giá trị (quantity > 0)
+  // Ô bỏ trống (0) KHÔNG ghi đè dữ liệu người khác đã nhập
   if (stats && stats.length > 0) {
     const rows = stats
       .filter((s: { quantity: number }) => s.quantity > 0)
       .map((s: { status_type: string; fault_type: string; device_type: string; quantity: number }) => ({
-        week_id, ...s
+        week_id,
+        ...s,
+        submitted_by: submittedBy,
+        submitted_at: new Date().toISOString(),
       }))
 
     if (rows.length > 0) {
@@ -103,16 +115,7 @@ export async function POST(req: NextRequest) {
         .upsert(rows, { onConflict: 'week_id,status_type,fault_type,device_type' })
       if (error) errors.push(error.message)
     }
-
-    // Xóa rows có quantity=0 (cleanup)
-    const zeroRows = stats.filter((s: { quantity: number }) => s.quantity === 0)
-    for (const z of zeroRows) {
-      await client.from('repair_stats').delete()
-        .eq('week_id', week_id)
-        .eq('status_type', z.status_type)
-        .eq('fault_type', z.fault_type)
-        .eq('device_type', z.device_type)
-    }
+    // Ô = 0 từ form: KHÔNG xóa — có thể là ô người kia đã nhập rồi
   }
 
   // Upsert totals
