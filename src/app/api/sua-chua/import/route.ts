@@ -122,22 +122,18 @@ function parseSheetData(values: string[][], weekId: string) {
       continue
     }
 
-    // === Detect STATUS section headers (dùng labelNorm để bỏ qua vấn đề dấu) ===
+    // === Detect STATUS section headers — dùng EXACT match để tránh nhầm fault types ===
+    // e.g. "không xác định" bắt đầu bằng "khong" nhưng KHÔNG phải "Không lỗi"
     let matchedStatus: string | undefined = STATUS_SECTIONS[label]
     if (!matchedStatus) {
-      const sectionNorms: [string, string][] = [
-        ['da sua',       'da_sua'],
-        ['gui bao hanh', 'gui_bao_hanh'],
-        ['khong loi',    'khong_loi'],
-        ['hong han',     'hong_han'],
-        ['cho sua',      'cho_sua'],
-      ]
-      for (const [keyNorm, val] of sectionNorms) {
-        const kn = keyNorm.replace(/\s/g, '')
-        if (labelNorm === kn || labelNorm.startsWith(kn.slice(0, 5))) {
-          matchedStatus = val; break
-        }
+      const sectionNormMap: Record<string, string> = {
+        'dasua':       'da_sua',
+        'guibaohanh':  'gui_bao_hanh',
+        'khongloi':    'khong_loi',
+        'honghan':     'hong_han',
+        'chosua':      'cho_sua',
       }
+      matchedStatus = sectionNormMap[labelNorm]
     }
     if (matchedStatus) {
       currentStatus = matchedStatus
@@ -190,10 +186,10 @@ export async function GET(req: NextRequest) {
       return null
     }
 
-    const sectionNorms: [string, string][] = [
-      ['da sua','da_sua'], ['gui bao hanh','gui_bao_hanh'],
-      ['khong loi','khong_loi'], ['hong han','hong_han'], ['cho sua','cho_sua'],
-    ]
+    const sectionNormMap: Record<string, string> = {
+      'dasua':'da_sua', 'guibaohanh':'gui_bao_hanh',
+      'khongloi':'khong_loi', 'honghan':'hong_han', 'chosua':'cho_sua',
+    }
 
     values.forEach((row, i) => {
       if (!row || row.length === 0) return
@@ -207,14 +203,9 @@ export async function GET(req: NextRequest) {
       if (norm.startsWith('loi') || norm.startsWith('thietbi')) {
         dataStartCol = col + 1; action = `header→dataStartCol=${dataStartCol}`
       } else {
-        // Check section
-        let matched = STATUS_SECTIONS[label]
-        if (!matched) {
-          for (const [kn, val] of sectionNorms) {
-            const k = kn.replace(/\s/g, '')
-            if (norm === k || norm.startsWith(k.slice(0, 5))) { matched = val; break }
-          }
-        }
+        // Check section — EXACT match only
+        let matched = STATUS_SECTIONS[label] || sectionNormMap[norm]
+        if (matched) {
         if (matched) {
           currentStatus = matched; action = `section→${matched}`
         } else if (norm === 'tong' && currentStatus && currentStatus !== 'cho_sua') {
