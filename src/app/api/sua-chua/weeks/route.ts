@@ -57,8 +57,6 @@ export async function POST(req: NextRequest) {
     .from('repair_weeks')
     .upsert({
       year, week_number, week_label, date_start, date_end, notes,
-      entered_by: user.email ?? user.id,
-      entered_at: now,
       updated_at: now,
     }, { onConflict: 'year,week_number' })
     .select()
