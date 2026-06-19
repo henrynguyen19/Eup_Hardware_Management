@@ -112,13 +112,13 @@ function CellEditPopup({
         <div className="flex gap-1.5 mb-3">
           {(['check','cross','text'] as const).map(t => (
             <button key={t} onClick={() => setValueType(t)}
-              className={\`flex-1 py-1.5 rounded-lg text-xs font-medium border transition \${
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${
                 valueType === t
                   ? t === 'check' ? 'bg-green-100 border-green-400 text-green-700'
                   : t === 'cross' ? 'bg-gray-200 border-gray-400 text-gray-700'
                   : 'bg-blue-100 border-blue-400 text-blue-700'
                   : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300'
-              }\`}
+              }`}
             >{t === 'check' ? '✔ Co' : t === 'cross' ? '— Khong' : '📝 Text'}</button>
           ))}
         </div>
@@ -224,7 +224,7 @@ function AddGroupModal({ onClose, onAdd }: {
         <div className="flex flex-wrap gap-1.5 mb-3">
           {EMOJI_OPTIONS.map(e => (
             <button key={e} onClick={() => setIcon(e)}
-              className={\`w-8 h-8 rounded-lg text-base border transition \${icon === e ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300'}\`}
+              className={`w-8 h-8 rounded-lg text-base border transition ${icon === e ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300'}`}
             >{e}</button>
           ))}
         </div>
@@ -234,7 +234,7 @@ function AddGroupModal({ onClose, onAdd }: {
             const s = colorStyle(c)
             return (
               <button key={c} onClick={() => setColor(c)}
-                className={\`flex-1 h-7 rounded-lg border text-[10px] font-medium transition \${s.bg} \${s.text} \${color === c ? 'ring-2 ring-offset-1 ring-gray-400' : 'border-transparent'}\`}
+                className={`flex-1 h-7 rounded-lg border text-[10px] font-medium transition ${s.bg} ${s.text} ${color === c ? 'ring-2 ring-offset-1 ring-gray-400' : 'border-transparent'}`}
               >{c}</button>
             )
           })}
@@ -285,7 +285,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
   useEffect(() => { loadData() }, [loadData])
 
   async function handleCellSave(eqId: string, fk: string, value: string, notes: string) {
-    const res = await fetch(\`/api/kho/equipment/\${eqId}/features\`, {
+    const res = await fetch(`/api/kho/equipment/${eqId}/features`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ feature_key: fk, value, notes: notes || null }),
@@ -334,7 +334,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
   }
 
   async function handleDeleteFeature(key: string) {
-    if (!confirm(\`Xoa tinh nang "\${key}"?\nTat ca du lieu tren moi thiet bi se bi xoa.\`)) return
+    if (!confirm(`Xoa tinh nang "${key}"?\nTat ca du lieu tren moi thiet bi se bi xoa.`)) return
     setDeletingKey(key)
     await fetch('/api/kho/features-matrix', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
@@ -389,7 +389,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
   return (
     <div className="overflow-x-auto">
       {renameErr && <div className="mx-4 mt-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{renameErr}</div>}
-      <table className="w-full text-xs border-collapse" style={{ minWidth: \`\${260 + devices.length * 110}px\` }}>
+      <table className="w-full text-xs border-collapse" style={{ minWidth: `${260 + devices.length * 110}px` }}>
         <thead>
           <tr>
             {isAdmin && <th className="w-6 bg-gray-50 border-b-2 border-gray-200" />}
@@ -398,7 +398,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
             </th>
             {devices.map(dev => (
               <th key={dev.equipment_id} className="text-center px-2 py-0 border-b-2 border-gray-200 border-l border-gray-100" style={{ minWidth: 100 }}>
-                <div className={\`\${deviceHeaderStyle(dev.device_type)} py-2.5 px-2 flex flex-col items-center gap-1\`}>
+                <div className={`${deviceHeaderStyle(dev.device_type)} py-2.5 px-2 flex flex-col items-center gap-1`}>
                   <span className="font-bold text-sm leading-snug">{dev.name}</span>
                   <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-white/20">{dev.status}</span>
                 </div>
@@ -412,16 +412,16 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
             const s = colorStyle(group?.color ?? 'gray')
             return (
               <React.Fragment key={label}>
-                <tr className={\`\${s.groupBg} border-b \${s.border} border-t\`}>
+                <tr className={`${s.groupBg} border-b ${s.border} border-t`}>
                   {isAdmin && <td className={s.groupBg} />}
-                  <td colSpan={devices.length + (isAdmin ? 2 : 1)} className={\`px-4 py-2 sticky left-0 \${s.groupBg} z-10\`}>
+                  <td colSpan={devices.length + (isAdmin ? 2 : 1)} className={`px-4 py-2 sticky left-0 ${s.groupBg} z-10`}>
                     <div className="flex items-center justify-between">
-                      <span className={\`font-bold text-[11px] tracking-wider uppercase \${s.text}\`}>
+                      <span className={`font-bold text-[11px] tracking-wider uppercase ${s.text}`}>
                         {group?.icon ?? '⚙️'} {label}
                       </span>
                       {isAdmin && (
                         <button onClick={() => setShowAddFeature(label)}
-                          className={\`text-[10px] font-medium px-2 py-0.5 rounded-full \${s.bg} \${s.text} border \${s.border} hover:brightness-95 transition\`}
+                          className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${s.bg} ${s.text} border ${s.border} hover:brightness-95 transition`}
                         >+ Tinh nang</button>
                       )}
                     </div>
@@ -476,7 +476,7 @@ export default function FeatureMatrixView({ isAdmin }: Props) {
                         const cell = matrix[dev.equipment_id]?.[key]
                         return (
                           <td key={dev.equipment_id}
-                            className={\`py-2 px-2 text-center border-l border-gray-100 align-top \${isAdmin ? 'cursor-pointer hover:bg-blue-50/40 transition-colors' : ''}\`}
+                            className={`py-2 px-2 text-center border-l border-gray-100 align-top ${isAdmin ? 'cursor-pointer hover:bg-blue-50/40 transition-colors' : ''}`}
                             onClick={isAdmin ? (e) => {
                               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                               setCellEdit({ equipmentId: dev.equipment_id, featureKey: key, value: cell?.value ?? 'Khong', notes: cell?.notes ?? '', anchorRect: rect })
