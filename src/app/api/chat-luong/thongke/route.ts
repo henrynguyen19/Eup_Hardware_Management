@@ -91,17 +91,41 @@ function parseRow(cols: string[]): ThongKeRecord | null {
   }
 }
 
-async function fetchThongKe(month: number, year: number): Promise<{ records: ThongKeRecord[]; error?: string }> {
-  const url = `https://docs.google.com/spreadsheets/d/${QUALITY_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Thống kê')}&range=A:BM`
+async function fetchSheetCSVThongKe(sheetTab: string): Promise<string> {
+  const apiKey = process.env.GOOGLE_SHEETS_API_KEY
 
-  try {
+  if (apiKey) {
+    const range = `'${sheetTab}'!A:BM`
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${QUALITY_SHEET_ID}/values/${encodeURIComponent(range)}?key=${apiKey}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`
     const res = await fetch(url, { cache: 'no-store' })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    if (!res.ok) throw new Error(`Sheets API v4 HTTP ${res.status}`)
+    const json = await res.json()
+    if (json.error) throw new Error(`Sheets API: ${json.error.message}`)
+    const rows: string[][] = json.values ?? []
+    return rows.map(row =>
+      row.map(cell => {
+        const s = String(cell ?? '')
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? `"${s.replace(/"/g, '""')}"`
+          : s
+      }).join(',')
+    ).join('\n')
+  }
 
-    const csvText = await res.text()
-    if (csvText.trimStart().startsWith('<')) {
-      return { records: [], error: 'Sheet Thống kê không tồn tại hoặc chưa public' }
-    }
+  const url = `https://docs.google.com/spreadsheets/d/${QUALITY_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetTab)}&range=A:BM`
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const csvText = await res.text()
+  if (csvText.trimStart().startsWith('<')) {
+    throw new Error(`Sheet "${sheetTab}" không tồn tại hoặc chưa public`)
+  }
+  return csvText
+}
+
+async function fetchThongKe(month: number, year: number): Promise<{ records: ThongKeRecord[]; error?: string; source?: string }> {
+  try {
+    const csvText = await fetchSheetCSVThongKe('Thống kê')
+    const source = process.env.GOOGLE_SHEETS_API_KEY ? 'sheets_api_v4' : 'gviz'
 
     const lines = csvText.split('\n')
     const records: ThongKeRecord[] = []
@@ -120,7 +144,7 @@ async function fetchThongKe(month: number, year: number): Promise<{ records: Tho
       records.push(rec)
     }
 
-    return { records }
+    return { records, source }
   } catch (err) {
     return { records: [], error: String(err) }
   }
@@ -146,7 +170,7 @@ export async function GET(req: NextRequest) {
   const year  = parseInt(sp.get('year')  ?? '0')
   if (!month || !year) return NextResponse.json({ error: 'Missing month/year' }, { status: 400 })
 
-  const { records, error } = await fetchThongKe(month, year)
+  const { records, error, source } = await fetchThongKe(month, year)
   if (error) return NextResponse.json({ error, records: [] })
 
   // Tính stats tổng hợp
@@ -189,6 +213,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     records,
+    source,
     stats: {
       total:    records.length,
       ok:       records.filter(r => getTinhTrangKey(r.tinh_trang) === 'OK').length,
