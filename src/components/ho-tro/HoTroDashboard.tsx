@@ -519,15 +519,25 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     )
   }, [staffDataMap, periodMode, filterByWeek])
 
+  // Cache info state
+  const [isCached, setIsCached]       = useState(false)
+  const [fetchedAt, setFetchedAt]     = useState<string | null>(null)
+
   // ── Fetch single staff ──
-  const fetchData = useCallback(async (sheetId: string, month: number, year: number) => {
+  const fetchData = useCallback(async (sheetId: string, month: number, year: number, forceRefresh = false) => {
     if (!sheetId) return
     setLoading(true)
     setError(null)
+    const staffName = allStaff.find(s => s.sheetId === sheetId)?.name ?? null
     try {
-      const res  = await fetch(`/api/ho-tro/sheets?sheetId=${sheetId}&month=${month}&year=${year}`)
+      const params = new URLSearchParams({ sheetId, month: String(month), year: String(year) })
+      if (staffName) params.set('staffName', staffName)
+      if (forceRefresh) params.set('refresh', 'true')
+      const res  = await fetch(`/api/ho-tro/sheets?${params}`)
       const json = await res.json()
       setSheetName(json.sheetName ?? '')
+      setIsCached(json.cached === true)
+      setFetchedAt(json.fetched_at ?? null)
       if (json.error) {
         setError(json.error); setRecords([])
       } else if (!json.rows?.length) {
@@ -540,15 +550,19 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [allStaff])
 
   // ── Fetch all staff in parallel (summary) ──
-  const fetchAllStaff = useCallback(async (month: number, year: number) => {
+  const fetchAllStaff = useCallback(async (month: number, year: number, forceRefresh = false) => {
     setSummaryLoading(true)
     try {
       const results = await Promise.all(
         allStaff.map(async s => {
-          const res  = await fetch(`/api/ho-tro/sheets?sheetId=${s.sheetId}&month=${month}&year=${year}`)
+          const params = new URLSearchParams({
+            sheetId: s.sheetId, month: String(month), year: String(year), staffName: s.name,
+          })
+          if (forceRefresh) params.set('refresh', 'true')
+          const res  = await fetch(`/api/ho-tro/sheets?${params}`)
           const json = await res.json()
           return [s.name, json.rows ?? []] as [string, DailyRecord[]]
         })
@@ -570,6 +584,26 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     }
   }, [isSummaryMode, selectedSheetId, selectedMonthIdx, fetchData, fetchAllStaff,
       selectedMonth.month, selectedMonth.year])
+
+  // ── Force refresh from Google Sheets ──
+  function handleRefresh() {
+    if (isSummaryMode) {
+      fetchAllStaff(selectedMonth.month, selectedMonth.year, true)
+    } else {
+      fetchData(selectedSheetId, selectedMonth.month, selectedMonth.year, true)
+    }
+  }
+
+  // Format fetched_at thành "HH:mm DD/MM"
+  function fmtFetchedAt(iso: string | null): string {
+    if (!iso) return ''
+    const d = new Date(iso)
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mo = String(d.getMonth() + 1).padStart(2, '0')
+    return `${hh}:${mm} ${dd}/${mo}`
+  }
 
   async function handleLogout() {
     const supabase = createSupabaseBrowserClient()
@@ -660,6 +694,23 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 >›</button>
               </div>
             )}
+            {/* Cache badge + refresh */}
+            <div className="flex items-center gap-1.5">
+              {isCached && fetchedAt && !loading && !summaryLoading && (
+                <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                  ⚡ {fmtFetchedAt(fetchedAt)}
+                </span>
+              )}
+              <button
+                onClick={handleRefresh}
+                disabled={loading || summaryLoading}
+                title="Làm mới từ Google Sheets"
+                className="px-2.5 py-2 text-sm text-gray-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg border border-gray-200 transition disabled:opacity-40"
+              >
+                🔄
+              </button>
+            </div>
+
             {canWrite && (
               <button
                 onClick={() => setShowAddForm(true)}

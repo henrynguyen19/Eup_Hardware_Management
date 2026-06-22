@@ -29,14 +29,10 @@ function parseCSVRow(line: string): string[] {
 }
 
 // ── Excel serial → DD/MM/YYYY ────────────────────────────────
-// Excel epoch = Jan 0, 1900 (with bug treating 1900 as leap year, so day 1 = Jan 1 1900)
 function excelSerialToDate(serial: number): { display: string; sortKey: string } | null {
-  // Excel serial 1 = 1900-01-01. JS: new Date(0) = 1970-01-01.
-  // Days from 1970-01-01 to 1900-01-01 = -25569 days (reversed)
-  // Excel incorrectly includes 1900-02-29 (serial 60), so we subtract 1 for serials > 60
   const adjusted = serial > 60 ? serial - 1 : serial
   const msPerDay = 86400000
-  const epoch1900 = Date.UTC(1900, 0, 1) // Jan 1 1900 in ms
+  const epoch1900 = Date.UTC(1900, 0, 1)
   const ms = epoch1900 + (adjusted - 1) * msPerDay
   const date = new Date(ms)
   const y = date.getUTCFullYear()
@@ -46,8 +42,7 @@ function excelSerialToDate(serial: number): { display: string; sortKey: string }
   return { display: `${d}/${m}/${y}`, sortKey: `${y}-${m}-${d}` }
 }
 
-// ── Known metric names (sorted descending by length to avoid prefix conflicts) ──
-// Format: [Vietnamese name, value number follows immediately after name]
+// ── Known metric names ────────────────────────────────────────
 const KNOWN_METRICS: string[] = [
   'số yêu cầu xử lý sang ngày thứ 5',
   'số yêu cầu xử lý sang ngày thứ 4',
@@ -93,18 +88,13 @@ const KNOWN_METRICS: string[] = [
   'SS',
   'SP',
 ]
-// Sort by descending length so longer names match first (e.g. VN88 4GH before VN88 4G)
 KNOWN_METRICS.sort((a, b) => b.length - a.length)
 
-// ── Parse packed string from line 0 of báo cáo CSV ──────────
-// Format: "ngày{serial}số lượng yêu cầu{N}   ;{serial}{metric}{value}   ;ngày{serial2}..."
+// ── Parse packed string ───────────────────────────────────────
 function parsePackedString(packed: string): DailyRecord[] {
   if (!packed || !packed.startsWith('ngày')) return []
 
-  // Split by the 3-space semicolon separator
   const entries = packed.split('   ;')
-
-  // Group entries by Excel serial (5-digit number)
   const dayMap = new Map<number, Map<string, number>>()
   let currentSerial = 0
 
@@ -112,20 +102,17 @@ function parsePackedString(packed: string): DailyRecord[] {
     const entry = rawEntry.trim()
     if (!entry) continue
 
-    // Check if it starts a new day: "ngày{5digits}"
     const dayMatch = entry.match(/^ngày(\d{5})/)
     if (dayMatch) {
       currentSerial = parseInt(dayMatch[1])
       if (!dayMap.has(currentSerial)) dayMap.set(currentSerial, new Map())
-      // The rest of the entry after "ngày" is still a metric entry
-      const rest = entry.slice(4) // remove "ngày"
+      const rest = entry.slice(4)
       parseMetricEntry(rest, currentSerial, dayMap.get(currentSerial)!)
     } else if (currentSerial > 0) {
       parseMetricEntry(entry, currentSerial, dayMap.get(currentSerial)!)
     }
   }
 
-  // Build DailyRecord[] from the map
   const result: DailyRecord[] = []
   for (const [serial, metrics] of dayMap) {
     const di = excelSerialToDate(serial)
@@ -195,32 +182,107 @@ function parsePackedString(packed: string): DailyRecord[] {
   return result.sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 }
 
-// Parse a single metric entry like "46174số lượng yêu cầu43"
 function parseMetricEntry(entry: string, serial: number, metrics: Map<string, number>) {
   const serialStr = String(serial)
-  // Strip serial prefix if present
   const rest = entry.startsWith(serialStr) ? entry.slice(serialStr.length) : entry
 
-  // Try each known metric (already sorted by descending length)
   for (const metricName of KNOWN_METRICS) {
     if (rest.startsWith(metricName)) {
       const valueStr = rest.slice(metricName.length)
       const value = parseFloat(valueStr)
-      if (!isNaN(value)) {
-        metrics.set(metricName, value)
-      }
+      if (!isNaN(value)) metrics.set(metricName, value)
       return
     }
   }
 }
 
-// ── GET handler ──────────────────────────────────────────────
+// ── Fetch from Google Sheets ──────────────────────────────────
+async function fetchFromSheets(
+  sheetId: string, month: number, yearShort: string
+): Promise<{ rows: DailyRecord[]; sheetName: string; error?: string }> {
+  const sheetName = `báo cáo tháng ${month}/${yearShort}`
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&headers=0`
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+    const csvText = await res.text()
+    if (csvText.trimStart().startsWith('<')) {
+      return { rows: [], sheetName, error: `Sheet "${sheetName}" không tồn tại hoặc chưa public` }
+    }
+
+    const firstLine = csvText.split('\n')[0] ?? ''
+    const firstRow = parseCSVRow(firstLine)
+    const packedStr = firstRow[0] ?? ''
+    const allRows = parsePackedString(packedStr)
+
+    // Filter to requested month/year only
+    const monthNum = month
+    const yearNum  = 2000 + parseInt(yearShort)
+    const rows = allRows.filter(r => {
+      const [, m, y] = r.date.split('/').map(Number)
+      return m === monthNum && y === yearNum
+    })
+
+    return { rows, sheetName }
+  } catch (err) {
+    return { rows: [], sheetName, error: String(err) }
+  }
+}
+
+// ── Save rows to DB cache ─────────────────────────────────────
+async function saveToCache(
+  db: ReturnType<typeof adminClient>,
+  sheetId: string,
+  staffName: string | null,
+  rows: DailyRecord[]
+): Promise<void> {
+  if (!rows.length) return
+
+  const now = new Date().toISOString()
+  const upsertRows = rows.map(r => ({
+    sheet_id:       sheetId,
+    staff_name:     staffName,
+    sort_key:       r.sortKey,
+    date_display:   r.date,
+    total_requests: r.total_requests,
+    avg_time:       r.avg_time,
+    max_time:       r.max_time,
+    devices:        r.devices,
+    resolution:     r.resolution,
+    locations:      r.locations,
+    channels:       r.channels,
+    errors:         r.errors,
+    fetched_at:     now,
+  }))
+
+  await db.from('ho_tro_daily_records')
+    .upsert(upsertRows, { onConflict: 'sheet_id,sort_key' })
+}
+
+// ── Convert DB row → DailyRecord ─────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function dbRowToRecord(row: any): DailyRecord {
+  return {
+    date:           row.date_display,
+    sortKey:        row.sort_key,
+    total_requests: row.total_requests ?? 0,
+    avg_time:       row.avg_time ?? 0,
+    max_time:       row.max_time ?? 0,
+    devices:        row.devices   ?? {},
+    resolution:     row.resolution ?? {},
+    locations:      row.locations  ?? {},
+    channels:       row.channels   ?? {},
+    errors:         row.errors     ?? {},
+  }
+}
+
+// ── GET handler ───────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Check ho_tro permission
   const { data: permData } = await adminClient()
     .from('user_permissions_view')
     .select('permissions')
@@ -231,55 +293,86 @@ export async function GET(req: NextRequest) {
   if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const sp = new URL(req.url).searchParams
-  const sheetId = sp.get('sheetId')
-  const month   = sp.get('month')
-  const year    = sp.get('year') // short "26" or full "2026"
+  const sheetId   = sp.get('sheetId')
+  const month     = sp.get('month')
+  const year      = sp.get('year')
+  const staffName = sp.get('staffName') ?? null
+  const refresh   = sp.get('refresh') === 'true'
 
   if (!sheetId || !month || !year) {
     return NextResponse.json({ error: 'Missing sheetId, month, year' }, { status: 400 })
   }
 
   const yearShort = year.length === 4 ? year.slice(2) : year
-  const sheetName = `báo cáo tháng ${month}/${yearShort}`
+  const yearNum   = 2000 + parseInt(yearShort)
+  const monthNum  = parseInt(month)
+  const db        = adminClient()
 
-  try {
-    // Use tqx=out:csv to avoid parsedNumHeaders bug with JSON format
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&headers=0`
-    const res = await fetch(url, { cache: 'no-store' })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  // ── 1. Check DB cache (unless force refresh) ──────────────
+  if (!refresh) {
+    const prefix = `${yearNum}-${String(monthNum).padStart(2, '0')}-`
+    const { data: cached } = await db
+      .from('ho_tro_daily_records')
+      .select('*')
+      .eq('sheet_id', sheetId)
+      .gte('sort_key', `${prefix}01`)
+      .lte('sort_key', `${prefix}31`)
+      .order('sort_key')
 
-    const csvText = await res.text()
-
-    // Check if response is HTML (sheet not found / no permission)
-    if (csvText.trimStart().startsWith('<')) {
-      return NextResponse.json({
-        error: `Sheet "${sheetName}" khong ton tai hoac chua public`,
-        rows: [],
-        sheetName,
-      })
+    if (cached && cached.length > 0) {
+      const rows = cached.map(dbRowToRecord)
+      const fetchedAt = cached[0].fetched_at
+      const sheetName = `báo cáo tháng ${month}/${yearShort}`
+      return NextResponse.json({ rows, sheetName, month, year: yearShort, cached: true, fetched_at: fetchedAt })
     }
-
-    // The báo cáo sheet has a packed string in the first cell of the first row.
-    // It contains all daily metrics encoded as:
-    // "ngày{serial}metric_name{value}   ;{serial}metric_name{value}   ;ngày{nextSerial}..."
-    // Parse this packed string to extract daily records.
-    const firstLine = csvText.split('\n')[0] ?? ''
-    const firstRow = parseCSVRow(firstLine)
-    const packedStr = firstRow[0] ?? ''
-
-    const rows = parsePackedString(packedStr)
-
-    // Filter to only the requested month/year
-    const monthNum = parseInt(month)
-    const yearNum  = 2000 + parseInt(yearShort)
-    const filtered = rows.filter(r => {
-      const [, m, y] = r.date.split('/').map(Number)
-      return m === monthNum && y === yearNum
-    })
-
-    return NextResponse.json({ rows: filtered, sheetName, month, year: yearShort })
-  } catch (err) {
-    console.error('[ho-tro/sheets]', err)
-    return NextResponse.json({ error: String(err), rows: [], sheetName })
   }
+
+  // ── 2. Fetch from Google Sheets ───────────────────────────
+  const { rows, sheetName, error } = await fetchFromSheets(sheetId, monthNum, yearShort)
+
+  if (error) {
+    return NextResponse.json({ error, rows: [], sheetName, cached: false })
+  }
+
+  if (!rows.length) {
+    return NextResponse.json({
+      error: `Chưa có dữ liệu cho "${sheetName}"`,
+      rows: [], sheetName, cached: false,
+    })
+  }
+
+  // ── 3. Save to DB cache (fire-and-forget, don't block response) ──
+  saveToCache(db, sheetId, staffName, rows).catch(e =>
+    console.error('[ho-tro/sheets] cache save error:', e)
+  )
+
+  return NextResponse.json({ rows, sheetName, month, year: yearShort, cached: false })
+}
+
+// ── DELETE handler — xóa cache của 1 sheet + tháng ───────────
+// Body: { sheetId, month, year }
+export async function DELETE(req: NextRequest) {
+  const supabase = createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { sheetId, month, year } = await req.json()
+  if (!sheetId || !month || !year) {
+    return NextResponse.json({ error: 'Missing sheetId, month, year' }, { status: 400 })
+  }
+
+  const yearShort = String(year).length === 4 ? String(year).slice(2) : String(year)
+  const yearNum   = 2000 + parseInt(yearShort)
+  const monthNum  = parseInt(month)
+  const prefix    = `${yearNum}-${String(monthNum).padStart(2, '0')}-`
+
+  const db = adminClient()
+  const { error } = await db.from('ho_tro_daily_records')
+    .delete()
+    .eq('sheet_id', sheetId)
+    .gte('sort_key', `${prefix}01`)
+    .lte('sort_key', `${prefix}31`)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
 }
