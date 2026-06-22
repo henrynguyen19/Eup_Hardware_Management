@@ -18,9 +18,10 @@ interface Props {
   userEmail: string
   isAdmin: boolean
   canHoTro: boolean
+  canChatLuong?: boolean
 }
 
-export default function SidebarNav({ userEmail, isAdmin, canHoTro }: Props) {
+export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong = false }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const [showChangePw, setShowChangePw] = useState(false)
@@ -33,11 +34,12 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro }: Props) {
 
   const navItems: NavItem[] = [
     { icon: '📦', label: 'Quản lý thiết bị',  href: '/kho' },
-    { icon: '🛠️', label: 'Hỗ trợ kỹ thuật',  href: '/ho-tro',      show: canHoTro || isAdmin },
+    { icon: '🛠️', label: 'Hỗ trợ kỹ thuật',  href: '/ho-tro',       show: canHoTro || isAdmin },
     { icon: '📜', label: 'Giấy chứng nhận',   href: '/chung-nhan' },
     { icon: '📊', label: 'Thống kê sửa chữa', href: '/sua-chua' },
-    { icon: '🚚', label: 'Thông tin giao nhận',href: '/giao-nhan',  comingSoon: true },
-    { icon: '👥', label: 'Phân quyền & User', href: '/admin/users', show: isAdmin },
+    { icon: '✅', label: 'Quản lý chất lượng',href: '/chat-luong',   show: canChatLuong || isAdmin },
+    { icon: '🚚', label: 'Thông tin giao nhận',href: '/giao-nhan',   comingSoon: true },
+    { icon: '👥', label: 'Phân quyền & User', href: '/admin/users',  show: isAdmin },
   ]
 
   const visibleItems = navItems.filter(item => item.show === undefined || item.show === true)
