@@ -448,7 +448,76 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [staffDataMap, setStaffDataMap]       = useState<Record<string, DailyRecord[]>>({})
   const [summaryLoading, setSummaryLoading]   = useState(false)
 
+  // Week mode state
+  const [periodMode, setPeriodMode]           = useState<'thang' | 'tuan'>('thang')
+  const [selectedWeekKey, setSelectedWeekKey] = useState<string | null>(null) // "YYYY-Www"
+
   const selectedMonth = MONTHS[selectedMonthIdx]
+
+  // ── ISO week helpers ──
+  function getISOWeekKey(sortKey: string): string {
+    const [y, m, d] = sortKey.split('-').map(Number)
+    const date = new Date(Date.UTC(y, m - 1, d))
+    const day = date.getUTCDay() || 7
+    date.setUTCDate(date.getUTCDate() + 4 - day)
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
+    const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+    return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+  }
+
+  function isoWeekBounds(key: string): { mon: Date; sun: Date; label: string } {
+    const [yearStr, wStr] = key.split('-W')
+    const year = parseInt(yearStr), week = parseInt(wStr)
+    const jan4 = new Date(Date.UTC(year, 0, 4))
+    const w1mon = new Date(jan4)
+    w1mon.setUTCDate(jan4.getUTCDate() - (jan4.getUTCDay() || 7) + 1)
+    const mon = new Date(w1mon)
+    mon.setUTCDate(w1mon.getUTCDate() + (week - 1) * 7)
+    const sun = new Date(mon)
+    sun.setUTCDate(mon.getUTCDate() + 6)
+    const fmt = (d: Date) => `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    return { mon, sun, label: `${fmt(mon)} – ${fmt(sun)}` }
+  }
+
+  // Derive sorted list of ISO week keys from current records
+  const allWeekKeys = useMemo(() => {
+    const source = isSummaryMode
+      ? Object.values(staffDataMap).flat()
+      : records
+    const keys = new Set(source.filter(r => r.total_requests > 0).map(r => getISOWeekKey(r.sortKey)))
+    return Array.from(keys).sort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, staffDataMap, isSummaryMode])
+
+  // Auto-select latest week when entering week mode or data changes
+  useEffect(() => {
+    if (periodMode === 'tuan' && allWeekKeys.length > 0) {
+      if (!selectedWeekKey || !allWeekKeys.includes(selectedWeekKey)) {
+        setSelectedWeekKey(allWeekKeys[allWeekKeys.length - 1])
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodMode, allWeekKeys])
+
+  function navWeek(delta: -1 | 1) {
+    const idx = allWeekKeys.indexOf(selectedWeekKey ?? '')
+    const next = Math.max(0, Math.min(allWeekKeys.length - 1, idx + delta))
+    setSelectedWeekKey(allWeekKeys[next])
+  }
+
+  // Filter records to selected week
+  const filterByWeek = useCallback((recs: DailyRecord[]): DailyRecord[] => {
+    if (periodMode !== 'tuan' || !selectedWeekKey) return recs
+    return recs.filter(r => getISOWeekKey(r.sortKey) === selectedWeekKey)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodMode, selectedWeekKey])
+
+  const filteredStaffMap: Record<string, DailyRecord[]> = useMemo(() => {
+    if (periodMode !== 'tuan') return staffDataMap
+    return Object.fromEntries(
+      Object.entries(staffDataMap).map(([k, v]) => [k, filterByWeek(v)])
+    )
+  }, [staffDataMap, periodMode, filterByWeek])
 
   // ── Fetch single staff ──
   const fetchData = useCallback(async (sheetId: string, month: number, year: number) => {
@@ -509,7 +578,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   }
 
   // Individual view aggregates
-  const dataRows       = records.filter(r => r.total_requests > 0)
+  const dataRows       = filterByWeek(records).filter(r => r.total_requests > 0)
   const totalRequests  = dataRows.reduce((s, r) => s + r.total_requests, 0)
   const totalDays      = dataRows.length
   const avgTime        = totalDays ? Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / totalDays) : 0
@@ -549,7 +618,20 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Period mode toggle */}
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+              <button
+                onClick={() => setPeriodMode('thang')}
+                className={`px-3 py-2 font-medium transition ${periodMode === 'thang' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >Tháng</button>
+              <button
+                onClick={() => { setPeriodMode('tuan'); }}
+                className={`px-3 py-2 font-medium transition ${periodMode === 'tuan' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >Tuần</button>
+            </div>
+
+            {/* Month selector */}
             <select
               value={selectedMonthIdx}
               onChange={e => setSelectedMonthIdx(Number(e.target.value))}
@@ -559,6 +641,25 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 <option key={i} value={i}>{m.label}</option>
               ))}
             </select>
+
+            {/* Week navigator (only in tuần mode) */}
+            {periodMode === 'tuan' && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => navWeek(-1)}
+                  disabled={!selectedWeekKey || allWeekKeys.indexOf(selectedWeekKey) <= 0}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 text-sm"
+                >‹</button>
+                <span className="text-sm font-semibold text-gray-800 min-w-[110px] text-center">
+                  {selectedWeekKey ? isoWeekBounds(selectedWeekKey).label : '—'}
+                </span>
+                <button
+                  onClick={() => navWeek(1)}
+                  disabled={!selectedWeekKey || allWeekKeys.indexOf(selectedWeekKey) >= allWeekKeys.length - 1}
+                  className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 text-sm"
+                >›</button>
+              </div>
+            )}
             {canWrite && (
               <button
                 onClick={() => setShowAddForm(true)}
@@ -625,7 +726,12 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <h2 className="font-bold text-gray-800 text-lg">Tổng quan nhóm</h2>
-                <p className="text-sm text-gray-400">Báo cáo tháng {selectedMonth.month}/{selectedMonth.yearShort} — tổng hợp tất cả nhân viên</p>
+                <p className="text-sm text-gray-400">
+                  {periodMode === 'tuan' && selectedWeekKey
+                    ? `Tuần ${isoWeekBounds(selectedWeekKey).label} — tổng hợp tất cả nhân viên`
+                    : `Tháng ${selectedMonth.month}/${selectedMonth.yearShort} — tổng hợp tất cả nhân viên`
+                  }
+                </p>
               </div>
               {summaryLoading && (
                 <div className="flex items-center gap-2 text-sm text-teal-600">
@@ -635,7 +741,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               )}
             </div>
             <SummaryView
-              staffMap={staffDataMap}
+              staffMap={filteredStaffMap}
               allStaff={allStaff}
               month={selectedMonth.month}
               yearShort={selectedMonth.yearShort}
@@ -651,8 +757,10 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   {viewingStaff ? viewingStaff.name : 'Báo cáo của bạn'}
                 </h2>
                 <p className="text-sm text-gray-400">
-                  {sheetName || `báo cáo tháng ${selectedMonth.month}/${selectedMonth.yearShort}`}
-                  {totalDays > 0 && ` · ${totalDays} ngày làm việc`}
+                  {periodMode === 'tuan' && selectedWeekKey
+                    ? `Tuần ${isoWeekBounds(selectedWeekKey).label} · ${totalDays} ngày`
+                    : `${sheetName || `báo cáo tháng ${selectedMonth.month}/${selectedMonth.yearShort}`}${totalDays > 0 ? ` · ${totalDays} ngày` : ''}`
+                  }
                 </p>
               </div>
               {loading && (
@@ -750,7 +858,9 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                       </tbody>
                       <tfoot className="border-t-2 border-gray-300 bg-blue-50">
                         <tr>
-                          <td className="px-4 py-3 font-bold text-gray-800">Tổng tháng</td>
+                          <td className="px-4 py-3 font-bold text-gray-800">
+                            {periodMode === 'tuan' ? 'Tổng tuần' : 'Tổng tháng'}
+                          </td>
                           <td className="px-3 py-3 text-right font-bold text-blue-800">{totalRequests}</td>
                           <td className="px-3 py-3 text-right text-gray-600">{avgTime}p</td>
                           <td className="px-3 py-3 text-right font-bold">
