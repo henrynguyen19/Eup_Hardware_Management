@@ -15,11 +15,11 @@ export const QUALITY_SHEET_ID = '1d2QXWXDu2P_ea4v9aY4jlImXZRCzRXjThJVQjSGW54Q'
 // Danh sách khu vực + tên tab trong spreadsheet
 // Ghi chú: nếu sheetTab = '' thì sẽ fetch tab đầu tiên (mặc định)
 export const QUALITY_REGIONS: RegionConfig[] = [
-  { code: 'HN',  name: 'Hà Nội',    sheetTab: 'HN',  color: '#3b82f6' },
-  { code: 'HP',  name: 'Hải Phòng', sheetTab: 'HP',  color: '#8b5cf6' },
-  { code: 'DN',  name: 'Đà Nẵng',   sheetTab: 'DN',  color: '#22c55e' },
-  { code: 'HCM', name: 'HCM',       sheetTab: 'HCM', color: '#f59e0b' },
-  { code: 'BD',  name: 'Bình Dương',sheetTab: 'BD',  color: '#ec4899' },
+  { code: 'HN',  name: 'Hà Nội',    sheetTab: 'Ha Noi',     color: '#3b82f6' },
+  { code: 'HP',  name: 'Hải Phòng', sheetTab: 'Hai Phong',  color: '#8b5cf6' },
+  { code: 'DN',  name: 'Đà Nẵng',   sheetTab: 'Da Nang',    color: '#22c55e' },
+  { code: 'HCM', name: 'HCM',       sheetTab: 'HCM',        color: '#f59e0b' },
+  { code: 'BD',  name: 'Bình Dương',sheetTab: 'Binh Duong', color: '#ec4899' },
 ]
 
 // Giá trị "Nguyên nhân điều phối" — dùng để phân nhóm thống kê
@@ -32,7 +32,7 @@ export const NGUYEN_NHAN_TYPES = [
 ]
 
 // Tab tổng hợp tất cả regions
-export const THONGKE_SHEET_TAB = 'Thống kê'
+export const THONGKE_SHEET_TAB = 'Thong Ke'
 
 // Màu theo tình trạng
 export const TINH_TRANG_CONFIG = {
