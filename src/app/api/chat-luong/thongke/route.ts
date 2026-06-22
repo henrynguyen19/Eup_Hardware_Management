@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
-import { QUALITY_SHEET_ID, getTinhTrangKey } from '@/lib/chat-luong-config'
+import { QUALITY_SHEET_ID, THONGKE_SHEET_TAB, getTinhTrangKey } from '@/lib/chat-luong-config'
 
 const adminClient = () =>
   createClient(
@@ -127,7 +127,7 @@ async function fetchSheetCSVThongKe(sheetTab: string): Promise<string> {
 
 async function fetchThongKe(month: number, year: number): Promise<{ records: ThongKeRecord[]; error?: string; source?: string }> {
   try {
-    const csvText = await fetchSheetCSVThongKe('Thống kê')
+    const csvText = await fetchSheetCSVThongKe(THONGKE_SHEET_TAB)
     const source = process.env.GOOGLE_SHEETS_API_KEY ? 'sheets_api_v4' : 'gviz'
 
     const lines = csvText.split('\n')
