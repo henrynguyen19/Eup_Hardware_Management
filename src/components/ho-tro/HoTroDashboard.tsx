@@ -23,7 +23,8 @@ import { SUMMARY_SHEET_ID, getAvailableMonths } from '@/lib/staff-sheets'
 import type { StaffConfig } from '@/lib/staff-sheets'
 import type { DailyRecord } from '@/types/ho-tro'
 
-const AddTicketForm = dynamic(() => import('./AddTicketForm'), { ssr: false })
+const AddTicketForm  = dynamic(() => import('./AddTicketForm'),  { ssr: false })
+const JiraBugsTab    = dynamic(() => import('@/components/jira/JiraBugsTab'), { ssr: false })
 
 interface Props {
   userEmail: string
@@ -431,7 +432,8 @@ function SummaryView({
 // ── Main Dashboard ─────────────────────────────────────────────────
 export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
-  const [isSummaryMode, setIsSummaryMode] = useState(false)
+  const [isSummaryMode, setIsSummaryMode]   = useState(false)
+  const [isJiraBugsMode, setIsJiraBugsMode] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [selectedSheetId, setSelectedSheetId] = useState<string>(
@@ -735,44 +737,52 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
         </div>
       </header>
 
-      {/* ── Staff / Summary tabs (admin only) ── */}
-      {isAdmin && (
-        <div className="bg-white border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4">
-            <div className="flex gap-1 py-2 overflow-x-auto">
-              {allStaff.map(staff => (
-                <button
-                  key={staff.sheetId}
-                  onClick={() => { setIsSummaryMode(false); setSelectedSheetId(staff.sheetId) }}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-                    !isSummaryMode && selectedSheetId === staff.sheetId
-                      ? `${staff.bgClass} ring-2 ring-offset-1 ring-current`
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  {staff.name}
-                </button>
-              ))}
+      {/* ── Staff / Summary / Jira tabs ── */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex gap-1 py-2 overflow-x-auto">
+            {isAdmin && allStaff.map(staff => (
               <button
-                onClick={() => setIsSummaryMode(true)}
+                key={staff.sheetId}
+                onClick={() => { setIsSummaryMode(false); setIsJiraBugsMode(false); setSelectedSheetId(staff.sheetId) }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-                  isSummaryMode
-                    ? 'bg-gray-800 text-white'
+                  !isSummaryMode && !isJiraBugsMode && selectedSheetId === staff.sheetId
+                    ? `${staff.bgClass} ring-2 ring-offset-1 ring-current`
                     : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {staff.name}
+              </button>
+            ))}
+            {isAdmin && (
+              <button
+                onClick={() => { setIsSummaryMode(true); setIsJiraBugsMode(false) }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
+                  isSummaryMode && !isJiraBugsMode ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
                 📊 Tổng quan
               </button>
-            </div>
+            )}
+            <button
+              onClick={() => { setIsJiraBugsMode(true); setIsSummaryMode(false) }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
+                isJiraBugsMode ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              🐛 Jira Bugs
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
       {/* ── Content ── */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
 
-        {/* ── Summary mode ── */}
-        {isSummaryMode ? (
+        {/* ── Jira Bugs mode ── */}
+        {isJiraBugsMode ? (
+          <JiraBugsTab />
+        ) : isSummaryMode ? (
           <>
             <div className="mb-5 flex items-center justify-between">
               <div>
