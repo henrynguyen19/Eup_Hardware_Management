@@ -96,8 +96,7 @@ async function fetchSheetCSVThongKe(sheetTab: string): Promise<string> {
 
   if (apiKey) {
     const key = apiKey.trim()
-    const range = `${encodeURIComponent(sheetTab)}!A:BM`
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${QUALITY_SHEET_ID}/values/${range}?key=${key}&valueRenderOption=FORMATTED_VALUE`
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${QUALITY_SHEET_ID}/values/${encodeURIComponent(sheetTab)}?key=${key}&valueRenderOption=FORMATTED_VALUE`
     const res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) {
       const errBody = await res.text()
