@@ -32,7 +32,7 @@ export const NGUYEN_NHAN_TYPES = [
 ]
 
 // Tab tổng hợp tất cả regions
-export const THONGKE_SHEET_TAB = 'Thong Ke'
+export const THONGKE_SHEET_TAB = 'Statistic'
 
 // Màu theo tình trạng
 export const TINH_TRANG_CONFIG = {
