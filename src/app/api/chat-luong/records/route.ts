@@ -112,10 +112,14 @@ async function fetchSheetCSV(sheetTab: string): Promise<string> {
 
   if (apiKey) {
     // Sheets API v4 — bypass TẤT CẢ filter (basic filter + filter views)
+    const key = apiKey.trim()
     const range = `${sheetTab}!A:BM`
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${QUALITY_SHEET_ID}/values/${encodeURIComponent(range)}?key=${apiKey}&valueRenderOption=FORMATTED_VALUE`
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${QUALITY_SHEET_ID}/values/${encodeURIComponent(range)}?key=${key}&valueRenderOption=FORMATTED_VALUE`
     const res = await fetch(url, { cache: 'no-store' })
-    if (!res.ok) throw new Error(`Sheets API v4 HTTP ${res.status}`)
+    if (!res.ok) {
+      const errBody = await res.text()
+      throw new Error(`Sheets API v4 HTTP ${res.status}: ${errBody.slice(0, 500)}`)
+    }
     const json = await res.json()
     if (json.error) throw new Error(`Sheets API: ${json.error.message}`)
 
