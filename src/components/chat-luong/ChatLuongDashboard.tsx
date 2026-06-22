@@ -37,6 +37,9 @@ interface ThongKeStats {
   byNguyen: Record<string, { total: number; ng: number }>
   byKTV: Record<string, { region: string; total: number; ok: number; ng: number }>
   byWeek: Record<string, { total: number; ng: number }>
+  byLoaiLoi: Record<string, number>
+  byLoaiLoiPerRegion: Record<string, Record<string, number>>
+  byLoaiLoiPerKTV: Record<string, Record<string, number>>
 }
 
 // ── Months ──────────────────────────────────────────────────────
@@ -264,6 +267,44 @@ export default function ChatLuongDashboard({ userEmail, isAdmin }: Props) {
       'NG': recs.filter(r => getTinhTrangKey(r.tinh_trang) === 'NG').length,
     })).sort((a, b) => b['Tổng'] - a['Tổng']).slice(0, 10)
   }, [periodRecords])
+
+  // ── Loại lỗi charts ──────────────────────────────────────────
+  const loai_loi_chart = useMemo(() => {
+    const grp = groupBy(periodRecords.filter(r => r.loai_loi), r => r.loai_loi)
+    return Object.entries(grp).map(([name, recs]) => ({
+      name, 'Tổng': recs.length,
+      'NG': recs.filter(r => getTinhTrangKey(r.tinh_trang) === 'NG').length,
+    })).sort((a, b) => b['Tổng'] - a['Tổng'])
+  }, [periodRecords])
+
+  const ktv_loai_loi = useMemo(() => {
+    const ngRecs = periodRecords.filter(r => getTinhTrangKey(r.tinh_trang) === 'NG' && r.loai_loi)
+    const grp = groupBy(ngRecs, r => r.ky_thuat_vien || 'Chưa xác định')
+    return Object.entries(grp).map(([ktv, recs]) => {
+      const loaiMap: Record<string, number> = {}
+      recs.forEach(r => { loaiMap[r.loai_loi] = (loaiMap[r.loai_loi] ?? 0) + 1 })
+      const topLoai = Object.entries(loaiMap).sort((a,b)=>b[1]-a[1])
+      return { ktv, total: recs.length, topLoai }
+    }).sort((a, b) => b.total - a.total)
+  }, [periodRecords])
+
+  // ── Thống kê loại lỗi charts ─────────────────────────────────
+  const tk_loai_loi_chart = useMemo(() => {
+    if (!tkStats?.byLoaiLoi) return []
+    return Object.entries(tkStats.byLoaiLoi)
+      .filter(([name]) => name !== 'Không xác định' && name !== '')
+      .map(([name, total]) => ({ name, total }))
+      .sort((a, b) => b.total - a.total)
+  }, [tkStats])
+
+  const tk_loai_loi_ktv = useMemo(() => {
+    if (!tkStats?.byLoaiLoiPerKTV) return []
+    return Object.entries(tkStats.byLoaiLoiPerKTV).map(([ktv, loaiMap]) => {
+      const topLoai = Object.entries(loaiMap).sort((a,b)=>b[1]-a[1])
+      const total = topLoai.reduce((s,[,v])=>s+v,0)
+      return { ktv, total, topLoai }
+    }).sort((a,b)=>b.total-a.total)
+  }, [tkStats])
 
   // ── KTV stats (from region records) ───────────────────────────
   const ktvStats = useMemo(() => {
@@ -529,6 +570,22 @@ export default function ChatLuongDashboard({ userEmail, isAdmin }: Props) {
                     </ResponsiveContainer>
                   </div>
 
+                  {loai_loi_chart.length > 0 && (
+                    <div className="bg-white rounded-xl border border-gray-200 p-4">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-3">Loại lỗi phổ biến</h3>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={loai_loi_chart} layout="vertical" margin={{ top:0, right:40, left:90, bottom:0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis type="number" tick={{ fontSize:9 }} />
+                          <YAxis dataKey="name" type="category" tick={{ fontSize:9 }} width={90} />
+                          <Tooltip />
+                          <Bar dataKey="Tổng" fill="#3b82f6" radius={[0,3,3,0]} />
+                          <Bar dataKey="NG"   fill="#ef4444" radius={[0,3,3,0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+
                   {ngCount > 0 && (() => {
                     const ktvNG = Object.entries(groupBy(periodRecords.filter(r=>getTinhTrangKey(r.tinh_trang)==='NG'), r=>r.ky_thuat_vien||'Chưa rõ'))
                       .map(([name,recs])=>({name,'NG':recs.length})).sort((a,b)=>b.NG-a.NG).slice(0,8)
@@ -706,6 +763,44 @@ export default function ChatLuongDashboard({ userEmail, isAdmin }: Props) {
                     </table>
                   </div>
                 </div>
+
+                {/* KTV loại lỗi breakdown */}
+                {ktv_loai_loi.length > 0 && (
+                  <div className="bg-white rounded-xl border border-red-100 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <h3 className="text-sm font-semibold text-red-700">Phân tích lỗi NG theo KTV</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">Chỉ hiện KTV có đơn NG — loại lỗi được ghi trong cột Loại lỗi</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium">Kỹ thuật viên</th>
+                            <th className="text-right px-4 py-3 text-gray-500 font-medium">Tổng NG</th>
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium">Loại lỗi (số lần)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ktv_loai_loi.slice(0, 30).map((k, i) => (
+                            <tr key={k.ktv} className={`border-b border-gray-100 last:border-0 ${i%2===1?'bg-gray-50/30':''}`}>
+                              <td className="px-4 py-2.5 font-medium text-gray-800">{k.ktv}</td>
+                              <td className="px-4 py-2.5 text-right font-bold text-red-600">{k.total}</td>
+                              <td className="px-4 py-2.5">
+                                <div className="flex flex-wrap gap-1">
+                                  {k.topLoai.slice(0, 5).map(([loai, cnt]) => (
+                                    <span key={loai} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-orange-50 border border-orange-200 text-orange-700">
+                                      {loai} <span className="font-bold">×{cnt}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -785,6 +880,104 @@ export default function ChatLuongDashboard({ userEmail, isAdmin }: Props) {
                     </ResponsiveContainer>
                   </div>
                 </div>
+
+                {/* Loại lỗi phổ biến toàn quốc */}
+                {tk_loai_loi_chart.length > 0 && (
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="bg-white rounded-xl border border-gray-200 p-4">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-3">Loại lỗi phổ biến (tất cả khu vực)</h3>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={tk_loai_loi_chart} layout="vertical" margin={{ top:0, right:50, left:100, bottom:0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis type="number" tick={{ fontSize:9 }} />
+                          <YAxis dataKey="name" type="category" tick={{ fontSize:9 }} width={100} />
+                          <Tooltip />
+                          <Bar dataKey="total" name="Số lần" fill="#f97316" radius={[0,3,3,0]}>
+                            {tk_loai_loi_chart.map((_,i)=><Cell key={i} fill={CHART_COLORS[i%CHART_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Loại lỗi per region table */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-gray-100">
+                        <h3 className="text-sm font-semibold text-gray-700">Loại lỗi theo khu vực</h3>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-gray-50 border-b border-gray-200">
+                            <tr>
+                              <th className="text-left px-3 py-2 text-gray-500 font-medium">Khu vực</th>
+                              {tk_loai_loi_chart.slice(0,5).map(l=>(
+                                <th key={l.name} className="text-right px-3 py-2 text-gray-500 font-medium whitespace-nowrap">{l.name}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {QUALITY_REGIONS.map(r => {
+                              const regionData = tkStats?.byLoaiLoiPerRegion?.[r.code] ?? {}
+                              const hasData = Object.values(regionData).some(v=>v>0)
+                              if (!hasData) return null
+                              return (
+                                <tr key={r.code} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="w-2 h-2 rounded-full" style={{background:r.color}}/>
+                                      <span className="font-medium text-gray-700">{r.name}</span>
+                                    </div>
+                                  </td>
+                                  {tk_loai_loi_chart.slice(0,5).map(l=>(
+                                    <td key={l.name} className="px-3 py-2 text-right">
+                                      {regionData[l.name] ? <span className="font-medium text-orange-600">{regionData[l.name]}</span> : <span className="text-gray-300">—</span>}
+                                    </td>
+                                  ))}
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* KTV loại lỗi (toàn quốc) */}
+                {tk_loai_loi_ktv.length > 0 && (
+                  <div className="bg-white rounded-xl border border-red-100 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <h3 className="text-sm font-semibold text-red-700">Loại lỗi theo kỹ thuật viên (tất cả khu vực)</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium">Kỹ thuật viên</th>
+                            <th className="text-right px-4 py-3 text-gray-500 font-medium">Tổng lỗi</th>
+                            <th className="text-left px-4 py-3 text-gray-500 font-medium">Loại lỗi (số lần)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tk_loai_loi_ktv.slice(0,50).map((k,i) => (
+                            <tr key={k.ktv} className={`border-b border-gray-100 last:border-0 ${i%2===1?'bg-gray-50/30':''}`}>
+                              <td className="px-4 py-2.5 font-medium text-gray-800">{k.ktv}</td>
+                              <td className="px-4 py-2.5 text-right font-bold text-orange-600">{k.total}</td>
+                              <td className="px-4 py-2.5">
+                                <div className="flex flex-wrap gap-1">
+                                  {k.topLoai.slice(0,5).map(([loai,cnt]) => (
+                                    <span key={loai} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-orange-50 border border-orange-200 text-orange-700">
+                                      {loai} <span className="font-bold">×{cnt}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
                 {/* Region breakdown table */}
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

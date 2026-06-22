@@ -181,6 +181,9 @@ export async function GET(req: NextRequest) {
   const byNguyen: Record<string, { total: number; ng: number }> = {}
   const byKTV: Record<string, { region: string; total: number; ok: number; ng: number }> = {}
   const byWeek: Record<string, { total: number; ng: number }> = {}
+  const byLoaiLoi: Record<string, number> = {}
+  const byLoaiLoiPerRegion: Record<string, Record<string, number>> = {}
+  const byLoaiLoiPerKTV: Record<string, Record<string, number>> = {}
 
   for (const r of records) {
     const tk = getTinhTrangKey(r.tinh_trang)
@@ -212,6 +215,15 @@ export async function GET(req: NextRequest) {
       byWeek[wk].total++
       if (tk === 'NG') byWeek[wk].ng++
     }
+
+    // By loại lỗi
+    const ll = r.loai_loi || 'Không xác định'
+    byLoaiLoi[ll] = (byLoaiLoi[ll] ?? 0) + 1
+    if (!byLoaiLoiPerRegion[r.region]) byLoaiLoiPerRegion[r.region] = {}
+    byLoaiLoiPerRegion[r.region][ll] = (byLoaiLoiPerRegion[r.region][ll] ?? 0) + 1
+    const ktvName = r.ky_thuat_vien || 'Chưa xác định'
+    if (!byLoaiLoiPerKTV[ktvName]) byLoaiLoiPerKTV[ktvName] = {}
+    byLoaiLoiPerKTV[ktvName][ll] = (byLoaiLoiPerKTV[ktvName][ll] ?? 0) + 1
   }
 
   return NextResponse.json({
@@ -226,6 +238,9 @@ export async function GET(req: NextRequest) {
       byNguyen,
       byKTV,
       byWeek,
+      byLoaiLoi,
+      byLoaiLoiPerRegion,
+      byLoaiLoiPerKTV,
     }
   })
 }
