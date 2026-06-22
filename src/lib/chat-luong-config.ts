@@ -24,11 +24,15 @@ export const QUALITY_REGIONS: RegionConfig[] = [
 
 // Giá trị "Nguyên nhân điều phối" — dùng để phân nhóm thống kê
 export const NGUYEN_NHAN_TYPES = [
+  'Đơn hàng mới',
   'Bảo trì',
   'Lắp đặt',
   'Hàng nhập vào',
   'Sau sửa chữa',
 ]
+
+// Tab tổng hợp tất cả regions
+export const THONGKE_SHEET_TAB = 'Thống kê'
 
 // Màu theo tình trạng
 export const TINH_TRANG_CONFIG = {

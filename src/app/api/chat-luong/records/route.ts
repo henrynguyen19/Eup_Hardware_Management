@@ -113,13 +113,8 @@ async function fetchFromSheets(
   const regionCfg = QUALITY_REGIONS.find(r => r.code === region)
   if (!regionCfg) return { records: [], error: `Khu vực không hợp lệ: ${region}` }
 
-  const params = new URLSearchParams({
-    tqx: 'out:csv',
-    headers: '0',
-  })
-  if (regionCfg.sheetTab) params.set('sheet', regionCfg.sheetTab)
-
-  const url = `https://docs.google.com/spreadsheets/d/${QUALITY_SHEET_ID}/gviz/tq?${params}`
+  // Thêm range=A:BM để bypass Google Sheets filter views
+  const url = `https://docs.google.com/spreadsheets/d/${QUALITY_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(regionCfg.sheetTab)}&range=A:BM`
 
   try {
     const res = await fetch(url, { cache: 'no-store' })
