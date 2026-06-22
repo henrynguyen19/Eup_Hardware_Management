@@ -103,8 +103,17 @@ export async function GET(req: NextRequest) {
 
   const email = process.env.JIRA_EMAIL?.trim()
   const token = process.env.JIRA_API_TOKEN?.trim()
+  console.log('[jira/bugs] env check — JIRA_EMAIL:', email ? `"${email}"` : 'MISSING', '| JIRA_API_TOKEN:', token ? `len=${token.length}` : 'MISSING')
+  console.log('[jira/bugs] all env keys with JIRA:', Object.keys(process.env).filter(k => k.includes('JIRA')))
   if (!email || !token) {
-    return NextResponse.json({ error: 'JIRA_EMAIL / JIRA_API_TOKEN chưa được cấu hình trong Vercel' }, { status: 500 })
+    return NextResponse.json({
+      error: 'JIRA_EMAIL / JIRA_API_TOKEN chưa được cấu hình trong Vercel',
+      debug: {
+        JIRA_EMAIL: email ?? null,
+        JIRA_API_TOKEN_len: token?.length ?? null,
+        env_keys_with_JIRA: Object.keys(process.env).filter(k => k.includes('JIRA')),
+      }
+    }, { status: 500 })
   }
   const auth = Buffer.from(`${email}:${token}`).toString('base64')
 
