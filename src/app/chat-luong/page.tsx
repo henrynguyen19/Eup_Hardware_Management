@@ -18,6 +18,7 @@ async function getUserPermissions(userId: string): Promise<string[]> {
   return data?.permissions ?? []
 }
 
+// v2: bypass sheet filter, KTV stats, thong ke tab
 export default async function ChatLuongPage() {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
