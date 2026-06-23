@@ -29,16 +29,17 @@ export async function GET(_req: NextRequest, { params }: Params) {
     .select('user_id')
     .eq('department_id', params.id)
 
-  // Get emails from user_permissions_view
   const userIds = (data ?? []).map(r => r.user_id)
   if (userIds.length === 0) return NextResponse.json({ members: [] })
 
-  const { data: users } = await sb()
-    .from('user_permissions_view')
-    .select('user_id, user_email')
-    .in('user_id', userIds)
+  // Get emails from Supabase Auth (works for all users, not just those with roles)
+  const { data: authData } = await sb().auth.admin.listUsers({ page: 1, perPage: 1000 })
+  const authMap = Object.fromEntries(
+    (authData?.users ?? []).map(u => [u.id, u.email ?? u.id])
+  )
 
-  return NextResponse.json({ members: users ?? [] })
+  const members = userIds.map(uid => ({ user_id: uid, user_email: authMap[uid] ?? uid }))
+  return NextResponse.json({ members })
 }
 
 // POST /api/admin/departments/[id]/members — add user to department

@@ -126,25 +126,29 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json({ ok: true })
 }
 
-// DELETE: xóa quyền truy cập
+// DELETE: xóa tài khoản hoàn toàn
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdminPermission()
   if (!auth.ok) return auth.error!
 
   const { userId } = await req.json()
+  if (!userId) return NextResponse.json({ error: 'Thiếu userId' }, { status: 400 })
+
   const sb = supabaseAdmin()
 
-  // Lấy email để xóa khỏi allowed_emails
-  const { data: userRole } = await sb
-    .from('user_roles')
-    .select('user_email')
-    .eq('user_id', userId)
-    .single()
+  // Xóa khỏi user_departments (cascade khi xóa auth user, nhưng xóa trước cho chắc)
+  await sb.from('user_departments').delete().eq('user_id', userId)
 
+  // Xóa khỏi user_roles + allowed_emails (backward compat)
+  const { data: userRole } = await sb.from('user_roles').select('user_email').eq('user_id', userId).maybeSingle()
   await sb.from('user_roles').delete().eq('user_id', userId)
   if (userRole?.user_email) {
     await sb.from('allowed_emails').delete().eq('email', userRole.user_email)
   }
+
+  // Xóa tài khoản Auth
+  const { error } = await sb.auth.admin.deleteUser(userId)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   return NextResponse.json({ ok: true })
 }
