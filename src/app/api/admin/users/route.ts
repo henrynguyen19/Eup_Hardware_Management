@@ -55,7 +55,9 @@ export async function POST(req: NextRequest) {
   const existingUser = existing?.users?.find((u: { email?: string }) => u.email === email)
 
   if (existingUser) {
-    return NextResponse.json({ error: 'Email này đã có tài khoản' }, { status: 409 })
+    // User đã có trong Auth nhưng chưa có trong view — trả về userId để phân phòng ban
+    await sb.from('allowed_emails').upsert({ email }, { onConflict: 'email' }).throwOnError().catch(() => {})
+    return NextResponse.json({ ok: true, userId: existingUser.id, alreadyExists: true })
   }
 
   // Tạo user mới với mật khẩu mặc định
