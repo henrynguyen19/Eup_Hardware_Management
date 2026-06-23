@@ -61,16 +61,22 @@ export default function UserManagement({ currentUserEmail }: Props) {
   async function addUserToSystem() {
     if (!addEmail) return
     setAddSaving(true); setAddError('')
-    const rolesRes = await fetch('/api/admin/roles').then(r => r.json()).catch(() => ({}))
-    const defaultRoleId = (rolesRes.roles ?? rolesRes.data ?? [])[0]?.id ?? ''
     const res = await fetch('/api/admin/users', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: addEmail, roleId: defaultRoleId }),
+      body: JSON.stringify({ email: addEmail }),
     })
     const data = await res.json()
     if (data.error) { setAddError(data.error); setAddSaving(false); return }
-    if (addDeptId) {
-      await new Promise(r => setTimeout(r, 600))
+
+    // Phân vào phòng ban nếu chọn
+    if (addDeptId && data.userId) {
+      await fetch(`/api/admin/departments/${addDeptId}/members`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: data.userId }),
+      })
+    } else if (addDeptId) {
+      // fallback: tìm user vừa tạo qua email
+      await new Promise(r => setTimeout(r, 500))
       const usersRes = await fetch('/api/admin/users').then(r => r.json())
       const newUser = (usersRes.users ?? []).find((u: UserRecord) => u.user_email === addEmail)
       if (newUser) {

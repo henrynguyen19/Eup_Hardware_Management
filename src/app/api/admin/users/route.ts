@@ -38,34 +38,41 @@ export async function GET() {
   return NextResponse.json({ users: data ?? [] })
 }
 
-// POST: thêm user mới (thêm vào allowed_emails + gán role)
+// POST: thêm user mới — tạo tài khoản Supabase Auth với mật khẩu mặc định eupvn123
 export async function POST(req: NextRequest) {
   const auth = await requireAdminPermission()
   if (!auth.ok) return auth.error!
 
-  const { email, roleId } = await req.json()
-  if (!email || !roleId) {
-    return NextResponse.json({ error: 'Thiếu email hoặc roleId' }, { status: 400 })
+  const { email } = await req.json()
+  if (!email) {
+    return NextResponse.json({ error: 'Thiếu email' }, { status: 400 })
   }
 
   const sb = supabaseAdmin()
 
-  // Thêm vào allowed_emails
-  await sb.from('allowed_emails').upsert({ email }, { onConflict: 'email' })
+  // Kiểm tra user đã tồn tại chưa
+  const { data: existing } = await sb.auth.admin.listUsers()
+  const existingUser = existing?.users?.find((u: { email?: string }) => u.email === email)
 
-  // Kiểm tra xem user đã có trong auth chưa
-  const { data: authUsers } = await sb.auth.admin.listUsers()
-  const authUser = authUsers?.users?.find((u: { email?: string }) => u.email === email)
-
-  if (authUser) {
-    // Upsert user_role
-    await sb.from('user_roles').upsert(
-      { user_id: authUser.id, user_email: email, role_id: roleId },
-      { onConflict: 'user_email' }
-    )
+  if (existingUser) {
+    return NextResponse.json({ error: 'Email này đã có tài khoản' }, { status: 409 })
   }
 
-  return NextResponse.json({ ok: true })
+  // Tạo user mới với mật khẩu mặc định
+  const { data: created, error: createErr } = await sb.auth.admin.createUser({
+    email,
+    password: 'eupvn123',
+    email_confirm: true,
+  })
+
+  if (createErr) {
+    return NextResponse.json({ error: createErr.message }, { status: 500 })
+  }
+
+  // Thêm vào allowed_emails cho backward compat
+  await sb.from('allowed_emails').upsert({ email }, { onConflict: 'email' }).throwOnError().catch(() => {})
+
+  return NextResponse.json({ ok: true, userId: created.user?.id })
 }
 
 // PATCH: đổi role user
