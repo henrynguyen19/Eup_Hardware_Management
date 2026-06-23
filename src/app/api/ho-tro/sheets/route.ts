@@ -308,8 +308,11 @@ export async function GET(req: NextRequest) {
   const monthNum  = parseInt(month)
   const db        = adminClient()
 
-  // ── 1. Check DB cache (unless force refresh) ──────────────
-  if (!refresh) {
+  // ── 1. Check DB cache (unless force refresh or current month) ──
+  const now = new Date()
+  const isCurrentMonth = yearNum === now.getUTCFullYear() && monthNum === now.getUTCMonth() + 1
+
+  if (!refresh && !isCurrentMonth) {
     const prefix = `${yearNum}-${String(monthNum).padStart(2, '0')}-`
     const { data: cached } = await db
       .from('ho_tro_daily_records')
