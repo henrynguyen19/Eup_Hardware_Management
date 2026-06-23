@@ -70,10 +70,14 @@ export default function JiraBugsTab() {
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState<string | null>(null)
   const [filterReporter, setFilterReporter] = useState('all')
-  const [filterStatus, setFilterStatus]     = useState('all')
   const [filterAssignee, setFilterAssignee] = useState('all')
   const [search, setSearch]                 = useState('')
+  const [showClosed, setShowClosed]         = useState(false)
   const [expandedKey, setExpandedKey]       = useState<string | null>(null)
+
+  // Status names considered "closed"
+  const CLOSED_STATUSES = ['done', 'closed', 'resolved', 'cancelled', 'canceled', 'won\'t fix', 'duplicate']
+  const isClosed = (status: string) => CLOSED_STATUSES.some(s => status.toLowerCase().includes(s))
 
   async function load() {
     setLoading(true); setError(null)
@@ -93,8 +97,8 @@ export default function JiraBugsTab() {
   const assignees = useMemo(() => Array.from(new Set(bugs.map(b => b.assignee).filter(Boolean))).sort(), [bugs])
 
   const displayed = useMemo(() => bugs.filter(b => {
+    if (!showClosed && isClosed(b.status))             return false
     if (filterReporter !== 'all' && b.reporter !== filterReporter) return false
-    if (filterStatus   !== 'all' && b.status   !== filterStatus)   return false
     if (filterAssignee !== 'all' && b.assignee  !== filterAssignee) return false
     if (search) {
       const q = search.toLowerCase()
@@ -104,10 +108,12 @@ export default function JiraBugsTab() {
              (b.assignee ?? '').toLowerCase().includes(q)
     }
     return true
-  }), [bugs, filterReporter, filterStatus, filterAssignee, search])
+  }), [bugs, filterReporter, filterAssignee, search, showClosed])
 
-  const overdue   = bugs.filter(b => b.due_date_jira && new Date(b.due_date_jira) < new Date() && b.status_color !== 'green').length
-  const noDueDate = bugs.filter(b => !b.due_date_jira).length
+  const openBugs  = useMemo(() => bugs.filter(b => !isClosed(b.status)), [bugs])
+  const overdue   = openBugs.filter(b => b.due_date_jira && new Date(b.due_date_jira) < new Date()).length
+  const noDueDate = openBugs.filter(b => !b.due_date_jira).length
+  const closedCount = bugs.length - openBugs.length
 
   return (
     <div className="space-y-5">
@@ -137,10 +143,10 @@ export default function JiraBugsTab() {
           </div>
 
           {/* KPIs */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-xs text-gray-500 font-medium mb-1">Tổng Issues</p>
-              <p className="text-2xl font-bold text-blue-600">{bugs.length}</p>
+              <p className="text-xs text-gray-500 font-medium mb-1">Đang mở</p>
+              <p className="text-2xl font-bold text-blue-600">{openBugs.length}</p>
             </div>
             <div className="bg-white rounded-xl border p-4" style={{ background: overdue > 0 ? '#fef2f2' : undefined, borderColor: overdue > 0 ? '#fecaca' : '#e5e7eb' }}>
               <p className="text-xs text-gray-500 font-medium mb-1">Quá hạn</p>
@@ -151,8 +157,12 @@ export default function JiraBugsTab() {
               <p className="text-2xl font-bold text-orange-500">{noDueDate}</p>
             </div>
             <div className="bg-white rounded-xl border border-green-200 p-4" style={{ background: '#f0fdf4' }}>
-              <p className="text-xs text-gray-500 font-medium mb-1">Đã Done</p>
-              <p className="text-2xl font-bold text-green-600">{bugs.filter(b => b.status_color === 'green').length}</p>
+              <p className="text-xs text-gray-500 font-medium mb-1">Đã đóng</p>
+              <p className="text-2xl font-bold text-green-600">{closedCount}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <p className="text-xs text-gray-500 font-medium mb-1">Tổng</p>
+              <p className="text-2xl font-bold text-gray-500">{bugs.length}</p>
             </div>
           </div>
 
@@ -171,12 +181,13 @@ export default function JiraBugsTab() {
               <option value="all">Tất cả Assignee</option>
               {assignees.map(a => <option key={a!} value={a!}>{a}</option>)}
             </select>
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
-              <option value="all">Tất cả Status</option>
-              {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <span className="text-xs text-gray-400">{displayed.length}/{bugs.length} issues</span>
+            <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm cursor-pointer select-none transition ${
+              showClosed ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-300 text-gray-500'
+            }`}>
+              <input type="checkbox" checked={showClosed} onChange={e => setShowClosed(e.target.checked)} className="accent-green-600" />
+              Hiện đã đóng ({closedCount})
+            </label>
+            <span className="text-xs text-gray-400">{displayed.length} issues</span>
           </div>
 
           {/* Table */}
