@@ -39,7 +39,8 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
     { icon: '📊', label: 'Thống kê sửa chữa', href: '/sua-chua' },
     { icon: '✅', label: 'Quản lý chất lượng',href: '/chat-luong',   show: canChatLuong || isAdmin },
     { icon: '🚚', label: 'Thông tin giao nhận',href: '/giao-nhan',   comingSoon: true },
-    { icon: '👥', label: 'Phân quyền & User', href: '/admin/users',  show: isAdmin },
+    { icon: '👥', label: 'Quản lý người dùng', href: '/admin/users',        show: isAdmin },
+    { icon: '🔐', label: 'Phân quyền',         href: '/admin/permissions',  show: isAdmin },
   ]
 
   const visibleItems = navItems.filter(item => item.show === undefined || item.show === true)
