@@ -50,31 +50,46 @@ export async function POST(req: NextRequest) {
 
   const sb = supabaseAdmin()
 
-  // Kiểm tra user đã tồn tại chưa
-  const { data: existing } = await sb.auth.admin.listUsers()
-  const existingUser = existing?.users?.find((u: { email?: string }) => u.email === email)
-
-  if (existingUser) {
-    // User đã có trong Auth nhưng chưa có trong view — trả về userId để phân phòng ban
-    await sb.from('allowed_emails').upsert({ email }, { onConflict: 'email' }).throwOnError().catch(() => {})
-    return NextResponse.json({ ok: true, userId: existingUser.id, alreadyExists: true })
-  }
-
-  // Tạo user mới với mật khẩu mặc định
+  // Thử tạo user mới trước
   const { data: created, error: createErr } = await sb.auth.admin.createUser({
     email,
     password: 'eupvn123',
     email_confirm: true,
   })
 
-  if (createErr) {
-    return NextResponse.json({ error: createErr.message }, { status: 500 })
+  if (!createErr) {
+    // Tạo thành công
+    try {
+      await sb.from('allowed_emails').upsert({ email }, { onConflict: 'email' })
+    } catch { /* bỏ qua nếu bảng không tồn tại */ }
+    return NextResponse.json({ ok: true, userId: created.user?.id })
   }
 
-  // Thêm vào allowed_emails cho backward compat
-  await sb.from('allowed_emails').upsert({ email }, { onConflict: 'email' }).throwOnError().catch(() => {})
+  // Nếu lỗi "already exists" → tìm userId từ view để phân phòng ban
+  const errMsg = createErr.message?.toLowerCase() ?? ''
+  if (errMsg.includes('already') || errMsg.includes('duplicate') || errMsg.includes('exists')) {
+    const { data: viewRow } = await sb
+      .from('user_permissions_view')
+      .select('user_id')
+      .eq('user_email', email)
+      .maybeSingle()
 
-  return NextResponse.json({ ok: true, userId: created.user?.id })
+    if (viewRow?.user_id) {
+      return NextResponse.json({ ok: true, userId: viewRow.user_id, alreadyExists: true })
+    }
+
+    // Có trong Auth nhưng chưa trong view — tìm qua listUsers (page nhỏ, filter by email)
+    const { data: page } = await sb.auth.admin.listUsers({ page: 1, perPage: 1000 })
+    const found = page?.users?.find((u: { email?: string }) => u.email === email)
+    if (found) {
+      return NextResponse.json({ ok: true, userId: found.id, alreadyExists: true })
+    }
+
+    return NextResponse.json({ error: 'Email này đã tồn tại nhưng không tìm được userId' }, { status: 409 })
+  }
+
+  // Lỗi khác
+  return NextResponse.json({ error: createErr.message }, { status: 500 })
 }
 
 // PATCH: đổi role user
