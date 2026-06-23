@@ -23,22 +23,27 @@ function parseCSVRow(line: string): string[] {
 }
 
 export interface JiraBug {
-  stt:          number
-  ngay_tao:     string
-  link:         string
-  issue_key:    string
+  stt:            number
+  ngay_tao:       string
+  link:           string
+  issue_key:      string
   due_date_sheet: string | null   // cột M trong sheet
-  due_date_jira:  string | null   // lấy từ Jira API
-  done_date:    string
-  bug_type:     string
-  reporter:     string
-  summary:      string
-  status:       string
-  status_color: string
+  due_date_jira:  string | null   // lấy từ Jira API (parent hoặc linked)
+  due_date_source:string          // 'parent' | 'linked:<key>' | 'none'
+  done_date:      string
+  bug_type:       string
+  reporter:       string
+  assignee:       string | null   // lấy từ Jira (parent hoặc linked)
+  assignee_source:string          // 'parent' | 'linked:<key>' | 'none'
+  linked_issues:  { key: string; summary: string; status: string; duedate: string | null; assignee: string | null }[]
+  summary:        string
+  status:         string
+  status_color:   string
 }
 
 // ── Fetch sheet ───────────────────────────────────────────────
-async function fetchSheetBugs(): Promise<Omit<JiraBug, 'due_date_jira' | 'summary' | 'status' | 'status_color'>[]> {
+async function fetchSheetBugs(): Promise<Omit<JiraBug,
+  'due_date_jira'|'due_date_source'|'assignee'|'assignee_source'|'linked_issues'|'summary'|'status'|'status_color'>[]> {
   const url = `https://docs.google.com/spreadsheets/d/${JIRA_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${JIRA_SHEET_GID}`
   const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) throw new Error(`Sheet fetch failed: ${res.status}`)
@@ -47,7 +52,6 @@ async function fetchSheetBugs(): Promise<Omit<JiraBug, 'due_date_jira' | 'summar
   const bugs = []
   for (const line of csv.split('\n')) {
     const cols = parseCSVRow(line)
-    // Col L (index 11): Jira link
     const link = (cols[11] ?? '').replace(/\s+/g, '')
     if (!link.includes('atlassian.net/browse/EPB-')) continue
     const issueKey = link.match(/EPB-\d+/)?.[0]
@@ -69,29 +73,102 @@ async function fetchSheetBugs(): Promise<Omit<JiraBug, 'due_date_jira' | 'summar
   return bugs
 }
 
-// ── Fetch Jira issue ──────────────────────────────────────────
-async function fetchJiraIssue(issueKey: string, auth: string) {
+// ── Fetch single Jira issue (lightweight) ────────────────────
+async function fetchJiraIssueRaw(issueKey: string, auth: string) {
+  const res = await fetch(
+    `${JIRA_BASE}/rest/api/3/issue/${issueKey}?fields=duedate,summary,status,assignee,issuelinks`,
+    { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' }, cache: 'no-store' }
+  )
+  if (!res.ok) return null
+  return res.json()
+}
+
+function statusColor(name: string) {
+  const n = name.toLowerCase()
+  if (n.includes('done') || n.includes('closed') || n.includes('resolved')) return 'green'
+  if (n.includes('progress')) return 'blue'
+  return 'gray'
+}
+
+// ── Fetch Jira issue + resolve duedate/assignee from linked items ──
+async function fetchJiraIssue(issueKey: string, auth: string): Promise<{
+  duedate: string | null
+  due_date_source: string
+  assignee: string | null
+  assignee_source: string
+  summary: string
+  status: string
+  status_color: string
+  linked_issues: JiraBug['linked_issues']
+}> {
+  const empty = {
+    duedate: null, due_date_source: 'none',
+    assignee: null, assignee_source: 'none',
+    summary: '', status: '', status_color: 'gray', linked_issues: [],
+  }
+
   try {
-    const res = await fetch(
-      `${JIRA_BASE}/rest/api/3/issue/${issueKey}?fields=duedate,summary,status`,
-      { headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' }, cache: 'no-store' }
-    )
-    if (!res.ok) return { duedate: null, summary: '', status: '', status_color: '' }
-    const j = await res.json()
-    const statusName: string = j.fields?.status?.name ?? ''
-    const statusColor = statusName.toLowerCase().includes('done') || statusName.toLowerCase().includes('closed')
-      ? 'green'
-      : statusName.toLowerCase().includes('progress')
-        ? 'blue'
-        : 'gray'
-    return {
-      duedate:      (j.fields?.duedate ?? null) as string | null,
-      summary:      (j.fields?.summary ?? '') as string,
-      status:       statusName,
-      status_color: statusColor,
+    const j = await fetchJiraIssueRaw(issueKey, auth)
+    if (!j) return empty
+
+    const parentDuedate:  string | null = j.fields?.duedate ?? null
+    const parentAssignee: string | null = j.fields?.assignee?.displayName ?? null
+    const parentSummary:  string        = j.fields?.summary ?? ''
+    const parentStatus:   string        = j.fields?.status?.name ?? ''
+
+    // Parse issuelinks — collect all linked EPB keys
+    const issuelinks: { key: string; linkType: string }[] = []
+    for (const link of (j.fields?.issuelinks ?? [])) {
+      const linked = link.outwardIssue ?? link.inwardIssue
+      if (!linked?.key) continue
+      issuelinks.push({ key: linked.key, linkType: link.type?.name ?? '' })
     }
-  } catch {
-    return { duedate: null, summary: '', status: '', status_color: '' }
+
+    // Fetch all linked issues concurrently
+    const linkedDetails = await Promise.all(
+      issuelinks.map(async ({ key }) => {
+        try {
+          const lj = await fetchJiraIssueRaw(key, auth)
+          if (!lj) return null
+          return {
+            key,
+            summary:  (lj.fields?.summary ?? '') as string,
+            status:   (lj.fields?.status?.name ?? '') as string,
+            duedate:  (lj.fields?.duedate ?? null) as string | null,
+            assignee: (lj.fields?.assignee?.displayName ?? null) as string | null,
+          }
+        } catch { return null }
+      })
+    )
+    const linked_issues = linkedDetails.filter(Boolean) as JiraBug['linked_issues']
+
+    // Resolve duedate: parent first, then first linked that has one
+    let duedate: string | null = parentDuedate
+    let due_date_source = parentDuedate ? 'parent' : 'none'
+    if (!duedate) {
+      const fallback = linked_issues.find(l => l.duedate)
+      if (fallback) { duedate = fallback.duedate; due_date_source = `linked:${fallback.key}` }
+    }
+
+    // Resolve assignee: parent first, then first linked that has one
+    let assignee: string | null = parentAssignee
+    let assignee_source = parentAssignee ? 'parent' : 'none'
+    if (!assignee) {
+      const fallback = linked_issues.find(l => l.assignee)
+      if (fallback) { assignee = fallback.assignee; assignee_source = `linked:${fallback.key}` }
+    }
+
+    return {
+      duedate, due_date_source,
+      assignee, assignee_source,
+      summary: parentSummary,
+      status:  parentStatus,
+      status_color: statusColor(parentStatus),
+      linked_issues,
+    }
+  } catch (err) {
+    console.error('[fetchJiraIssue] error for', issueKey, err)
+    return empty
   }
 }
 
@@ -103,8 +180,9 @@ export async function GET(req: NextRequest) {
 
   const email = process.env.JIRA_EMAIL?.trim()
   const token = process.env.JIRA_API_TOKEN?.trim()
-  console.log('[jira/bugs] env check — JIRA_EMAIL:', email ? `"${email}"` : 'MISSING', '| JIRA_API_TOKEN:', token ? `len=${token.length}` : 'MISSING')
-  console.log('[jira/bugs] all env keys with JIRA:', Object.keys(process.env).filter(k => k.includes('JIRA')))
+  console.log('[jira/bugs] JIRA_EMAIL:', email ? `"${email}"` : 'MISSING', '| TOKEN len:', token?.length ?? 'MISSING')
+  console.log('[jira/bugs] env keys with JIRA:', Object.keys(process.env).filter(k => k.includes('JIRA')))
+
   if (!email || !token) {
     return NextResponse.json({
       error: 'JIRA_EMAIL / JIRA_API_TOKEN chưa được cấu hình trong Vercel',
@@ -115,23 +193,29 @@ export async function GET(req: NextRequest) {
       }
     }, { status: 500 })
   }
+
   const auth = Buffer.from(`${email}:${token}`).toString('base64')
 
   try {
     const bugs = await fetchSheetBugs()
 
-    // Fetch Jira concurrently (batch of 5 để tránh rate limit)
     const results: JiraBug[] = []
-    for (let i = 0; i < bugs.length; i += 5) {
-      const batch = bugs.slice(i, i + 5)
+    // Batch 3 at a time (each issue now spawns sub-fetches for linked issues)
+    for (let i = 0; i < bugs.length; i += 3) {
+      const batch = bugs.slice(i, i + 3)
       const jiraData = await Promise.all(batch.map(b => fetchJiraIssue(b.issue_key, auth)))
       batch.forEach((bug, idx) => {
+        const d = jiraData[idx]
         results.push({
           ...bug,
-          due_date_jira:  jiraData[idx].duedate,
-          summary:        jiraData[idx].summary,
-          status:         jiraData[idx].status,
-          status_color:   jiraData[idx].status_color,
+          due_date_jira:  d.duedate,
+          due_date_source: d.due_date_source,
+          assignee:       d.assignee,
+          assignee_source: d.assignee_source,
+          linked_issues:  d.linked_issues,
+          summary:        d.summary,
+          status:         d.status,
+          status_color:   d.status_color,
         })
       })
     }
