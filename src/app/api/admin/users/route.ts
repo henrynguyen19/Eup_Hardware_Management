@@ -25,17 +25,22 @@ async function requireAdminPermission(): Promise<{ ok: boolean; error?: NextResp
   return { ok: true }
 }
 
-// GET: lấy danh sách users
+// GET: lấy danh sách users — từ Supabase Auth (tất cả user, không phụ thuộc view cũ)
 export async function GET() {
   const auth = await requireAdminPermission()
   if (!auth.ok) return auth.error!
 
-  const { data } = await supabaseAdmin()
-    .from('user_permissions_view')
-    .select('*')
-    .order('user_email')
+  const sb = supabaseAdmin()
+  // Lấy tất cả user từ Auth (hỗ trợ tối đa 1000 user/page)
+  const { data, error } = await sb.auth.admin.listUsers({ page: 1, perPage: 1000 })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ users: data ?? [] })
+  const users = (data?.users ?? [])
+    .filter(u => u.email)
+    .map(u => ({ user_id: u.id, user_email: u.email! }))
+    .sort((a, b) => a.user_email.localeCompare(b.user_email))
+
+  return NextResponse.json({ users })
 }
 
 // POST: thêm user mới — tạo tài khoản Supabase Auth với mật khẩu mặc định eupvn123
