@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { google } from 'googleapis'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import type { DailyRecord } from '@/types/ho-tro'
@@ -9,41 +10,22 @@ const adminClient = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-// ── CSV single-row parser ────────────────────────────────────
-function parseCSVRow(line: string): string[] {
-  const result: string[] = []
-  let cur = ''
-  let inQuote = false
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]
-    if (c === '"') {
-      if (inQuote && line[i + 1] === '"') { cur += '"'; i++; continue }
-      inQuote = !inQuote
-      continue
-    }
-    if (c === ',' && !inQuote) { result.push(cur.trim()); cur = ''; continue }
-    cur += c
-  }
-  result.push(cur.trim())
-  return result
+function getSheetsClient() {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
+  const key   = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
+  if (!email || !key) throw new Error('Missing Google Service Account credentials')
+  const auth = new google.auth.GoogleAuth({
+    credentials: { client_email: email, private_key: key },
+    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+  })
+  return google.sheets({ version: 'v4', auth })
 }
 
-// ── Excel serial → DD/MM/YYYY ────────────────────────────────
-function excelSerialToDate(serial: number): { display: string; sortKey: string } | null {
-  const adjusted = serial > 60 ? serial - 1 : serial
-  const msPerDay = 86400000
-  const epoch1900 = Date.UTC(1900, 0, 1)
-  const ms = epoch1900 + (adjusted - 1) * msPerDay
-  const date = new Date(ms)
-  const y = date.getUTCFullYear()
-  if (y < 2020 || y > 2035) return null
-  const m = (date.getUTCMonth() + 1).toString().padStart(2, '0')
-  const d = date.getUTCDate().toString().padStart(2, '0')
-  return { display: `${d}/${m}/${y}`, sortKey: `${y}-${m}-${d}` }
-}
-
-// ── Parse raw table format ────────────────────────────────────
-// Sheet structure: date header rows (col A = "DD/MM/YYYY"), then ticket rows
+// ── Parse raw table ────────────────────────────────────────────
+// Sheet structure (per tab "tháng M/YY"):
+//   - Date header rows: col A = "DD/MM/YYYY" (merged, green)
+//   - Ticket rows (~150 per day): col A = numeric ticket code
+//   - Empty rows: skipped
 // Columns (0-indexed): A=code, B=sos, C=company, D=date, E=contact,
 //   F=type, G=salesAlias, H=direction, I=content, J=reply,
 //   K=status, L=assignee, M=salesMan, N=assistant, O=startPoint, P=endPoint
@@ -61,20 +43,19 @@ function emptyDay(display: string, sortKey: string): DailyRecord {
   }
 }
 
-function parseRawTable(csvText: string, monthNum: number, yearNum: number): DailyRecord[] {
-  const lines = csvText.split('\n')
+// grid: array of rows, each row is array of cell strings (FORMATTED_VALUE from Sheets API)
+function parseRawTable(grid: string[][], monthNum: number, yearNum: number): DailyRecord[] {
   const dayMap = new Map<string, DailyRecord>()
   let currentKey = ''
 
-  for (const line of lines) {
-    const cols = parseCSVRow(line)
-    const colA = cols[0]?.trim() ?? ''
+  for (const cols of grid) {
+    const colA = (cols[0] ?? '').trim()
     if (!colA) continue
 
-    // Date header row
+    // ── Date header: "DD/MM/YYYY" ──
     const hdr = colA.match(DATE_HDR_RE)
     if (hdr) {
-      const d = hdr[1].padStart(2,'0'), m = hdr[2], y = hdr[3]
+      const d = hdr[1].padStart(2, '0'), m = hdr[2], y = hdr[3]
       if (parseInt(m) === monthNum && parseInt(y) === yearNum) {
         currentKey = `${y}-${m}-${d}`
         if (!dayMap.has(currentKey)) dayMap.set(currentKey, emptyDay(`${d}/${m}/${y}`, currentKey))
@@ -84,28 +65,7 @@ function parseRawTable(csvText: string, monthNum: number, yearNum: number): Dail
       continue
     }
 
-    // Check if colA is an Excel serial date (e.g. 46195 for 23/06/2026)
-    // Date header rows have all other columns empty (merged cell)
-    const serialNum = parseInt(colA)
-    if (!isNaN(serialNum) && serialNum >= 44000 && serialNum <= 48000) {
-      const colB = cols[1]?.trim() ?? ''
-      const colC = cols[2]?.trim() ?? ''
-      if (!colB && !colC) {
-        const di = excelSerialToDate(serialNum)
-        if (di) {
-          const [y, m, d] = di.sortKey.split('-')
-          if (parseInt(m) === monthNum && parseInt(y) === yearNum) {
-            currentKey = di.sortKey
-            if (!dayMap.has(currentKey)) dayMap.set(currentKey, emptyDay(di.display, currentKey))
-          } else {
-            currentKey = ''
-          }
-          continue
-        }
-      }
-    }
-
-    // Ticket row: col A is numeric code
+    // ── Ticket row: col A is numeric ticket code ──
     if (!currentKey || !/^\d{3,}$/.test(colA)) continue
     const day = dayMap.get(currentKey)!
     day.total_requests++
@@ -144,7 +104,7 @@ function parseRawTable(csvText: string, monthNum: number, yearNum: number): Dail
     if (tags.includes('fs100'))  day.errors['FS100']++
     if (tags.includes('soji'))   day.errors['SOJI']++
 
-    // ── Resolution: #F=ngày 1, #N=chưa, #H=hẹn, #2/#3/#4/#5=sang ngày ──
+    // ── Resolution: #F=ngày 1, #N=chưa, #H=hẹn, #2–#5=sang ngày ──
     if (/#f\b/.test(tags))       day.resolution['Ngay 1']++
     else if (/#2\b/.test(tags))  day.resolution['Ngay 2']++
     else if (/#3\b/.test(tags))  day.resolution['Ngay 3']++
@@ -153,16 +113,16 @@ function parseRawTable(csvText: string, monthNum: number, yearNum: number): Dail
     else if (/#h\b/.test(tags))  day.resolution['Hen xu ly']++
     else if (/#n\b/.test(tags))  day.resolution['Chua xu ly']++
 
-    // ── Channels: check direction col (H=idx 7) and content ──
+    // ── Channels: check direction col (H=idx 7) ──
     const dir = (cols[7] ?? '').toLowerCase()
-    if (dir.includes('zalo') || tags.includes('zalo'))       day.channels['Zalo']++
+    if (dir.includes('zalo') || tags.includes('zalo'))             day.channels['Zalo']++
     else if (dir.includes('hotline') || tags.includes('hotline')) day.channels['Hotline']++
 
     // ── Locations: startPoint col (O=idx 14) ──
     const loc = (cols[14] ?? '').toLowerCase()
-    if (loc.includes('hà nội') || loc.includes('ha noi') || loc.includes('hn'))         day.locations['Ha Noi']++
+    if (loc.includes('hà nội') || loc.includes('ha noi') || loc.includes('hn'))           day.locations['Ha Noi']++
     else if (loc.includes('hải phòng') || loc.includes('hai phong') || loc.includes('hp')) day.locations['Hai Phong']++
-    else if (loc.includes('đà nẵng') || loc.includes('da nang') || loc.includes('dn'))  day.locations['Da Nang']++
+    else if (loc.includes('đà nẵng') || loc.includes('da nang') || loc.includes('dn'))    day.locations['Da Nang']++
     else if (loc.includes('hồ chí minh') || loc.includes('hcm') || loc.includes('sài gòn')) day.locations['HCM']++
     else if (loc.includes('bình dương') || loc.includes('binh duong') || loc.includes('bd')) day.locations['Binh Duong']++
   }
@@ -170,24 +130,28 @@ function parseRawTable(csvText: string, monthNum: number, yearNum: number): Dail
   return Array.from(dayMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 }
 
-// ── Fetch from Google Sheets ──────────────────────────────────
+// ── Fetch from Google Sheets via API (service account) ───────
 async function fetchFromSheets(
   sheetId: string, month: number, yearShort: string
 ): Promise<{ rows: DailyRecord[]; sheetName: string; error?: string }> {
-  // Tab name matches write API: "tháng M/YY"
   const sheetName = `tháng ${month}/${yearShort}`
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&headers=0`
-    const res = await fetch(url, { cache: 'no-store' })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const sheets = getSheetsClient()
 
-    const csvText = await res.text()
-    if (csvText.trimStart().startsWith('<')) {
-      return { rows: [], sheetName, error: `Tab "${sheetName}" không tồn tại hoặc chưa public` }
-    }
+    // Quote tab name to handle special chars (spaces, /)
+    const quotedTab = `'${sheetName.replace(/'/g, "\\'")}'`
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${quotedTab}!A:S`,
+      valueRenderOption: 'FORMATTED_VALUE',
+    })
+
+    const grid = (resp.data.values ?? []).map(
+      row => (row as string[]).map(cell => String(cell ?? ''))
+    )
 
     const yearNum = 2000 + parseInt(yearShort)
-    const rows = parseRawTable(csvText, month, yearNum)
+    const rows = parseRawTable(grid, month, yearNum)
     return { rows, sheetName }
   } catch (err) {
     return { rows: [], sheetName, error: String(err) }
@@ -289,7 +253,7 @@ export async function GET(req: NextRequest) {
     if (cached && cached.length > 0) {
       const rows = cached.map(dbRowToRecord)
       const fetchedAt = cached[0].fetched_at
-      const sheetName = `báo cáo tháng ${month}/${yearShort}`
+      const sheetName = `tháng ${month}/${yearShort}`
       return NextResponse.json({ rows, sheetName, month, year: yearShort, cached: true, fetched_at: fetchedAt })
     }
   }
@@ -308,7 +272,7 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // ── 3. Save to DB cache (fire-and-forget, don't block response) ──
+  // ── 3. Save to DB cache (fire-and-forget) ────────────────
   saveToCache(db, sheetId, staffName, rows).catch(e =>
     console.error('[ho-tro/sheets] cache save error:', e)
   )
@@ -317,7 +281,6 @@ export async function GET(req: NextRequest) {
 }
 
 // ── DELETE handler — xóa cache của 1 sheet + tháng ───────────
-// Body: { sheetId, month, year }
 export async function DELETE(req: NextRequest) {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
