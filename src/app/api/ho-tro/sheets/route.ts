@@ -65,9 +65,13 @@ function parseRawTable(
         if (!dayMap.has(currentKey)) {
           dayMap.set(currentKey, emptyDay(`${d}/${m}/${y}`, currentKey))
           debugLog?.push(`row${rowIdx + 1}: DATE_HDR "${colA}" → ${currentKey}`)
+          // Show next 3 rows raw to diagnose structure
+          for (let peek = 1; peek <= 3 && rowIdx + peek < grid.length; peek++) {
+            const pr = grid[rowIdx + peek]
+            debugLog.push(`  +${peek}: A="${pr[0]??''}" B="${pr[1]??''}" C="${pr[2]??''}" D="${pr[3]??''}" E="${pr[4]??''}"`)
+          }
         }
       } else {
-        debugLog?.push(`row${rowIdx + 1}: DATE_HDR "${colA}" → wrong month/year, skipped`)
         currentKey = ''
       }
       continue
@@ -79,8 +83,9 @@ function parseRawTable(
     const colD = (cols[3] ?? '').trim()
     const isTicket = /^\d{1,2}\/\d{2}\/\d{4}$/.test(colD) || /^\d{4}-\d{2}-\d{2}$/.test(colD)
     if (!currentKey || !isTicket) {
-      if (colA && !isTicket) {
-        debugLog?.push(`row${rowIdx + 1}: SKIP colA="${colA}" colD="${colD}" (no valid date in D)`)
+      if (colA && !isTicket && debugLog) {
+        const colB = (cols[1] ?? '').trim()
+        debugLog.push(`row${rowIdx + 1}: SKIP colA="${colA}" colB="${colB}" colD="${colD}"`)
       }
       continue
     }
