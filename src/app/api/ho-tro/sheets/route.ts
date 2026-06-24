@@ -22,10 +22,6 @@ function getSheetsClient() {
 }
 
 // ── Assistant → Location mapping (from DB departments) ───────
-// Departments named like "VP Hà Nội", "VP HCM" etc. are regional offices.
-// Each assistant user is assigned to one such department.
-// Parser reads colN (assistant name) → maps to location key.
-
 function deptNameToLocationKey(deptName: string): string | null {
   const n = deptName.toLowerCase()
   if (n.includes('hà nội') || n.includes('ha noi'))               return 'Ha Noi'
@@ -36,13 +32,10 @@ function deptNameToLocationKey(deptName: string): string | null {
   return null
 }
 
-// Returns map: assistant_name_lowercase → location_key
-// e.g. { "canary": "Ha Noi", "vivian": "HCM", ... }
 async function getAssistantLocationMap(
   db: ReturnType<typeof adminClient>
 ): Promise<Record<string, string>> {
   try {
-    // 1. Get all VP departments
     const { data: depts } = await db
       .from('departments')
       .select('id, name')
@@ -50,7 +43,6 @@ async function getAssistantLocationMap(
 
     if (!depts?.length) return {}
 
-    // Build deptId → locationKey map
     const deptLocMap: Record<string, string> = {}
     for (const d of depts) {
       const loc = deptNameToLocationKey(d.name)
@@ -60,7 +52,6 @@ async function getAssistantLocationMap(
     const deptIds = Object.keys(deptLocMap)
     if (!deptIds.length) return {}
 
-    // 2. Get user_departments for those VP depts
     const { data: userDepts } = await db
       .from('user_departments')
       .select('user_id, department_id')
@@ -68,17 +59,15 @@ async function getAssistantLocationMap(
 
     if (!userDepts?.length) return {}
 
-    // 3. Get emails from Auth to extract display name
     const { data: authData } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 })
     const emailMap: Record<string, string> = Object.fromEntries(
       (authData?.users ?? []).map(u => [u.id, u.email ?? ''])
     )
 
-    // 4. Build name → location map
     const result: Record<string, string> = {}
     for (const ud of userDepts) {
       const email = emailMap[ud.user_id] ?? ''
-      const name = email.split('@')[0].toLowerCase()  // "canary@eup.net.vn" → "canary"
+      const name = email.split('@')[0].toLowerCase()
       const loc = deptLocMap[ud.department_id]
       if (name && loc) result[name] = loc
     }
@@ -88,15 +77,28 @@ async function getAssistantLocationMap(
   }
 }
 
-// ── Parse raw table ────────────────────────────────────────────
-// Sheet structure (per tab "tháng M/YY"):
-//   - Date header rows: col A = "DD/MM/YYYY" (merged, green)
-//   - Ticket rows (~150 per day): col A = numeric ticket code
-//   - Empty rows: skipped
-// Columns (0-indexed): A=code, B=sos, C=company, D=date, E=contact,
-//   F=type, G=salesAlias, H=direction, I=content, J=reply,
-//   K=status, L=assignee, M=salesMan, N=assistant, O=startPoint, P=endPoint
+// ── Types ─────────────────────────────────────────────────────
 const DATE_HDR_RE = /^(\d{1,2})\/(\d{2})\/(\d{4})$/
+
+export type SpeedTag = 'fast' | 'normal' | 'low' | 'hen' | 'mai_bao_lai'
+
+export interface SheetTicket {
+  rowIdx:      number
+  sortKey:     string
+  sheet_row_key: string
+  ticket_date: string
+  code:        string
+  company:     string
+  contact:     string
+  ticket_type: string
+  direction:   string
+  content:     string
+  reply:       string
+  status_raw:  string
+  sales_man:   string
+  assistant:   string
+  speed_tag:   SpeedTag | null
+}
 
 function emptyDay(display: string, sortKey: string): DailyRecord {
   return {
@@ -112,14 +114,15 @@ function emptyDay(display: string, sortKey: string): DailyRecord {
   }
 }
 
-// grid: array of rows, each row is array of cell strings (FORMATTED_VALUE from Sheets API)
-// assistantMap: { "canary" → "Ha Noi", "vivian" → "HCM", ... } — from DB, empty if not configured
+// ── Parse raw table ────────────────────────────────────────────
 function parseRawTable(
   grid: string[][], monthNum: number, yearNum: number,
   assistantMap: Record<string, string>,
+  sheetId: string,
   debugLog?: string[]
-): DailyRecord[] {
+): { records: DailyRecord[]; tickets: SheetTicket[] } {
   const dayMap = new Map<string, DailyRecord>()
+  const tickets: SheetTicket[] = []
   let currentKey = ''
 
   for (let rowIdx = 0; rowIdx < grid.length; rowIdx++) {
@@ -136,7 +139,6 @@ function parseRawTable(
         if (!dayMap.has(currentKey)) {
           dayMap.set(currentKey, emptyDay(`${d}/${m}/${y}`, currentKey))
           debugLog?.push(`row${rowIdx + 1}: DATE_HDR "${colA}" → ${currentKey}`)
-          // Show next 3 rows raw to diagnose structure
           for (let peek = 1; peek <= 3 && rowIdx + peek < grid.length; peek++) {
             const pr = grid[rowIdx + peek]
             debugLog?.push(`  +${peek}: A="${pr[0]??''}" B="${pr[1]??''}" C="${pr[2]??''}" D="${pr[3]??''}" E="${pr[4]??''}"`)
@@ -149,8 +151,6 @@ function parseRawTable(
     }
 
     // ── Ticket row: must have a valid date in col D (idx 3) ──
-    // Template/empty rows have no date.
-    // Real tickets have date in DD/MM/YYYY (text) or YYYY-MM-DD (Google Sheets date cell).
     const colD = (cols[3] ?? '').trim()
     const isTicket = /^\d{1,2}\/\d{2}\/\d{4}$/.test(colD) || /^\d{4}-\d{2}-\d{2}$/.test(colD)
     if (!currentKey || !isTicket) {
@@ -221,15 +221,19 @@ function parseRawTable(
     }
 
     // ── Tốc độ xử lý: #f=Fast, #n=Normal, #l=Low (exclusive) ──
-    if      (/#f\b/.test(tags)) day.resolution['Fast']++
-    else if (/#n\b/.test(tags)) day.resolution['Normal']++
-    else if (/#l\b/.test(tags)) day.resolution['Low']++
+    let speedTag: SpeedTag | null = null
+    if      (/#f\b/.test(tags)) { day.resolution['Fast']++;        speedTag = 'fast' }
+    else if (/#n\b/.test(tags)) { day.resolution['Normal']++;      speedTag = 'normal' }
+    else if (/#l\b/.test(tags)) { day.resolution['Low']++;         speedTag = 'low' }
 
     // ── Cần theo dõi: plain text "mai báo lại" / "hẹn" (independent) ──
-    if (/mai báo lại/i.test(tags) || /mai bao lai/i.test(tags))
+    if (/mai báo lại/i.test(tags) || /mai bao lai/i.test(tags)) {
       day.resolution['Mai bao lai']++
-    else if (/\bhẹn\b/i.test(tags))
+      speedTag = 'mai_bao_lai'
+    } else if (/\bhẹn\b/i.test(tags)) {
       day.resolution['Hen']++
+      speedTag = 'hen'
+    }
 
     // ── Channels: check direction col (H=idx 7) ──
     const dir = (cols[7] ?? '').toLowerCase()
@@ -237,13 +241,11 @@ function parseRawTable(
     else if (dir.includes('hotline') || tags.includes('hotline')) day.channels['Hotline']++
 
     // ── Locations: assistant col (N=idx 13) → lookup assistantMap from DB ──
-    // assistantMap built from user_departments (VP Hà Nội, VP HCM, etc.)
     const assistantName = (cols[13] ?? '').trim().toLowerCase()
     const mappedLoc = assistantMap[assistantName]
     if (mappedLoc && mappedLoc in day.locations) {
       day.locations[mappedLoc as keyof typeof day.locations]++
     } else if (assistantName && !mappedLoc) {
-      // Fallback: if assistant not in map, try to read startPoint col (O=idx 14)
       const loc = (cols[14] ?? '').toLowerCase()
       if (loc.includes('hà nội') || loc.includes('ha noi') || loc.includes('hn'))           day.locations['Ha Noi']++
       else if (loc.includes('hải phòng') || loc.includes('hai phong') || loc.includes('hp')) day.locations['Hai Phong']++
@@ -251,9 +253,32 @@ function parseRawTable(
       else if (loc.includes('hồ chí minh') || loc.includes('hcm') || loc.includes('sài gòn')) day.locations['HCM']++
       else if (loc.includes('bình dương') || loc.includes('binh duong') || loc.includes('bd')) day.locations['Binh Duong']++
     }
+
+    // ── Collect individual ticket for pending tracking ──
+    const sheet_row_key = `${sheetId}:${currentKey}:${rowIdx}`
+    tickets.push({
+      rowIdx,
+      sortKey:     currentKey,
+      sheet_row_key,
+      ticket_date: currentKey,
+      code:        (cols[0] ?? '').trim(),
+      company:     (cols[2] ?? '').trim(),
+      contact:     (cols[4] ?? '').trim(),
+      ticket_type: (cols[5] ?? '').trim(),
+      direction:   (cols[7] ?? '').trim(),
+      content:     (cols[8] ?? '').trim(),
+      reply:       (cols[9] ?? '').trim(),
+      status_raw:  (cols[10] ?? '').trim(),
+      sales_man:   (cols[12] ?? '').trim(),
+      assistant:   (cols[13] ?? '').trim(),
+      speed_tag:   speedTag,
+    })
   }
 
-  return Array.from(dayMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+  return {
+    records: Array.from(dayMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey)),
+    tickets,
+  }
 }
 
 // ── Fetch from Google Sheets via API (service account) ───────
@@ -261,12 +286,11 @@ async function fetchFromSheets(
   sheetId: string, month: number, yearShort: string,
   assistantMap: Record<string, string>,
   debugMode = false
-): Promise<{ rows: DailyRecord[]; sheetName: string; error?: string; debugLog?: string[]; totalRows?: number }> {
+): Promise<{ records: DailyRecord[]; tickets: SheetTicket[]; sheetName: string; error?: string; debugLog?: string[]; totalRows?: number }> {
   const sheetName = `tháng ${month}/${yearShort}`
   try {
     const sheets = getSheetsClient()
 
-    // Quote tab name to handle special chars (spaces, /)
     const quotedTab = `'${sheetName.replace(/'/g, "\\'")}'`
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
@@ -280,10 +304,10 @@ async function fetchFromSheets(
 
     const yearNum = 2000 + parseInt(yearShort)
     const debugLog: string[] = []
-    const rows = parseRawTable(grid, month, yearNum, assistantMap, debugMode ? debugLog : undefined)
-    return { rows, sheetName, debugLog: debugMode ? debugLog : undefined, totalRows: grid.length }
+    const { records, tickets } = parseRawTable(grid, month, yearNum, assistantMap, sheetId, debugMode ? debugLog : undefined)
+    return { records, tickets, sheetName, debugLog: debugMode ? debugLog : undefined, totalRows: grid.length }
   } catch (err) {
-    return { rows: [], sheetName, error: String(err) }
+    return { records: [], tickets: [], sheetName, error: String(err) }
   }
 }
 
@@ -317,6 +341,40 @@ async function saveToCache(
 
   await db.from('ho_tro_daily_records')
     .upsert(upsertRows, { onConflict: 'sheet_id,sort_key' })
+}
+
+// ── Save individual tickets to DB (upsert by sheet_row_key) ──
+async function saveTicketsFromSheet(
+  db: ReturnType<typeof adminClient>,
+  tickets: SheetTicket[],
+  staffName: string | null,
+  sheetId: string
+): Promise<void> {
+  if (!tickets.length) return
+
+  const rows = tickets.map(t => ({
+    sheet_id:      sheetId,
+    staff_name:    staffName,
+    sheet_row_key: t.sheet_row_key,
+    ticket_date:   t.ticket_date,
+    code:          t.code        || null,
+    company:       t.company     || null,
+    contact:       t.contact     || null,
+    ticket_type:   t.ticket_type || null,
+    direction:     t.direction   || null,
+    content:       t.content     || null,
+    reply:         t.reply       || null,
+    status:        t.status_raw  || null,
+    sales_man:     t.sales_man   || null,
+    assistant:     t.assistant   || null,
+    speed_tag:     t.speed_tag,
+  }))
+
+  // Upsert in batches of 500 to avoid payload limits
+  for (let i = 0; i < rows.length; i += 500) {
+    await db.from('ho_tro_tickets')
+      .upsert(rows.slice(i, i + 500), { onConflict: 'sheet_row_key' })
+  }
 }
 
 // ── Convert DB row → DailyRecord ─────────────────────────────
@@ -371,8 +429,6 @@ export async function GET(req: NextRequest) {
   const db        = adminClient()
 
   // ── 1. Check DB cache (always, unless force refresh) ──
-  // Tháng hiện tại cũng dùng cache — chỉ fetch lại khi user bấm "Làm mới" (refresh=true)
-  // hoặc khi chưa có dữ liệu trong DB.
   if (!refresh) {
     const prefix = `${yearNum}-${String(monthNum).padStart(2, '0')}-`
     const { data: cached } = await db
@@ -393,7 +449,7 @@ export async function GET(req: NextRequest) {
 
   // ── 2. Fetch from Google Sheets ───────────────────────────
   const assistantMap = await getAssistantLocationMap(db)
-  const { rows, sheetName, error, debugLog, totalRows } = await fetchFromSheets(sheetId, monthNum, yearShort, assistantMap, debugMode)
+  const { records, tickets, sheetName, error, debugLog, totalRows } = await fetchFromSheets(sheetId, monthNum, yearShort, assistantMap, debugMode)
 
   if (error) {
     return NextResponse.json({ error, rows: [], sheetName, cached: false })
@@ -405,25 +461,28 @@ export async function GET(req: NextRequest) {
       debug: true,
       sheetName,
       totalRows,
-      daysFound: rows.map(r => ({ date: r.date, total: r.total_requests })),
+      daysFound: records.map(r => ({ date: r.date, total: r.total_requests })),
       log: debugLog,
       cached: false,
     })
   }
 
-  if (!rows.length) {
+  if (!records.length) {
     return NextResponse.json({
       error: `Chưa có dữ liệu cho "${sheetName}"`,
       rows: [], sheetName, cached: false,
     })
   }
 
-  // ── 3. Save to DB cache (fire-and-forget) ────────────────
-  saveToCache(db, sheetId, staffName, rows).catch(e =>
+  // ── 3. Save to DB cache + save individual tickets (fire-and-forget) ──
+  saveToCache(db, sheetId, staffName, records).catch(e =>
     console.error('[ho-tro/sheets] cache save error:', e)
   )
+  saveTicketsFromSheet(db, tickets, staffName, sheetId).catch(e =>
+    console.error('[ho-tro/sheets] ticket save error:', e)
+  )
 
-  return NextResponse.json({ rows, sheetName, month, year: yearShort, cached: false })
+  return NextResponse.json({ rows: records, sheetName, month, year: yearShort, cached: false })
 }
 
 // ── DELETE handler — xóa cache của 1 sheet + tháng ───────────

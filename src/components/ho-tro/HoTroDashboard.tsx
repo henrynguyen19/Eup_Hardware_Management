@@ -121,8 +121,8 @@ function buildWeeklyStaff(staffMap: Record<string, DailyRecord[]>, names: string
 }
 
 // ── Shared UI components ──────────────────────────────────────────
-function StatCard({ icon, label, value, sub, color = 'blue' }: {
-  icon: string; label: string; value: string | number; sub?: string; color?: string
+function StatCard({ icon, label, value, sub, color = 'blue', onClick }: {
+  icon: string; label: string; value: string | number; sub?: string; color?: string; onClick?: () => void
 }) {
   const bg: Record<string, string> = {
     blue:   'bg-blue-50 border-blue-200',   green: 'bg-green-50 border-green-200',
@@ -133,13 +133,15 @@ function StatCard({ icon, label, value, sub, color = 'blue' }: {
     blue: 'text-blue-700', green: 'text-green-700', orange: 'text-orange-700',
     purple: 'text-purple-700', red: 'text-red-700', teal: 'text-teal-700',
   }
+  const cls = `rounded-xl border p-4 ${bg[color] ?? bg.blue}${onClick ? ' cursor-pointer hover:shadow-md transition-shadow' : ''}`
   return (
-    <div className={`rounded-xl border p-4 ${bg[color] ?? bg.blue}`}>
+    <div className={cls} onClick={onClick} role={onClick ? 'button' : undefined}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
           <p className={`text-2xl font-bold ${tx[color] ?? tx.blue}`}>{value}</p>
           {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+          {onClick && <p className="text-xs text-red-400 mt-1">↗ Click để xem chi tiết</p>}
         </div>
         <span className="text-2xl">{icon}</span>
       </div>
@@ -182,6 +184,28 @@ function SummaryView({
 }) {
   const staffNames = allStaff.map(s => s.name)
   const combined = useMemo(() => mergeStaffRecords(staffMap), [staffMap])
+
+  // Pending tickets panel state
+  const [showPendingPanel, setShowPendingPanel] = useState(false)
+  const [pendingTickets, setPendingTickets] = useState<Record<string, string>[]>([])
+  const [pendingLoading, setPendingLoading] = useState(false)
+
+  async function fetchPendingTickets() {
+    setPendingLoading(true)
+    try {
+      const res = await fetch(
+        `/api/ho-tro/tickets?pendingOnly=true&month=${month}&year=${yearShort}&limit=200`
+      )
+      const json = await res.json()
+      setPendingTickets(json.tickets ?? [])
+    } catch { /* ignore */ }
+    finally { setPendingLoading(false) }
+  }
+
+  function handlePendingClick() {
+    setShowPendingPanel(true)
+    fetchPendingTickets()
+  }
   const dataRows = combined.filter(r => r.total_requests > 0)
 
   if (loading) return (
@@ -262,9 +286,61 @@ function SummaryView({
         <StatCard icon="📞" label="Tổng yêu cầu"        value={totalRequests.toLocaleString()} color="blue" />
         <StatCard icon="⏱️" label="TG xử lý TB"         value={`${avgResolution} ph`} color="purple" />
         <StatCard icon="⚡" label="Xử lý nhanh (#f)"    value={`${pct(resolveFast, totalRequests)}%`} color="green" />
-        <StatCard icon="🔴" label="Cần theo dõi (hẹn)"  value={totalPending} color="red" />
+        <StatCard icon="🔴" label="Cần theo dõi (hẹn)"  value={totalPending} color="red" onClick={handlePendingClick} />
         <StatCard icon="👥" label="Nhân viên hoạt động" value={activeStaff} color="teal" />
       </div>
+
+      {/* Pending tickets panel */}
+      {showPendingPanel && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end" onClick={() => setShowPendingPanel(false)}>
+          <div
+            className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-gray-800 text-lg">🔴 Yêu cầu cần theo dõi</h2>
+                <p className="text-xs text-gray-400">Hẹn / mai báo lại — tháng {month}/{yearShort}</p>
+              </div>
+              <button onClick={() => setShowPendingPanel(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+            </div>
+            <div className="p-5">
+              {pendingLoading ? (
+                <div className="flex justify-center py-12">
+                  <div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : !pendingTickets.length ? (
+                <div className="text-center py-12 text-gray-400">
+                  <div className="text-4xl mb-2">✅</div>
+                  <p className="text-sm">Không có yêu cầu cần theo dõi</p>
+                  <p className="text-xs mt-1">Hoặc chưa đồng bộ dữ liệu (bấm Làm mới trước)</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs text-gray-500 mb-3">{pendingTickets.length} yêu cầu</p>
+                  {pendingTickets.map((t, i) => (
+                    <div key={t.id ?? i} className="bg-red-50 border border-red-100 rounded-xl p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">{t.code || '—'}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${t.speed_tag === 'mai_bao_lai' ? 'bg-pink-100 text-pink-700' : 'bg-purple-100 text-purple-700'}`}>
+                            {t.speed_tag === 'mai_bao_lai' ? 'Mai báo lại' : 'Hẹn'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400 whitespace-nowrap">{t.ticket_date}</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-700 mb-1">{t.company || 'KH không rõ'}</p>
+                      {t.content && <p className="text-xs text-gray-600 mb-1 line-clamp-2">📝 {t.content}</p>}
+                      {t.reply && <p className="text-xs text-gray-500 italic line-clamp-2">💬 {t.reply}</p>}
+                      {t.staff_name && <p className="text-xs text-teal-600 mt-1">👤 {t.staff_name}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Row 1 — 4 small charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -976,199 +1052,4 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               </div>
               {summaryLoading && (
                 <div className="flex items-center gap-2 text-sm text-teal-600">
-                  <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
-                  Đang tải...
-                </div>
-              )}
-            </div>
-            <SummaryView
-              staffMap={filteredStaffMap}
-              allStaff={allStaff}
-              month={selectedMonth.month}
-              yearShort={selectedMonth.yearShort}
-              loading={summaryLoading}
-            />
-          </>
-        ) : (
-          /* ── Individual staff mode ── */
-          <>
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h2 className="font-bold text-gray-800 text-lg">
-                  {viewingStaff ? viewingStaff.name : 'Báo cáo của bạn'}
-                </h2>
-                <p className="text-sm text-gray-400">
-                  {periodMode === 'tuan' && selectedWeekKey
-                    ? `Tuần ${isoWeekBounds(selectedWeekKey).label} · ${totalDays} ngày`
-                    : `${sheetName || `báo cáo tháng ${selectedMonth.month}/${selectedMonth.yearShort}`}${totalDays > 0 ? ` · ${totalDays} ngày` : ''}`
-                  }
-                </p>
-              </div>
-              {loading && (
-                <div className="flex items-center gap-2 text-sm text-teal-600">
-                  <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
-                  Đang tải...
-                </div>
-              )}
-            </div>
-
-            {error && !loading && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-sm text-amber-700 mb-5">
-                {error}
-              </div>
-            )}
-
-            {!loading && dataRows.length > 0 && (
-              <div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <StatCard icon="📞" label="Tổng yêu cầu"      value={totalRequests.toLocaleString()} sub={`${totalDays} ngày làm việc`} color="blue" />
-                  <StatCard icon="⏱️" label="TG xử lý TB"       value={`${avgTime} phút`} sub="Trung bình/ngày" color="purple" />
-                  <StatCard icon="⚡" label="Xử lý nhanh (#f)"  value={`${resolveRate}%`} sub={`${totalFast} yêu cầu`} color="green" />
-                  <StatCard icon="🔴" label="Cần theo dõi"      value={totalPending} sub="Hẹn / mai báo lại" color="red" />
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-5 mb-6">
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h3 className="font-semibold text-gray-700 mb-4">Thiết bị (top 6)</h3>
-                    <HorizBar data={deviceSum} total={totalRequests} color="bg-blue-500" maxBars={6} />
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h3 className="font-semibold text-gray-700 mb-4">Địa điểm</h3>
-                    <HorizBar data={locationSum} total={totalRequests} color="bg-teal-500" maxBars={6} />
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h3 className="font-semibold text-gray-700 mb-4">Kênh tiếp nhận</h3>
-                    <HorizBar data={channelSum} total={totalRequests} color="bg-indigo-500" maxBars={3} />
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h3 className="font-semibold text-gray-700 mb-4">Loại lỗi (top 6)</h3>
-                    <HorizBar data={errorSum} total={totalRequests} color="bg-orange-400" maxBars={6} />
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                    <h3 className="font-semibold text-gray-700">Chi tiết theo ngày</h3>
-                    <span className="text-xs text-gray-400">{dataRows.length} ngày</span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                          <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngày</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">YC</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">TG TB</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-green-600">#f</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-amber-600">#n</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-red-500">#l</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-purple-600">Hẹn</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">HN</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">HP</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">ĐN</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">HCM</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">BD</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">Zalo</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">Hotline</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dataRows.map((r, i) => {
-                          const fast   = r.resolution['Fast'] ?? 0
-                          const normal = r.resolution['Normal'] ?? 0
-                          const low    = r.resolution['Low'] ?? 0
-                          const hen    = (r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0)
-                          return (
-                            <tr key={r.sortKey} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50/70 ${i % 2 === 1 ? 'bg-gray-50/30' : ''}`}>
-                              <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{r.date}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-blue-700">{r.total_requests}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.avg_time}p</td>
-                              <td className="px-3 py-2.5 text-right text-green-600">{fast || <span className="text-gray-300">-</span>}</td>
-                              <td className="px-3 py-2.5 text-right text-amber-600">{normal || <span className="text-gray-300">-</span>}</td>
-                              <td className="px-3 py-2.5 text-right text-red-500">{low || <span className="text-gray-300">-</span>}</td>
-                              <td className="px-3 py-2.5 text-right">
-                                {hen > 0 ? <span className="text-purple-600 font-medium">{hen}</span> : <span className="text-gray-300">-</span>}
-                              </td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Ha Noi'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Hai Phong'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Da Nang'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['HCM'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Binh Duong'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Zalo'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Hotline'] || '-'}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                      <tfoot className="border-t-2 border-gray-300 bg-blue-50">
-                        <tr>
-                          <td className="px-4 py-3 font-bold text-gray-800">
-                            {periodMode === 'tuan' ? 'Tổng tuần' : 'Tổng tháng'}
-                          </td>
-                          <td className="px-3 py-3 text-right font-bold text-blue-800">{totalRequests}</td>
-                          <td className="px-3 py-3 text-right text-gray-600">{avgTime}p</td>
-                          <td className="px-3 py-3 text-right font-bold text-green-700">{totalFast || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium text-amber-600">
-                            {dataRows.reduce((s, r) => s + (r.resolution['Normal'] ?? 0), 0) || '-'}
-                          </td>
-                          <td className="px-3 py-3 text-right font-medium text-red-500">
-                            {dataRows.reduce((s, r) => s + (r.resolution['Low'] ?? 0), 0) || '-'}
-                          </td>
-                          <td className="px-3 py-3 text-right">
-                            {totalPending > 0 ? <span className="text-purple-700 font-bold">{totalPending}</span> : <span className="text-gray-300">-</span>}
-                          </td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['Ha Noi'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['Hai Phong'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['Da Nang'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['HCM'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['Binh Duong'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{channelSum['Zalo'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{channelSum['Hotline'] || '-'}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {!loading && dataRows.length === 0 && !error && (
-              <div className="text-center py-20 text-gray-400">
-                <div className="text-5xl mb-4">📋</div>
-                <p className="text-lg font-medium text-gray-500">Không có dữ liệu</p>
-                <p className="text-sm mt-1">Chưa có báo cáo cho {selectedMonth.label.toLowerCase()}</p>
-              </div>
-            )}
-
-            {!isAdmin && !staffConfig && (
-              <div className="text-center py-20 text-gray-400">
-                <div className="text-5xl mb-4">🔗</div>
-                <p className="text-lg font-medium text-gray-500">Chưa được liên kết</p>
-                <p className="text-sm mt-1">Tài khoản chưa được gắn sheet báo cáo. Liên hệ Admin.</p>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* ── Add Ticket Modal ── */}
-      {showAddForm && (
-        <AddTicketForm
-          allStaff={allStaff}
-          onClose={() => setShowAddForm(false)}
-          onSuccess={msg => {
-            setShowAddForm(false)
-            setSuccessMsg(msg)
-            setTimeout(() => setSuccessMsg(null), 4000)
-          }}
-        />
-      )}
-
-      {/* ── Success toast ── */}
-      {successMsg && (
-        <div className="fixed bottom-6 right-6 z-50 bg-teal-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2">
-          ✅ {successMsg}
-        </div>
-      )}
-    </div>
-  )
-}
+                  <div

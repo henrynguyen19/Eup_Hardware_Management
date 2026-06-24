@@ -22,11 +22,12 @@ export async function GET(req: NextRequest) {
   const hasAccess = isAdmin || perms.includes('ho_tro:read') || perms.includes('ho_tro:write')
   if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const sp        = new URL(req.url).searchParams
+  const sp          = new URL(req.url).searchParams
   const staffName = sp.get('staffName')
   const month     = sp.get('month')
   const year      = sp.get('year')
-  const search    = sp.get('search') ?? ''
+  const search      = sp.get('search') ?? ''
+  const pendingOnly = sp.get('pendingOnly') === 'true'
   const page      = Math.max(1, parseInt(sp.get('page') ?? '1'))
   const limit     = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '100')))
   const offset    = (page - 1) * limit
@@ -55,6 +56,10 @@ export async function GET(req: NextRequest) {
     query = query.or(
       `code.ilike.%${search}%,company.ilike.%${search}%,content.ilike.%${search}%,reply.ilike.%${search}%`
     )
+  }
+
+  if (pendingOnly) {
+    query = query.in('speed_tag', ['hen', 'mai_bao_lai'])
   }
 
   const { data, error, count } = await query
