@@ -474,15 +474,40 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // ── 3. Save to DB cache + save individual tickets (fire-and-forget) ──
-  saveToCache(db, sheetId, staffName, records).catch(e =>
-    console.error('[ho-tro/sheets] cache save error:', e)
-  )
-  saveTicketsFromSheet(db, tickets, staffName, sheetId).catch(e =>
-    console.error('[ho-tro/sheets] ticket save error:', e)
-  )
+  // ── 3. Save to DB cache + save individual tickets (awaited for debug) ──
+  let cacheError: string | null = null
+  let ticketSaveError: string | null = null
+  let ticketsSaved = 0
 
-  return NextResponse.json({ rows: records, sheetName, month, year: yearShort, cached: false })
+  try {
+    await saveToCache(db, sheetId, staffName, records)
+  } catch (e) {
+    cacheError = String(e)
+    console.error('[ho-tro/sheets] cache save error:', e)
+  }
+
+  try {
+    await saveTicketsFromSheet(db, tickets, staffName, sheetId)
+    ticketsSaved = tickets.length
+  } catch (e) {
+    ticketSaveError = String(e)
+    console.error('[ho-tro/sheets] ticket save error:', e)
+  }
+
+  return NextResponse.json({
+    rows: records,
+    sheetName,
+    month,
+    year: yearShort,
+    cached: false,
+    debug: {
+      ticketsParsed: tickets.length,
+      ticketsSaved,
+      pendingCount: tickets.filter(t => t.speed_tag === 'hen' || t.speed_tag === 'mai_bao_lai').length,
+      cacheError,
+      ticketSaveError,
+    }
+  })
 }
 
 // ── DELETE handler — xóa cache của 1 sheet + tháng ───────────

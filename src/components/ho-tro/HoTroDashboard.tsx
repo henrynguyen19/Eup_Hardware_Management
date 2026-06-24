@@ -760,6 +760,14 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
         setError(`Chưa có dữ liệu cho "${json.sheetName}"`); setRecords([])
       } else {
         setRecords(json.rows); setError(null)
+        // Debug: log ticket save result to browser console
+        if (json.debug) {
+          if (json.debug.ticketSaveError) {
+            console.error('[ho-tro] ticket save FAILED:', json.debug.ticketSaveError)
+          } else {
+            console.log(`[ho-tro] parsed=${json.debug.ticketsParsed} saved=${json.debug.ticketsSaved} pending=${json.debug.pendingCount} cacheErr=${json.debug.cacheError}`)
+          }
+        }
       }
     } catch (e) {
       setError(String(e)); setRecords([])
