@@ -372,8 +372,12 @@ async function saveTicketsFromSheet(
 
   // Upsert in batches of 500 to avoid payload limits
   for (let i = 0; i < rows.length; i += 500) {
-    await db.from('ho_tro_tickets')
+    const { error } = await db.from('ho_tro_tickets')
       .upsert(rows.slice(i, i + 500), { onConflict: 'sheet_row_key' })
+    if (error) {
+      console.error('[ho-tro] ticket upsert error (batch', i, '):', error.message)
+      throw new Error(error.message)
+    }
   }
 }
 
