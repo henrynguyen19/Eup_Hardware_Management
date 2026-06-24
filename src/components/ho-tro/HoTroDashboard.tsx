@@ -746,7 +746,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             {isAdmin && allStaff.map(staff => (
               <button
                 key={staff.sheetId}
-                onClick={() => { setIsSummaryMode(false); setIsJiraBugsMode(false); setSelectedSheetId(staff.sheetId) }}
+                onClick={() => { setIsSummaryMode(false); setIsJiraBugsMode(false); setIsTicketMode(false); setSelectedSheetId(staff.sheetId) }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
                   !isSummaryMode && !isJiraBugsMode && selectedSheetId === staff.sheetId
                     ? `${staff.bgClass} ring-2 ring-offset-1 ring-current`
@@ -758,7 +758,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             ))}
             {isAdmin && (
               <button
-                onClick={() => { setIsSummaryMode(true); setIsJiraBugsMode(false) }}
+                onClick={() => { setIsSummaryMode(true); setIsJiraBugsMode(false); setIsTicketMode(false) }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
                   isSummaryMode && !isJiraBugsMode ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-100'
                 }`}
