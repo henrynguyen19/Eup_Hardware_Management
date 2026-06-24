@@ -175,6 +175,26 @@ async function writeToTab(
   return msg
 }
 
+// If date falls on Sunday → advance to next Monday (CN không có trong sheet)
+function sundayToMonday(dateStr: string): string {
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+    ? dateStr
+    : /^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)
+      ? (() => { const [d,m,y] = dateStr.split('/'); return `${y}-${m}-${d}` })()
+      : dateStr
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return dateStr
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  if (date.getUTCDay() !== 0) return dateStr   // not Sunday
+  date.setUTCDate(date.getUTCDate() + 1)       // → Monday
+  const yy = date.getUTCFullYear()
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(date.getUTCDate()).padStart(2, '0')
+  // return same format as input
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return `${yy}-${mm}-${dd}`
+  return `${dd}/${mm}/${yy}`
+}
+
 // "DD/MM/YYYY" or "YYYY-MM-DD" → "YYYY-MM-DD"
 function toISODate(dateStr: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr
@@ -261,15 +281,18 @@ export async function POST(req: NextRequest) {
     const staff = STAFF_SHEETS.find(s => s.name.toLowerCase() === name.toLowerCase())
     if (!staff) continue
 
-    const tab     = sheetTabFromDate(row.date)
-    const dateFmt = toSheetDate(row.date)
+    const adjustedDate = sundayToMonday(row.date)  // CN → thứ 2
+    const tab     = sheetTabFromDate(adjustedDate)
+    const dateFmt = toSheetDate(adjustedDate)
+    // Use adjusted date in the row so DB also records the correct workday
+    const adjustedRow = adjustedDate !== row.date ? { ...row, date: adjustedDate } : row
 
     if (!byStaff.has(staff.name)) byStaff.set(staff.name, new Map())
     const tabMap = byStaff.get(staff.name)!
     if (!tabMap.has(tab)) tabMap.set(tab, new Map())
     const dateMap = tabMap.get(tab)!
     if (!dateMap.has(dateFmt)) dateMap.set(dateFmt, [])
-    dateMap.get(dateFmt)!.push(row)
+    dateMap.get(dateFmt)!.push(adjustedRow)
   }
 
   const sheets  = getSheetsClient()

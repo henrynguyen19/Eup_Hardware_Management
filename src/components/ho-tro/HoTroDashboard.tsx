@@ -665,7 +665,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [summaryLoading, setSummaryLoading]   = useState(false)
 
   // Week mode state
-  const [periodMode, setPeriodMode]           = useState<'thang' | 'tuan'>('thang')
+  const [periodMode, setPeriodMode]           = useState<'thang' | 'tuan'>('tuan')
   const [selectedWeekKey, setSelectedWeekKey] = useState<string | null>(null) // "YYYY-Www"
 
   const selectedMonth = MONTHS[selectedMonthIdx]
@@ -1000,6 +1000,16 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 }`}
               >
                 📊 Tổng quan
+              </button>
+            )}
+            {!isAdmin && (
+              <button
+                onClick={() => { setIsJiraBugsMode(false); setIsTicketMode(false) }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
+                  !isJiraBugsMode && !isTicketMode ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                📊 Thống kê
               </button>
             )}
             <button

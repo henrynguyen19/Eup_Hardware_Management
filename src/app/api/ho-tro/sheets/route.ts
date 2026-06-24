@@ -234,6 +234,10 @@ function parseRawTable(
       day.resolution['Hen']++
       speedTag = 'hen'
     }
+    // #update (mọi kiểu chữ) = đã xử lý → loại khỏi danh sách tồn đọng
+    if (/#update/i.test(tags) && (speedTag === 'hen' || speedTag === 'mai_bao_lai')) {
+      speedTag = null
+    }
 
     // ── Channels: check direction col (H=idx 7) ──
     const dir = (cols[7] ?? '').toLowerCase()
