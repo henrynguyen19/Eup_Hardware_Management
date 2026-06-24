@@ -74,9 +74,10 @@ function parseRawTable(
     }
 
     // ── Ticket row: must have a valid date in col D (idx 3) ──
-    // Template/empty rows have no date. Real tickets always have "DD/MM/YYYY" in col D.
+    // Template/empty rows have no date.
+    // Real tickets have date in DD/MM/YYYY (text) or YYYY-MM-DD (Google Sheets date cell).
     const colD = (cols[3] ?? '').trim()
-    const isTicket = /^\d{1,2}\/\d{2}\/\d{4}$/.test(colD)
+    const isTicket = /^\d{1,2}\/\d{2}\/\d{4}$/.test(colD) || /^\d{4}-\d{2}-\d{2}$/.test(colD)
     if (!currentKey || !isTicket) {
       if (colA && !isTicket) {
         debugLog?.push(`row${rowIdx + 1}: SKIP colA="${colA}" colD="${colD}" (no valid date in D)`)
