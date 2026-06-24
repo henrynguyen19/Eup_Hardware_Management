@@ -14,12 +14,17 @@ export default function UserManagement({ currentUserEmail }: Props) {
   const [loading, setLoading]     = useState(true)
   const [search, setSearch]       = useState('')
 
-  // Add user modal
+  // Add NEW user modal
   const [showAddUser, setShowAddUser] = useState(false)
   const [addEmail, setAddEmail]   = useState('')
   const [addDeptId, setAddDeptId] = useState('')
   const [addSaving, setAddSaving] = useState(false)
   const [addError, setAddError]   = useState('')
+
+  // Add EXISTING user to dept modal
+  const [showAddMember, setShowAddMember] = useState(false)
+  const [memberSearch, setMemberSearch]   = useState('')
+  const [addingMember, setAddingMember]   = useState<string | null>(null)
 
   // Move user modal
   const [movingUser, setMovingUser] = useState<UserRecord | null>(null)
@@ -48,6 +53,12 @@ export default function UserManagement({ currentUserEmail }: Props) {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
+  // ── Dept grouping: VP* are sub-departments of Kinh doanh ──
+  const isVP = (d: Department) => d.name.startsWith('VP ')
+  const isKinhDoanh = (d: Department) => d.name.toLowerCase().includes('kinh doanh')
+  const mainDepts = depts.filter(d => !isVP(d))
+  const vpDepts   = depts.filter(d => isVP(d)).sort((a, b) => a.name.localeCompare(b.name, 'vi'))
+
   const assignedIds    = new Set(Object.values(memberMap).flat().map(u => u.user_id))
   const unassigned     = allUsers.filter(u => !assignedIds.has(u.user_id))
   const currentDept    = depts.find(d => d.id === selectedDept)
@@ -56,6 +67,16 @@ export default function UserManagement({ currentUserEmail }: Props) {
     : unassigned
   const filtered = currentMembers.filter(m =>
     !search || m.user_email.toLowerCase().includes(search.toLowerCase())
+  )
+
+  // Users not yet in current dept (for "Thêm thành viên" modal)
+  const currentMemberIds = new Set((selectedDept && selectedDept !== '__none__')
+    ? (memberMap[selectedDept] ?? []).map(u => u.user_id)
+    : []
+  )
+  const notInDept = allUsers.filter(u =>
+    !currentMemberIds.has(u.user_id) &&
+    (!memberSearch || u.user_email.toLowerCase().includes(memberSearch.toLowerCase()))
   )
 
   async function addUserToSystem() {
@@ -68,14 +89,12 @@ export default function UserManagement({ currentUserEmail }: Props) {
     const data = await res.json()
     if (data.error) { setAddError(data.error); setAddSaving(false); return }
 
-    // Phân vào phòng ban nếu chọn
     if (addDeptId && data.userId) {
       await fetch(`/api/admin/departments/${addDeptId}/members`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: data.userId }),
       })
     } else if (addDeptId) {
-      // fallback: tìm user vừa tạo qua email
       await new Promise(r => setTimeout(r, 500))
       const usersRes = await fetch('/api/admin/users').then(r => r.json())
       const newUser = (usersRes.users ?? []).find((u: UserRecord) => u.user_email === addEmail)
@@ -87,6 +106,17 @@ export default function UserManagement({ currentUserEmail }: Props) {
       }
     }
     setShowAddUser(false); setAddEmail(''); setAddDeptId(''); setAddSaving(false)
+    fetchAll()
+  }
+
+  async function addExistingMember(userId: string) {
+    if (!selectedDept || selectedDept === '__none__') return
+    setAddingMember(userId)
+    await fetch(`/api/admin/departments/${selectedDept}/members`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+    setAddingMember(null)
     fetchAll()
   }
 
@@ -132,6 +162,27 @@ export default function UserManagement({ currentUserEmail }: Props) {
     fetchAll()
   }
 
+  // ── Sidebar dept button ──
+  function DeptButton({ d, indent = false }: { d: Department; indent?: boolean }) {
+    const count = memberMap[d.id]?.length ?? 0
+    const isSelected = selectedDept === d.id
+    return (
+      <button key={d.id} onClick={() => { setSelectedDept(d.id); setSearch('') }}
+        className={`w-full text-left flex items-center gap-3 transition ${
+          indent ? 'pl-8 pr-4 py-2' : 'px-4 py-3'
+        } ${isSelected ? 'bg-blue-50 border-r-2 border-blue-600' : 'hover:bg-gray-50'}`}>
+        <div className={`rounded-full flex-shrink-0 ${indent ? 'w-2 h-2' : 'w-3 h-3'}`}
+          style={{ background: d.color }} />
+        <div className="min-w-0 flex-1">
+          <p className={`truncate ${indent ? 'text-xs' : 'text-sm'} font-medium ${
+            isSelected ? 'text-blue-700' : indent ? 'text-gray-600' : 'text-gray-700'
+          }`}>{d.name}</p>
+          <p className="text-xs text-gray-400">{count} người</p>
+        </div>
+      </button>
+    )
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       {/* Header */}
@@ -154,22 +205,18 @@ export default function UserManagement({ currentUserEmail }: Props) {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Dept sidebar */}
-        <aside className="w-56 bg-white border-r border-gray-200 flex flex-col py-2 flex-shrink-0">
-          {depts.map(d => {
-            const count = memberMap[d.id]?.length ?? 0
-            return (
-              <button key={d.id} onClick={() => { setSelectedDept(d.id); setSearch('') }}
-                className={`w-full text-left px-4 py-3 flex items-center gap-3 transition ${
-                  selectedDept === d.id ? 'bg-blue-50 border-r-2 border-blue-600' : 'hover:bg-gray-50'
-                }`}>
-                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: d.color }} />
-                <div className="min-w-0 flex-1">
-                  <p className={`text-sm font-medium truncate ${selectedDept === d.id ? 'text-blue-700' : 'text-gray-700'}`}>{d.name}</p>
-                  <p className="text-xs text-gray-400">{count} người</p>
+        <aside className="w-60 bg-white border-r border-gray-200 flex flex-col py-2 flex-shrink-0 overflow-y-auto">
+          {mainDepts.map(d => (
+            <div key={d.id}>
+              <DeptButton d={d} />
+              {/* VP sub-depts nested under Phòng Kinh doanh */}
+              {isKinhDoanh(d) && vpDepts.length > 0 && (
+                <div className="border-l-2 border-gray-100 ml-4">
+                  {vpDepts.map(vp => <DeptButton key={vp.id} d={vp} indent />)}
                 </div>
-              </button>
-            )
-          })}
+              )}
+            </div>
+          ))}
           <div className="mt-auto border-t border-gray-100 pt-1">
             <button onClick={() => { setSelectedDept('__none__'); setSearch('') }}
               className={`w-full text-left px-4 py-3 flex items-center gap-3 transition ${
@@ -201,15 +248,31 @@ export default function UserManagement({ currentUserEmail }: Props) {
                   </h2>
                   <span className="text-sm text-gray-400 bg-gray-100 px-2 py-0.5 rounded">{filtered.length} người</span>
                 </div>
-                <input value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder="Tìm email..."
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <div className="flex items-center gap-2">
+                  {selectedDept && selectedDept !== '__none__' && (
+                    <button
+                      onClick={() => { setShowAddMember(true); setMemberSearch('') }}
+                      className="px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium">
+                      + Thêm thành viên
+                    </button>
+                  )}
+                  <input value={search} onChange={e => setSearch(e.target.value)}
+                    placeholder="Tìm email..."
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
               </div>
 
               {filtered.length === 0 ? (
                 <div className="text-center py-16 text-gray-400 bg-white rounded-xl border border-gray-200">
                   <p className="text-4xl mb-3">{search ? '🔍' : '👥'}</p>
                   <p className="text-sm">{search ? 'Không tìm thấy kết quả' : 'Chưa có thành viên'}</p>
+                  {!search && selectedDept && selectedDept !== '__none__' && (
+                    <button
+                      onClick={() => { setShowAddMember(true); setMemberSearch('') }}
+                      className="mt-3 px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                      + Thêm thành viên
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -285,7 +348,7 @@ export default function UserManagement({ currentUserEmail }: Props) {
         </main>
       </div>
 
-      {/* ── Modal: Add user ── */}
+      {/* ── Modal: Add NEW user ── */}
       {showAddUser && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-xl w-96 p-6">
@@ -318,6 +381,63 @@ export default function UserManagement({ currentUserEmail }: Props) {
                 Hủy
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Add EXISTING user to dept ── */}
+      {showAddMember && selectedDept && selectedDept !== '__none__' && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-[480px] p-6 flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-gray-800">Thêm thành viên</h3>
+                <p className="text-xs text-gray-500">vào {currentDept?.name}</p>
+              </div>
+              <button onClick={() => setShowAddMember(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <input
+              value={memberSearch}
+              onChange={e => setMemberSearch(e.target.value)}
+              placeholder="Tìm theo email..."
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-green-500"
+              autoFocus
+            />
+            <div className="overflow-y-auto flex-1 -mx-1 px-1">
+              {notInDept.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">
+                  {memberSearch ? 'Không tìm thấy' : 'Tất cả người dùng đã trong phòng này'}
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {notInDept.map(u => {
+                    // show which dept(s) the user is currently in
+                    const userDepts = depts.filter(d => (memberMap[d.id] ?? []).some(m => m.user_id === u.user_id))
+                    return (
+                      <div key={u.user_id}
+                        className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
+                        <div>
+                          <p className="text-sm text-gray-700">{u.user_email}</p>
+                          {userDepts.length > 0 && (
+                            <p className="text-xs text-gray-400">{userDepts.map(d => d.name).join(', ')}</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => addExistingMember(u.user_id)}
+                          disabled={addingMember === u.user_id}
+                          className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 flex-shrink-0 ml-3">
+                          {addingMember === u.user_id ? '...' : 'Thêm'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            <button onClick={() => setShowAddMember(false)}
+              className="mt-4 w-full py-2 border border-gray-200 text-gray-500 text-sm rounded-lg hover:bg-gray-50 transition">
+              Đóng
+            </button>
           </div>
         </div>
       )}
