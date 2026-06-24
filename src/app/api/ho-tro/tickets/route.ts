@@ -46,10 +46,13 @@ export async function GET(req: NextRequest) {
 
   if (month && year) {
     const y = year.length === 4 ? year : `20${year}`
-    const m = month.padStart(2, '0')
+    const m = parseInt(month)
+    const lastDay = new Date(parseInt(y), m, 0).getDate() // last day of month
+    const mStr = String(m).padStart(2, '0')
+    const lastStr = String(lastDay).padStart(2, '0')
     query = query
-      .gte('ticket_date', `${y}-${m}-01`)
-      .lte('ticket_date', `${y}-${m}-31`)
+      .gte('ticket_date', `${y}-${mStr}-01`)
+      .lte('ticket_date', `${y}-${mStr}-${lastStr}`)
   }
 
   if (search) {
@@ -64,10 +67,12 @@ export async function GET(req: NextRequest) {
 
   const { data, error, count } = await query
     .order('ticket_date', { ascending: false })
-    .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    console.error('[ho-tro/tickets] query error:', JSON.stringify(error))
+    return NextResponse.json({ error: error.message, details: error }, { status: 500 })
+  }
 
   return NextResponse.json({ tickets: data ?? [], total: count ?? 0, page, limit })
 }
