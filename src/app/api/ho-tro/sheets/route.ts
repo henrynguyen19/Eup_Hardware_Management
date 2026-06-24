@@ -108,6 +108,7 @@ function emptyDay(display: string, sortKey: string): DailyRecord {
     channels:   { 'Zalo':0,'Hotline':0,'Ngay nghi':0 },
     errors:     { 'NC':0,'GSM':0,'GPS':0,'SD':0,'Roaming':0,'ACC':0,'RFID':0,'PW':0,'SS':0,'DMS':0,'ADAS':0,'SP':0,'IO':0 },
     pm_types:   { 'Video':0,'App':0,'Report':0,'FuelSensor':0 },
+    device_error_pairs: {},
   }
 }
 
@@ -169,35 +170,47 @@ function parseRawTable(
     const tags    = reply + ' ' + content
 
     // ── Devices (hashtag-based, most-specific first) ──
-    if      (/#vn88 4gh\b/.test(tags))   day.devices['VN88 4GH']++
-    else if (/#vn88 4g\b/.test(tags))    day.devices['VN88 4G']++
-    else if (/#vn88\b/.test(tags))       day.devices['VN88']++
-    else if (/#go168\b/.test(tags))      day.devices['Go168']++
-    else if (/#gotrack\b/.test(tags))    day.devices['Gotrack']++
-    else if (/#mt99\b/.test(tags))       day.devices['MT99']++
-    else if (/#dvr\b/.test(tags))        day.devices['DVR']++
-    else if (/#bw\b/.test(tags))         day.devices['BW']++
-    else if (/#c43\b/.test(tags))        day.devices['C43']++
-    else if (/#h5\b/.test(tags))         day.devices['H5']++
-    else if (/#sj\b/.test(tags))         day.devices['Soji']++
-    else if (/#fs\b/.test(tags))         day.devices['FS100']++
-    else if (/#fuelsensor\b/.test(tags)) day.devices['FuelSensor']++
-    else if (/#pm\b/.test(tags))         day.devices['PM']++
+    let detectedDevice: string | null = null
+    if      (/#vn88 4gh\b/.test(tags))   detectedDevice = 'VN88 4GH'
+    else if (/#vn88 4g\b/.test(tags))    detectedDevice = 'VN88 4G'
+    else if (/#vn88\b/.test(tags))       detectedDevice = 'VN88'
+    else if (/#go168\b/.test(tags))      detectedDevice = 'Go168'
+    else if (/#gotrack\b/.test(tags))    detectedDevice = 'Gotrack'
+    else if (/#mt99\b/.test(tags))       detectedDevice = 'MT99'
+    else if (/#dvr\b/.test(tags))        detectedDevice = 'DVR'
+    else if (/#bw\b/.test(tags))         detectedDevice = 'BW'
+    else if (/#c43\b/.test(tags))        detectedDevice = 'C43'
+    else if (/#h5\b/.test(tags))         detectedDevice = 'H5'
+    else if (/#sj\b/.test(tags))         detectedDevice = 'Soji'
+    else if (/#fs\b/.test(tags))         detectedDevice = 'FS100'
+    else if (/#fuelsensor\b/.test(tags)) detectedDevice = 'FuelSensor'
+    else if (/#pm\b/.test(tags))         detectedDevice = 'PM'
+    if (detectedDevice) day.devices[detectedDevice]++
 
     // ── Errors ──
-    if (/#nc\b/.test(tags))      day.errors['NC']++
-    if (/#gsm\b/.test(tags))     day.errors['GSM']++
-    if (/#gps\b/.test(tags))     day.errors['GPS']++
-    if (/#sd\b/.test(tags))      day.errors['SD']++
-    if (/#roaming\b/.test(tags)) day.errors['Roaming']++
-    if (/#acc\b/.test(tags))     day.errors['ACC']++
-    if (/#rfid\b/.test(tags))    day.errors['RFID']++
-    if (/#pw\b/.test(tags))      day.errors['PW']++
-    if (/#ss\b/.test(tags))      day.errors['SS']++
-    if (/#dms\b/.test(tags))     day.errors['DMS']++
-    if (/#adas\b/.test(tags))    day.errors['ADAS']++
-    if (/#sp\b/.test(tags))      day.errors['SP']++
-    if (/#io\b/.test(tags))      day.errors['IO']++
+    const detectedErrors: string[] = []
+    if (/#nc\b/.test(tags))      detectedErrors.push('NC')
+    if (/#gsm\b/.test(tags))     detectedErrors.push('GSM')
+    if (/#gps\b/.test(tags))     detectedErrors.push('GPS')
+    if (/#sd\b/.test(tags))      detectedErrors.push('SD')
+    if (/#roaming\b/.test(tags)) detectedErrors.push('Roaming')
+    if (/#acc\b/.test(tags))     detectedErrors.push('ACC')
+    if (/#rfid\b/.test(tags))    detectedErrors.push('RFID')
+    if (/#pw\b/.test(tags))      detectedErrors.push('PW')
+    if (/#ss\b/.test(tags))      detectedErrors.push('SS')
+    if (/#dms\b/.test(tags))     detectedErrors.push('DMS')
+    if (/#adas\b/.test(tags))    detectedErrors.push('ADAS')
+    if (/#sp\b/.test(tags))      detectedErrors.push('SP')
+    if (/#io\b/.test(tags))      detectedErrors.push('IO')
+    for (const e of detectedErrors) day.errors[e]++
+
+    // ── Device × Error pairs ──
+    if (detectedDevice) {
+      for (const e of detectedErrors) {
+        const k = `${detectedDevice}×${e}`
+        day.device_error_pairs[k] = (day.device_error_pairs[k] ?? 0) + 1
+      }
+    }
 
     // ── PM sub-types (only when #pm present) ──
     if (/#pm\b/.test(tags)) {
@@ -297,8 +310,9 @@ async function saveToCache(
     locations:      r.locations,
     channels:       r.channels,
     errors:         r.errors,
-    pm_types:       r.pm_types,
-    fetched_at:     now,
+    pm_types:           r.pm_types,
+    device_error_pairs: r.device_error_pairs,
+    fetched_at:         now,
   }))
 
   await db.from('ho_tro_daily_records')
@@ -319,7 +333,8 @@ function dbRowToRecord(row: any): DailyRecord {
     locations:      row.locations  ?? {},
     channels:       row.channels   ?? {},
     errors:         row.errors     ?? {},
-    pm_types:       row.pm_types   ?? {},
+    pm_types:           row.pm_types          ?? {},
+    device_error_pairs: row.device_error_pairs ?? {},
   }
 }
 

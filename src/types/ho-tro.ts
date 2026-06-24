@@ -11,4 +11,5 @@ export interface DailyRecord {
   channels: Record<string, number>
   errors: Record<string, number>
   pm_types: Record<string, number>
+  device_error_pairs: Record<string, number>
 }

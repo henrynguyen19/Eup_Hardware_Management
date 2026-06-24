@@ -81,7 +81,8 @@ function mergeStaffRecords(staffMap: Record<string, DailyRecord[]>): DailyRecord
           locations:  { ...r.locations },
           channels:   { ...r.channels },
           errors:     { ...r.errors },
-          pm_types:   { ...(r.pm_types ?? {}) },
+          pm_types:          { ...(r.pm_types ?? {}) },
+          device_error_pairs: { ...(r.device_error_pairs ?? {}) },
         })
       } else {
         const ex = byDate.get(r.sortKey)!
@@ -93,7 +94,8 @@ function mergeStaffRecords(staffMap: Record<string, DailyRecord[]>): DailyRecord
         for (const [k, v] of Object.entries(r.locations))  ex.locations[k]  = (ex.locations[k] ?? 0) + v
         for (const [k, v] of Object.entries(r.channels))   ex.channels[k]   = (ex.channels[k] ?? 0) + v
         for (const [k, v] of Object.entries(r.errors))     ex.errors[k]     = (ex.errors[k] ?? 0) + v
-        for (const [k, v] of Object.entries(r.pm_types ?? {})) ex.pm_types[k] = (ex.pm_types[k] ?? 0) + v
+        for (const [k, v] of Object.entries(r.pm_types ?? {}))            ex.pm_types[k]            = (ex.pm_types[k] ?? 0) + v
+        for (const [k, v] of Object.entries(r.device_error_pairs ?? {})) ex.device_error_pairs[k]  = (ex.device_error_pairs[k] ?? 0) + v
       }
     }
   }
@@ -201,6 +203,8 @@ function SummaryView({
   const locationSum  = sumObj(dataRows, 'locations')
   const channelSum   = sumObj(dataRows, 'channels')
   const errorSum     = sumObj(dataRows, 'errors')
+  const pmTypeSum    = sumObj(dataRows, 'pm_types')
+  const pairSum      = sumObj(dataRows, 'device_error_pairs')
   const avgResolution = Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / dataRows.length) || 0
   const totalPending  = dataRows.reduce((s, r) => s + (r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0), 0)
   const resolveFast   = dataRows.reduce((s, r) => s + (r.resolution['Fast'] ?? 0), 0)
@@ -430,6 +434,145 @@ function SummaryView({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Row 4 — Error trend + HW vs SW */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* Error trend over days */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">Xu hướng lỗi theo ngày (top 5)</h3>
+          {(() => {
+            const topErrors = Object.entries(errorSum).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]).slice(0,5).map(([k]) => k)
+            const errTrendData = dataRows.map(r => {
+              const pt: Record<string, string | number> = { date: shortDate(r.date) }
+              for (const e of topErrors) pt[e] = r.errors[e] ?? 0
+              return pt
+            })
+            const ERR_COLORS = ['#ef4444','#f97316','#f59e0b','#8b5cf6','#06b6d4']
+            return (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={errTrendData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="date" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 9 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 9 }} />
+                  {topErrors.map((e, i) => (
+                    <Line key={e} type="monotone" dataKey={e} stroke={ERR_COLORS[i % ERR_COLORS.length]} dot={false} strokeWidth={2} />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            )
+          })()}
+        </div>
+
+        {/* HW vs SW breakdown */}
+        <div className={C}>
+          <h3 className="text-xs font-semibold text-gray-600 mb-3">Phần cứng vs Phần mềm</h3>
+          {(() => {
+            const swCount  = deviceSum['PM'] ?? 0
+            const hwCount  = Object.entries(deviceSum).filter(([k]) => k !== 'PM').reduce((s,[,v]) => s+v, 0)
+            const total    = hwCount + swCount
+            const hwPct    = total ? Math.round((hwCount/total)*100) : 0
+            const swPct    = total ? Math.round((swCount/total)*100) : 0
+            const pmEntries = Object.entries(pmTypeSum).filter(([,v]) => v > 0)
+            return (
+              <div className="space-y-3">
+                {/* HW/SW bar */}
+                <div className="flex items-center gap-2 text-xs">
+                  <div className="flex-1 h-6 rounded-lg overflow-hidden flex">
+                    <div className="bg-blue-500 flex items-center justify-center text-white text-xs font-medium transition-all" style={{ width: `${hwPct}%` }}>
+                      {hwPct > 15 ? `HW ${hwPct}%` : ''}
+                    </div>
+                    <div className="bg-purple-500 flex items-center justify-center text-white text-xs font-medium transition-all" style={{ width: `${swPct}%` }}>
+                      {swPct > 8 ? `SW ${swPct}%` : ''}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-4 text-xs text-gray-600">
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500 inline-block"/>Phần cứng: <b>{hwCount}</b></span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-purple-500 inline-block"/>Phần mềm: <b>{swCount}</b></span>
+                </div>
+                {pmEntries.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs text-gray-400 mb-2">PM breakdown:</p>
+                    <div className="space-y-1.5">
+                      {pmEntries.map(([label, val]) => (
+                        <div key={label} className="flex items-center gap-2 text-xs">
+                          <span className="w-16 text-gray-600">{label}</span>
+                          <div className="flex-1 bg-gray-100 rounded h-3 overflow-hidden">
+                            <div className="bg-purple-400 h-3 rounded" style={{ width: `${(val/swCount)*100}%` }} />
+                          </div>
+                          <span className="w-10 text-right text-gray-700">{val} <span className="text-gray-400">({Math.round((val/swCount)*100)}%)</span></span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+      </div>
+
+      {/* Row 5 — Device × Error matrix */}
+      {Object.keys(pairSum).length > 0 && (() => {
+        // Get top devices and errors from pair data
+        const devSet = new Set<string>()
+        const errSet = new Set<string>()
+        Object.keys(pairSum).forEach(k => { const [d,e] = k.split('×'); devSet.add(d); errSet.add(e) })
+        // Sort by total count
+        const devs = Array.from(devSet).sort((a,b) =>
+          Object.entries(pairSum).filter(([k]) => k.startsWith(b+'×')).reduce((s,[,v])=>s+v,0) -
+          Object.entries(pairSum).filter(([k]) => k.startsWith(a+'×')).reduce((s,[,v])=>s+v,0)
+        ).slice(0, 8)
+        const errs = Array.from(errSet).sort((a,b) =>
+          Object.entries(pairSum).filter(([k]) => k.endsWith('×'+b)).reduce((s,[,v])=>s+v,0) -
+          Object.entries(pairSum).filter(([k]) => k.endsWith('×'+a)).reduce((s,[,v])=>s+v,0)
+        ).slice(0, 8)
+        const maxVal = Math.max(...Object.values(pairSum), 1)
+        return (
+          <div className={C}>
+            <h3 className="text-xs font-semibold text-gray-600 mb-3">Ma trận Thiết bị × Lỗi</h3>
+            <div className="overflow-x-auto">
+              <table className="text-xs w-full">
+                <thead>
+                  <tr>
+                    <th className="text-left px-2 py-1 text-gray-400 w-20">Thiết bị</th>
+                    {errs.map(e => <th key={e} className="text-center px-1 py-1 text-gray-500 font-medium w-10">{e}</th>)}
+                    <th className="text-right px-2 py-1 text-gray-400">Tổng</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {devs.map(d => {
+                    const rowTotal = Object.entries(pairSum).filter(([k]) => k.startsWith(d+'×')).reduce((s,[,v])=>s+v,0)
+                    return (
+                      <tr key={d} className="border-t border-gray-50">
+                        <td className="px-2 py-1 text-gray-700 font-medium whitespace-nowrap">{d}</td>
+                        {errs.map(e => {
+                          const v = pairSum[`${d}×${e}`] ?? 0
+                          const intensity = Math.round((v / maxVal) * 100)
+                          return (
+                            <td key={e} className="text-center px-1 py-1">
+                              {v > 0 ? (
+                                <span
+                                  className="inline-block rounded px-1 font-medium"
+                                  style={{ backgroundColor: `rgba(239,68,68,${intensity/100*0.7+0.05})`, color: intensity > 50 ? '#fff' : '#991b1b' }}
+                                >{v}</span>
+                              ) : <span className="text-gray-200">·</span>}
+                            </td>
+                          )
+                        })}
+                        <td className="px-2 py-1 text-right font-bold text-gray-600">{rowTotal}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-gray-300 mt-2">Màu đậm = xuất hiện nhiều hơn. Dữ liệu mới sau khi làm mới.</p>
+          </div>
+        )
+      })()}
     </div>
   )
 }
