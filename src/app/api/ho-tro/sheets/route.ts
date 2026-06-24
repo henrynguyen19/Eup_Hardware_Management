@@ -348,15 +348,14 @@ async function saveToCache(
 }
 
 // ── Extract actual handler from reply tags ──────────────────────
-// Pattern: "<name> DD/M" or "#report <name>" anywhere in reply
+// Pattern 1: "<name> DD/M" e.g. "irene 18/6", "shiro 22/6"
+// Pattern 2: "DD/M <name>" e.g. "15/6 Kane", "15/6 Blue"
 const KNOWN_STAFF = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
 const KNOWN_STAFF_LOWER = KNOWN_STAFF.map(n => n.toLowerCase())
 
 function extractHandlerFromReply(reply: string, defaultName: string | null): string | null {
   if (!reply) return defaultName
   const lower = reply.toLowerCase()
-  // Pattern 1: "<name> DD/M" e.g. "irene 18/6", "shiro 22/6"
-  // Pattern 2: "DD/M <name>" e.g. "15/6 Kane", "15/6 Blue"
   for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
     const n = KNOWN_STAFF_LOWER[i]
     const re1 = new RegExp(`\\b${n}\\s+\\d{1,2}/\\d{1,2}`, 'i')
@@ -562,4 +561,10 @@ export async function DELETE(req: NextRequest) {
   const db = adminClient()
   const { error } = await db.from('ho_tro_daily_records')
     .delete()
-    .eq('sheet_i
+    .eq('sheet_id', sheetId)
+    .gte('sort_key', `${prefix}01`)
+    .lte('sort_key', `${prefix}31`)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
