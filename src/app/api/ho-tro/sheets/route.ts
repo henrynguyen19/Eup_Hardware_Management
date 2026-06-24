@@ -355,14 +355,16 @@ const KNOWN_STAFF_LOWER = KNOWN_STAFF.map(n => n.toLowerCase())
 function extractHandlerFromReply(reply: string, defaultName: string | null): string | null {
   if (!reply) return defaultName
   const lower = reply.toLowerCase()
-  // Priority 1: "<name> DD/M" pattern (e.g. "irene 18/6", "stefan 17/6")
+  // Pattern 1: "<name> DD/M" e.g. "irene 18/6", "shiro 22/6"
+  // Pattern 2: "DD/M <name>" e.g. "15/6 Kane", "15/6 Blue"
   for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
     const n = KNOWN_STAFF_LOWER[i]
-    const re = new RegExp(`\\b${n}\\s+\\d{1,2}/\\d{1,2}`, 'i')
-    if (re.test(lower)) return KNOWN_STAFF[i]
+    const re1 = new RegExp(`\\b${n}\\s+\\d{1,2}/\\d{1,2}`, 'i')
+    const re2 = new RegExp(`\\d{1,2}/\\d{1,2}\\s+${n}\\b`, 'i')
+    if (re1.test(lower) || re2.test(lower)) return KNOWN_STAFF[i]
   }
-  // Priority 2: "#report <name>" pattern
-  const reportMatch = lower.match(/#report\s+(\w+)/)
+  // Pattern 3: "#report <name>" or "#sp <name>"
+  const reportMatch = lower.match(/#(?:report|sp)\s+(\w+)/)
   if (reportMatch) {
     const found = KNOWN_STAFF_LOWER.indexOf(reportMatch[1].toLowerCase())
     if (found !== -1) return KNOWN_STAFF[found]
