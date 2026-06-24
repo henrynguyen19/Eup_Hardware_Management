@@ -44,11 +44,15 @@ function emptyDay(display: string, sortKey: string): DailyRecord {
 }
 
 // grid: array of rows, each row is array of cell strings (FORMATTED_VALUE from Sheets API)
-function parseRawTable(grid: string[][], monthNum: number, yearNum: number): DailyRecord[] {
+function parseRawTable(
+  grid: string[][], monthNum: number, yearNum: number,
+  debugLog?: string[]
+): DailyRecord[] {
   const dayMap = new Map<string, DailyRecord>()
   let currentKey = ''
 
-  for (const cols of grid) {
+  for (let rowIdx = 0; rowIdx < grid.length; rowIdx++) {
+    const cols = grid[rowIdx]
     const colA = (cols[0] ?? '').trim()
     if (!colA) continue
 
@@ -58,15 +62,24 @@ function parseRawTable(grid: string[][], monthNum: number, yearNum: number): Dai
       const d = hdr[1].padStart(2, '0'), m = hdr[2], y = hdr[3]
       if (parseInt(m) === monthNum && parseInt(y) === yearNum) {
         currentKey = `${y}-${m}-${d}`
-        if (!dayMap.has(currentKey)) dayMap.set(currentKey, emptyDay(`${d}/${m}/${y}`, currentKey))
+        if (!dayMap.has(currentKey)) {
+          dayMap.set(currentKey, emptyDay(`${d}/${m}/${y}`, currentKey))
+          debugLog?.push(`row${rowIdx + 1}: DATE_HDR "${colA}" → ${currentKey}`)
+        }
       } else {
+        debugLog?.push(`row${rowIdx + 1}: DATE_HDR "${colA}" → wrong month/year, skipped`)
         currentKey = ''
       }
       continue
     }
 
     // ── Ticket row: col A is numeric ticket code ──
-    if (!currentKey || !/^\d{3,}$/.test(colA)) continue
+    if (!currentKey || !/^\d{3,}$/.test(colA)) {
+      if (colA && !/^\d{3,}$/.test(colA)) {
+        debugLog?.push(`row${rowIdx + 1}: UNKNOWN colA="${colA}" (not date, not ticket code)`)
+      }
+      continue
+    }
     const day = dayMap.get(currentKey)!
     day.total_requests++
     day.resolution['Tong']++
@@ -132,8 +145,8 @@ function parseRawTable(grid: string[][], monthNum: number, yearNum: number): Dai
 
 // ── Fetch from Google Sheets via API (service account) ───────
 async function fetchFromSheets(
-  sheetId: string, month: number, yearShort: string
-): Promise<{ rows: DailyRecord[]; sheetName: string; error?: string }> {
+  sheetId: string, month: number, yearShort: string, debugMode = false
+): Promise<{ rows: DailyRecord[]; sheetName: string; error?: string; debugLog?: string[]; totalRows?: number }> {
   const sheetName = `tháng ${month}/${yearShort}`
   try {
     const sheets = getSheetsClient()
@@ -151,8 +164,9 @@ async function fetchFromSheets(
     )
 
     const yearNum = 2000 + parseInt(yearShort)
-    const rows = parseRawTable(grid, month, yearNum)
-    return { rows, sheetName }
+    const debugLog: string[] = []
+    const rows = parseRawTable(grid, month, yearNum, debugMode ? debugLog : undefined)
+    return { rows, sheetName, debugLog: debugMode ? debugLog : undefined, totalRows: grid.length }
   } catch (err) {
     return { rows: [], sheetName, error: String(err) }
   }
@@ -226,6 +240,7 @@ export async function GET(req: NextRequest) {
   const year      = sp.get('year')
   const staffName = sp.get('staffName') ?? null
   const refresh   = sp.get('refresh') === 'true'
+  const debugMode = sp.get('debug') === 'true'
 
   if (!sheetId || !month || !year) {
     return NextResponse.json({ error: 'Missing sheetId, month, year' }, { status: 400 })
@@ -259,10 +274,22 @@ export async function GET(req: NextRequest) {
   }
 
   // ── 2. Fetch from Google Sheets ───────────────────────────
-  const { rows, sheetName, error } = await fetchFromSheets(sheetId, monthNum, yearShort)
+  const { rows, sheetName, error, debugLog, totalRows } = await fetchFromSheets(sheetId, monthNum, yearShort, debugMode)
 
   if (error) {
     return NextResponse.json({ error, rows: [], sheetName, cached: false })
+  }
+
+  // Debug mode: return raw parse info without saving to cache
+  if (debugMode) {
+    return NextResponse.json({
+      debug: true,
+      sheetName,
+      totalRows,
+      daysFound: rows.map(r => ({ date: r.date, total: r.total_requests })),
+      log: debugLog,
+      cached: false,
+    })
   }
 
   if (!rows.length) {
