@@ -81,6 +81,7 @@ function mergeStaffRecords(staffMap: Record<string, DailyRecord[]>): DailyRecord
           locations:  { ...r.locations },
           channels:   { ...r.channels },
           errors:     { ...r.errors },
+          pm_types:   { ...(r.pm_types ?? {}) },
         })
       } else {
         const ex = byDate.get(r.sortKey)!
@@ -92,6 +93,7 @@ function mergeStaffRecords(staffMap: Record<string, DailyRecord[]>): DailyRecord
         for (const [k, v] of Object.entries(r.locations))  ex.locations[k]  = (ex.locations[k] ?? 0) + v
         for (const [k, v] of Object.entries(r.channels))   ex.channels[k]   = (ex.channels[k] ?? 0) + v
         for (const [k, v] of Object.entries(r.errors))     ex.errors[k]     = (ex.errors[k] ?? 0) + v
+        for (const [k, v] of Object.entries(r.pm_types ?? {})) ex.pm_types[k] = (ex.pm_types[k] ?? 0) + v
       }
     }
   }
@@ -200,29 +202,31 @@ function SummaryView({
   const channelSum   = sumObj(dataRows, 'channels')
   const errorSum     = sumObj(dataRows, 'errors')
   const avgResolution = Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / dataRows.length) || 0
-  const totalPending  = dataRows.reduce((s, r) => s + (r.resolution['Chua xu ly'] ?? 0), 0)
-  const resolveDay1   = dataRows.reduce((s, r) => s + (r.resolution['Ngay 1'] ?? 0), 0)
+  const totalPending  = dataRows.reduce((s, r) => s + (r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0), 0)
+  const resolveFast   = dataRows.reduce((s, r) => s + (r.resolution['Fast'] ?? 0), 0)
   const activeStaff   = staffNames.filter(n => (staffMap[n] ?? []).some(r => r.total_requests > 0)).length
 
   // Chart data
   const dailyData = dataRows.map(r => ({
-    date:         shortDate(r.date),
-    'Tổng YC':    r.total_requests,
-    'Trên 3 ngày': (r.resolution['Ngay 3'] ?? 0) + (r.resolution['Ngay 4'] ?? 0) + (r.resolution['Ngay 5'] ?? 0),
+    date:            shortDate(r.date),
+    'Tổng YC':       r.total_requests,
+    'Hẹn & MB lại':  (r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0),
   }))
 
   const resolutionData = dataRows.map(r => ({
-    date:       shortDate(r.date),
-    'Ngày 1':   r.resolution['Ngay 1'] ?? 0,
-    'Ngày 2':   r.resolution['Ngay 2'] ?? 0,
-    'Ngày 3':   r.resolution['Ngay 3'] ?? 0,
-    'Ngày 4+5': (r.resolution['Ngay 4'] ?? 0) + (r.resolution['Ngay 5'] ?? 0),
-    'Hẹn':      r.resolution['Hen xu ly'] ?? 0,
+    date:           shortDate(r.date),
+    '#f Fast':      r.resolution['Fast'] ?? 0,
+    '#n Normal':    r.resolution['Normal'] ?? 0,
+    '#l Low':       r.resolution['Low'] ?? 0,
+    'Hẹn':         r.resolution['Hen'] ?? 0,
+    'Mai báo lại':  r.resolution['Mai bao lai'] ?? 0,
   }))
 
   const pendingPctData = dataRows.map(r => ({
     date: shortDate(r.date),
-    'Tồn đọng (%)': r.total_requests ? Math.round(((r.resolution['Chua xu ly'] ?? 0) / r.total_requests) * 100) : 0,
+    'Cần theo dõi (%)': r.total_requests
+      ? Math.round((((r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0)) / r.total_requests) * 100)
+      : 0,
   }))
 
   const weeklyStaffData = buildWeeklyStaff(staffMap, staffNames)
@@ -251,10 +255,10 @@ function SummaryView({
     <div>
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-        <StatCard icon="📞" label="Tổng yêu cầu"   value={totalRequests.toLocaleString()} color="blue" />
-        <StatCard icon="⏱️" label="TG xử lý TB"    value={`${avgResolution} ph`} color="purple" />
-        <StatCard icon="✅" label="Xử lý ngày 1"   value={`${pct(resolveDay1, totalRequests)}%`} color="green" />
-        <StatCard icon="🔴" label="Còn tồn đọng"   value={totalPending} color="red" />
+        <StatCard icon="📞" label="Tổng yêu cầu"        value={totalRequests.toLocaleString()} color="blue" />
+        <StatCard icon="⏱️" label="TG xử lý TB"         value={`${avgResolution} ph`} color="purple" />
+        <StatCard icon="⚡" label="Xử lý nhanh (#f)"    value={`${pct(resolveFast, totalRequests)}%`} color="green" />
+        <StatCard icon="🔴" label="Cần theo dõi (hẹn)"  value={totalPending} color="red" />
         <StatCard icon="👥" label="Nhân viên hoạt động" value={activeStaff} color="teal" />
       </div>
 
@@ -270,7 +274,7 @@ function SummaryView({
               <YAxis {...yProps} />
               <Tooltip />
               <Bar dataKey="Tổng YC" fill="#3b82f6" />
-              <Line type="monotone" dataKey="Trên 3 ngày" stroke="#ef4444" dot={false} strokeWidth={2} />
+              <Line type="monotone" dataKey="Hẹn & MB lại" stroke="#ef4444" dot={false} strokeWidth={2} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -285,25 +289,25 @@ function SummaryView({
               <YAxis {...yProps} />
               <Tooltip />
               <Legend wrapperStyle={{ fontSize: 9 }} />
-              <Bar dataKey="Ngày 1"   stackId="a" fill="#22c55e" />
-              <Bar dataKey="Ngày 2"   stackId="a" fill="#f59e0b" />
-              <Bar dataKey="Ngày 3"   stackId="a" fill="#f97316" />
-              <Bar dataKey="Ngày 4+5" stackId="a" fill="#ef4444" />
-              <Bar dataKey="Hẹn"      stackId="a" fill="#8b5cf6" />
+              <Bar dataKey="#f Fast"     stackId="a" fill="#22c55e" />
+              <Bar dataKey="#n Normal"   stackId="a" fill="#f59e0b" />
+              <Bar dataKey="#l Low"      stackId="a" fill="#ef4444" />
+              <Bar dataKey="Hẹn"        stackId="a" fill="#8b5cf6" />
+              <Bar dataKey="Mai báo lại" stackId="a" fill="#ec4899" />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
         {/* 3. % Pending per day */}
         <div className={C}>
-          <h3 className="text-xs font-semibold text-gray-600 mb-2">% Tồn đọng chưa xử lý theo ngày</h3>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">% Cần theo dõi (hẹn/mai báo lại) theo ngày</h3>
           <ResponsiveContainer width="100%" height={170}>
             <LineChart data={pendingPctData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="date" {...xProps} />
               <YAxis {...yProps} unit="%" />
               <Tooltip />
-              <Line type="monotone" dataKey="Tồn đọng (%)" stroke="#ef4444" dot={{ r: 2 }} strokeWidth={2} />
+              <Line type="monotone" dataKey="Cần theo dõi (%)" stroke="#ef4444" dot={{ r: 2 }} strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -412,7 +416,7 @@ function SummaryView({
       {/* Row 3 — full-width line chart */}
       <div className={C}>
         <h3 className="text-xs font-semibold text-gray-600 mb-2">
-          Số yêu cầu xử lý trên 3 ngày — toàn tháng {month}/{yearShort}
+          Số yêu cầu cần theo dõi (hẹn/mai báo lại) — toàn tháng {month}/{yearShort}
         </h3>
         <ResponsiveContainer width="100%" height={240}>
           <ComposedChart data={dailyData} margin={{ top: 5, right: 20, bottom: 10, left: 0 }}>
@@ -421,8 +425,8 @@ function SummaryView({
             <YAxis tick={{ fontSize: 10 }} />
             <Tooltip />
             <Legend />
-            <Line type="monotone" dataKey="Tổng YC"     stroke="#3b82f6" dot={{ r: 3 }} strokeWidth={2} />
-            <Line type="monotone" dataKey="Trên 3 ngày" stroke="#ef4444" dot={{ r: 3 }} strokeWidth={2} />
+            <Line type="monotone" dataKey="Tổng YC"      stroke="#3b82f6" dot={{ r: 3 }} strokeWidth={2} />
+            <Line type="monotone" dataKey="Hẹn & MB lại" stroke="#ef4444" dot={{ r: 3 }} strokeWidth={2} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -620,13 +624,13 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const totalRequests  = dataRows.reduce((s, r) => s + r.total_requests, 0)
   const totalDays      = dataRows.length
   const avgTime        = totalDays ? Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / totalDays) : 0
-  const totalResolved  = dataRows.reduce((s, r) => s + (r.resolution['Ngay 1'] ?? 0), 0)
-  const totalPending   = dataRows.reduce((s, r) => s + (r.resolution['Chua xu ly'] ?? 0), 0)
+  const totalFast      = dataRows.reduce((s, r) => s + (r.resolution['Fast'] ?? 0), 0)
+  const totalPending   = dataRows.reduce((s, r) => s + (r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0), 0)
   const deviceSum      = sumObj(dataRows, 'devices')
   const locationSum    = sumObj(dataRows, 'locations')
   const channelSumRaw  = sumObj(dataRows, 'channels')
   const errorSum       = sumObj(dataRows, 'errors')
-  const resolveRate    = pct(totalResolved, totalRequests)
+  const resolveRate    = pct(totalFast, totalRequests)
   // "Trợ lý" = requests without #zalo or #hotline hashtag
   const channelSum = {
     'Trợ lý':  Math.max(0, totalRequests - (channelSumRaw['Zalo'] ?? 0) - (channelSumRaw['Hotline'] ?? 0)),
@@ -874,10 +878,10 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             {!loading && dataRows.length > 0 && (
               <div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <StatCard icon="📞" label="Tổng yêu cầu"  value={totalRequests.toLocaleString()} sub={`${totalDays} ngày làm việc`} color="blue" />
-                  <StatCard icon="⏱️" label="TG xử lý TB"   value={`${avgTime} phút`} sub="Trung bình/ngày" color="purple" />
-                  <StatCard icon="✅" label="Xử lý ngày 1"  value={`${resolveRate}%`} sub={`${totalResolved} yêu cầu`} color="green" />
-                  <StatCard icon="🔴" label="Còn tồn đọng" value={totalPending} sub="Chưa xử lý" color="red" />
+                  <StatCard icon="📞" label="Tổng yêu cầu"      value={totalRequests.toLocaleString()} sub={`${totalDays} ngày làm việc`} color="blue" />
+                  <StatCard icon="⏱️" label="TG xử lý TB"       value={`${avgTime} phút`} sub="Trung bình/ngày" color="purple" />
+                  <StatCard icon="⚡" label="Xử lý nhanh (#f)"  value={`${resolveRate}%`} sub={`${totalFast} yêu cầu`} color="green" />
+                  <StatCard icon="🔴" label="Cần theo dõi"      value={totalPending} sub="Hẹn / mai báo lại" color="red" />
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-5 mb-6">
@@ -911,8 +915,10 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                           <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngày</th>
                           <th className="text-right px-3 py-3 text-gray-500 font-medium">YC</th>
                           <th className="text-right px-3 py-3 text-gray-500 font-medium">TG TB</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium whitespace-nowrap">Xử lý ngày</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">Tồn</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-green-600">#f</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-amber-600">#n</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-red-500">#l</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-purple-600">Hẹn</th>
                           <th className="text-right px-3 py-3 text-gray-500 font-medium">HN</th>
                           <th className="text-right px-3 py-3 text-gray-500 font-medium">HP</th>
                           <th className="text-right px-3 py-3 text-gray-500 font-medium">ĐN</th>
@@ -924,20 +930,20 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                       </thead>
                       <tbody>
                         {dataRows.map((r, i) => {
-                          const resolveDay = r.resolution['Ngay 1'] ?? 0
-                          const pending    = r.resolution['Chua xu ly'] ?? 0
+                          const fast   = r.resolution['Fast'] ?? 0
+                          const normal = r.resolution['Normal'] ?? 0
+                          const low    = r.resolution['Low'] ?? 0
+                          const hen    = (r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0)
                           return (
                             <tr key={r.sortKey} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50/70 ${i % 2 === 1 ? 'bg-gray-50/30' : ''}`}>
                               <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{r.date}</td>
                               <td className="px-3 py-2.5 text-right font-bold text-blue-700">{r.total_requests}</td>
                               <td className="px-3 py-2.5 text-right text-gray-600">{r.avg_time}p</td>
+                              <td className="px-3 py-2.5 text-right text-green-600">{fast || <span className="text-gray-300">-</span>}</td>
+                              <td className="px-3 py-2.5 text-right text-amber-600">{normal || <span className="text-gray-300">-</span>}</td>
+                              <td className="px-3 py-2.5 text-right text-red-500">{low || <span className="text-gray-300">-</span>}</td>
                               <td className="px-3 py-2.5 text-right">
-                                <span className={pct(resolveDay, r.total_requests) >= 90 ? 'text-green-600 font-medium' : 'text-amber-600 font-medium'}>
-                                  {pct(resolveDay, r.total_requests)}%
-                                </span>
-                              </td>
-                              <td className="px-3 py-2.5 text-right">
-                                {pending > 0 ? <span className="text-red-600 font-medium">{pending}</span> : <span className="text-gray-300">-</span>}
+                                {hen > 0 ? <span className="text-purple-600 font-medium">{hen}</span> : <span className="text-gray-300">-</span>}
                               </td>
                               <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Ha Noi'] || '-'}</td>
                               <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Hai Phong'] || '-'}</td>
@@ -957,11 +963,15 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                           </td>
                           <td className="px-3 py-3 text-right font-bold text-blue-800">{totalRequests}</td>
                           <td className="px-3 py-3 text-right text-gray-600">{avgTime}p</td>
-                          <td className="px-3 py-3 text-right font-bold">
-                            <span className={resolveRate >= 90 ? 'text-green-700' : 'text-amber-700'}>{resolveRate}%</span>
+                          <td className="px-3 py-3 text-right font-bold text-green-700">{totalFast || '-'}</td>
+                          <td className="px-3 py-3 text-right font-medium text-amber-600">
+                            {dataRows.reduce((s, r) => s + (r.resolution['Normal'] ?? 0), 0) || '-'}
+                          </td>
+                          <td className="px-3 py-3 text-right font-medium text-red-500">
+                            {dataRows.reduce((s, r) => s + (r.resolution['Low'] ?? 0), 0) || '-'}
                           </td>
                           <td className="px-3 py-3 text-right">
-                            {totalPending > 0 ? <span className="text-red-700 font-bold">{totalPending}</span> : <span className="text-gray-300">-</span>}
+                            {totalPending > 0 ? <span className="text-purple-700 font-bold">{totalPending}</span> : <span className="text-gray-300">-</span>}
                           </td>
                           <td className="px-3 py-3 text-right font-medium">{locationSum['Ha Noi'] || '-'}</td>
                           <td className="px-3 py-3 text-right font-medium">{locationSum['Hai Phong'] || '-'}</td>

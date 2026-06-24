@@ -102,11 +102,12 @@ function emptyDay(display: string, sortKey: string): DailyRecord {
   return {
     date: display, sortKey,
     total_requests: 0, avg_time: 0, max_time: 0,
-    devices:    { 'VN88 2G':0,'VN88 4G':0,'VN88 4GH':0,'S168':0,'DVR':0,'FUEL':0,'Go168':0,'MT99':0,'C43&H5':0,'BW':0,'Phan mem':0 },
-    resolution: { 'Chua xu ly':0,'Hen xu ly':0,'Ngay 1':0,'Ngay 2':0,'Ngay 3':0,'Ngay 4':0,'Ngay 5':0,'Tong':0 },
+    devices:    { 'Go168':0,'Gotrack':0,'VN88':0,'VN88 4G':0,'VN88 4GH':0,'DVR':0,'BW':0,'C43':0,'H5':0,'MT99':0,'Soji':0,'FS100':0,'FuelSensor':0,'PM':0 },
+    resolution: { 'Fast':0,'Normal':0,'Low':0,'Hen':0,'Mai bao lai':0,'Tong':0 },
     locations:  { 'Ha Noi':0,'Hai Phong':0,'Da Nang':0,'HCM':0,'Binh Duong':0 },
     channels:   { 'Zalo':0,'Hotline':0,'Ngay nghi':0 },
-    errors:     { 'ACC':0,'RFID':0,'PW':0,'GPS':0,'GSM':0,'IO':0,'SS':0,'DMS':0,'ADAS':0,'NC':0,'SP':0,'FS100':0,'SOJI':0 },
+    errors:     { 'NC':0,'GSM':0,'GPS':0,'SD':0,'Roaming':0,'ACC':0,'RFID':0,'PW':0,'SS':0,'DMS':0,'ADAS':0,'SP':0,'IO':0 },
+    pm_types:   { 'Video':0,'App':0,'Report':0,'FuelSensor':0 },
   }
 }
 
@@ -167,42 +168,55 @@ function parseRawTable(
     const content = (cols[8] ?? '').toLowerCase()
     const tags    = reply + ' ' + content
 
-    // ── Devices ──
-    if (tags.includes('fuel') || tags.includes('#fuelsensor'))            day.devices['FUEL']++
-    else if (tags.includes('go168') || tags.includes('go 168'))           day.devices['Go168']++
-    else if (tags.includes('vn88 4gh') || tags.includes('vn884gh'))       day.devices['VN88 4GH']++
-    else if (tags.includes('vn 88 2g') || tags.includes('vn882g') || tags.includes('vn88 2g')) day.devices['VN88 2G']++
-    else if (tags.includes('vn88 4g'))                                    day.devices['VN88 4G']++
-    else if (tags.includes('s168'))                                       day.devices['S168']++
-    else if (tags.includes('c43') || tags.includes('h5'))                 day.devices['C43&H5']++
-    else if (tags.includes('dvr'))                                        day.devices['DVR']++
-    else if (tags.includes('mt99'))                                       day.devices['MT99']++
-    else if (tags.includes('#bw') || /\bbw\b/.test(tags))                 day.devices['BW']++
-    else if (tags.includes('phần mềm') || tags.includes('phan mem') || tags.includes('#software')) day.devices['Phan mem']++
+    // ── Devices (hashtag-based, most-specific first) ──
+    if      (/#vn88 4gh\b/.test(tags))   day.devices['VN88 4GH']++
+    else if (/#vn88 4g\b/.test(tags))    day.devices['VN88 4G']++
+    else if (/#vn88\b/.test(tags))       day.devices['VN88']++
+    else if (/#go168\b/.test(tags))      day.devices['Go168']++
+    else if (/#gotrack\b/.test(tags))    day.devices['Gotrack']++
+    else if (/#mt99\b/.test(tags))       day.devices['MT99']++
+    else if (/#dvr\b/.test(tags))        day.devices['DVR']++
+    else if (/#bw\b/.test(tags))         day.devices['BW']++
+    else if (/#c43\b/.test(tags))        day.devices['C43']++
+    else if (/#h5\b/.test(tags))         day.devices['H5']++
+    else if (/#sj\b/.test(tags))         day.devices['Soji']++
+    else if (/#fs\b/.test(tags))         day.devices['FS100']++
+    else if (/#fuelsensor\b/.test(tags)) day.devices['FuelSensor']++
+    else if (/#pm\b/.test(tags))         day.devices['PM']++
 
     // ── Errors ──
-    if (/#sp\b/.test(tags))   day.errors['SP']++
-    if (/#gps\b/.test(tags))  day.errors['GPS']++
-    if (/#gsm\b/.test(tags))  day.errors['GSM']++
-    if (/#pw\b/.test(tags))   day.errors['PW']++
-    if (/#acc\b/.test(tags))  day.errors['ACC']++
-    if (/#rfid\b/.test(tags)) day.errors['RFID']++
-    if (/#io\b/.test(tags))   day.errors['IO']++
-    if (/#ss\b/.test(tags))   day.errors['SS']++
-    if (/#dms\b/.test(tags))  day.errors['DMS']++
-    if (/#adas\b/.test(tags)) day.errors['ADAS']++
-    if (/#nc\b/.test(tags))   day.errors['NC']++
-    if (tags.includes('fs100'))  day.errors['FS100']++
-    if (tags.includes('soji'))   day.errors['SOJI']++
+    if (/#nc\b/.test(tags))      day.errors['NC']++
+    if (/#gsm\b/.test(tags))     day.errors['GSM']++
+    if (/#gps\b/.test(tags))     day.errors['GPS']++
+    if (/#sd\b/.test(tags))      day.errors['SD']++
+    if (/#roaming\b/.test(tags)) day.errors['Roaming']++
+    if (/#acc\b/.test(tags))     day.errors['ACC']++
+    if (/#rfid\b/.test(tags))    day.errors['RFID']++
+    if (/#pw\b/.test(tags))      day.errors['PW']++
+    if (/#ss\b/.test(tags))      day.errors['SS']++
+    if (/#dms\b/.test(tags))     day.errors['DMS']++
+    if (/#adas\b/.test(tags))    day.errors['ADAS']++
+    if (/#sp\b/.test(tags))      day.errors['SP']++
+    if (/#io\b/.test(tags))      day.errors['IO']++
 
-    // ── Resolution: #F=ngày 1, #N=chưa, #H=hẹn, #2–#5=sang ngày ──
-    if (/#f\b/.test(tags))       day.resolution['Ngay 1']++
-    else if (/#2\b/.test(tags))  day.resolution['Ngay 2']++
-    else if (/#3\b/.test(tags))  day.resolution['Ngay 3']++
-    else if (/#4\b/.test(tags))  day.resolution['Ngay 4']++
-    else if (/#5\b/.test(tags))  day.resolution['Ngay 5']++
-    else if (/#h\b/.test(tags))  day.resolution['Hen xu ly']++
-    else if (/#n\b/.test(tags))  day.resolution['Chua xu ly']++
+    // ── PM sub-types (only when #pm present) ──
+    if (/#pm\b/.test(tags)) {
+      if (/#video\b/.test(tags))      day.pm_types['Video']++
+      if (/#app\b/.test(tags))        day.pm_types['App']++
+      if (/#report\b/.test(tags))     day.pm_types['Report']++
+      if (/#fuelsensor\b/.test(tags)) day.pm_types['FuelSensor']++
+    }
+
+    // ── Tốc độ xử lý: #f=Fast, #n=Normal, #l=Low (exclusive) ──
+    if      (/#f\b/.test(tags)) day.resolution['Fast']++
+    else if (/#n\b/.test(tags)) day.resolution['Normal']++
+    else if (/#l\b/.test(tags)) day.resolution['Low']++
+
+    // ── Cần theo dõi: plain text "mai báo lại" / "hẹn" (independent) ──
+    if (/mai báo lại/i.test(tags) || /mai bao lai/i.test(tags))
+      day.resolution['Mai bao lai']++
+    else if (/\bhẹn\b/i.test(tags))
+      day.resolution['Hen']++
 
     // ── Channels: check direction col (H=idx 7) ──
     const dir = (cols[7] ?? '').toLowerCase()
@@ -283,6 +297,7 @@ async function saveToCache(
     locations:      r.locations,
     channels:       r.channels,
     errors:         r.errors,
+    pm_types:       r.pm_types,
     fetched_at:     now,
   }))
 
@@ -304,6 +319,7 @@ function dbRowToRecord(row: any): DailyRecord {
     locations:      row.locations  ?? {},
     channels:       row.channels   ?? {},
     errors:         row.errors     ?? {},
+    pm_types:       row.pm_types   ?? {},
   }
 }
 

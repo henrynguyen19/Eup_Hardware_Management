@@ -1,7 +1,7 @@
 // Shared types for Ho Tro module
 export interface DailyRecord {
-  date: string       // "1/11/2025" formatted from sheet
-  sortKey: string    // "2025-11-01" for sorting
+  date: string
+  sortKey: string
   total_requests: number
   avg_time: number
   max_time: number
@@ -10,4 +10,5 @@ export interface DailyRecord {
   locations: Record<string, number>
   channels: Record<string, number>
   errors: Record<string, number>
+  pm_types: Record<string, number>
 }
