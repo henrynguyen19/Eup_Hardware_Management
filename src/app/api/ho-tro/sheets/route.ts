@@ -42,165 +42,119 @@ function excelSerialToDate(serial: number): { display: string; sortKey: string }
   return { display: `${d}/${m}/${y}`, sortKey: `${y}-${m}-${d}` }
 }
 
-// ── Known metric names ────────────────────────────────────────
-const KNOWN_METRICS: string[] = [
-  'số yêu cầu xử lý sang ngày thứ 5',
-  'số yêu cầu xử lý sang ngày thứ 4',
-  'số yêu cầu xử lý sang ngày thứ 3',
-  'số yêu cầu xử lý sang ngày thứ 2',
-  'số yêu cầu xử lý trong ngày',
-  'Tiếp nhận chưa xử lý',
-  'thời gian xử lý trung bình',
-  'số lượng yêu cầu',
-  'Số lục trong ngày nghỉ',
-  'Tiếp nhận từ hotline',
-  'Tiếp nhận từ zalo',
-  'thời gian xử lý lâu',
-  'Gotrack - Go 168',
-  'Hẹn xử lý',
-  'Hải Phòng',
-  'Bình Dương',
-  'Hà Nội',
-  'Hồ Chí Minh',
-  'Đà Nẵng',
-  'Phần mềm',
-  'VN88 4GH',
-  'VN 88 2G',
-  'C43 & H5',
-  'VN88 4G',
-  'FS100',
-  'MT99',
-  'ADAS',
-  'RFID',
-  'SOJI',
-  'S168',
-  'ACC',
-  'DVR',
-  'DMS',
-  'FUEL',
-  'GPS',
-  'GSM',
-  'Tổng',
-  'BW',
-  'IO',
-  'NC',
-  'PW',
-  'SS',
-  'SP',
-]
-KNOWN_METRICS.sort((a, b) => b.length - a.length)
+// ── Parse raw table format ────────────────────────────────────
+// Sheet structure: date header rows (col A = "DD/MM/YYYY"), then ticket rows
+// Columns (0-indexed): A=code, B=sos, C=company, D=date, E=contact,
+//   F=type, G=salesAlias, H=direction, I=content, J=reply,
+//   K=status, L=assignee, M=salesMan, N=assistant, O=startPoint, P=endPoint
+const DATE_HDR_RE = /^(\d{1,2})\/(\d{2})\/(\d{4})$/
 
-// ── Parse packed string ───────────────────────────────────────
-function parsePackedString(packed: string): DailyRecord[] {
-  if (!packed || !packed.startsWith('ngày')) return []
-
-  const entries = packed.split('   ;')
-  const dayMap = new Map<number, Map<string, number>>()
-  let currentSerial = 0
-
-  for (const rawEntry of entries) {
-    const entry = rawEntry.trim()
-    if (!entry) continue
-
-    const dayMatch = entry.match(/^ngày(\d{5})/)
-    if (dayMatch) {
-      currentSerial = parseInt(dayMatch[1])
-      if (!dayMap.has(currentSerial)) dayMap.set(currentSerial, new Map())
-      const rest = entry.slice(4)
-      parseMetricEntry(rest, currentSerial, dayMap.get(currentSerial)!)
-    } else if (currentSerial > 0) {
-      parseMetricEntry(entry, currentSerial, dayMap.get(currentSerial)!)
-    }
+function emptyDay(display: string, sortKey: string): DailyRecord {
+  return {
+    date: display, sortKey,
+    total_requests: 0, avg_time: 0, max_time: 0,
+    devices:    { 'VN88 2G':0,'VN88 4G':0,'VN88 4GH':0,'S168':0,'DVR':0,'FUEL':0,'Go168':0,'MT99':0,'C43&H5':0,'BW':0,'Phan mem':0 },
+    resolution: { 'Chua xu ly':0,'Hen xu ly':0,'Ngay 1':0,'Ngay 2':0,'Ngay 3':0,'Ngay 4':0,'Ngay 5':0,'Tong':0 },
+    locations:  { 'Ha Noi':0,'Hai Phong':0,'Da Nang':0,'HCM':0,'Binh Duong':0 },
+    channels:   { 'Zalo':0,'Hotline':0,'Ngay nghi':0 },
+    errors:     { 'ACC':0,'RFID':0,'PW':0,'GPS':0,'GSM':0,'IO':0,'SS':0,'DMS':0,'ADAS':0,'NC':0,'SP':0,'FS100':0,'SOJI':0 },
   }
-
-  const result: DailyRecord[] = []
-  for (const [serial, metrics] of dayMap) {
-    const di = excelSerialToDate(serial)
-    if (!di) continue
-
-    const g = (key: string): number => metrics.get(key) ?? 0
-
-    result.push({
-      date: di.display,
-      sortKey: di.sortKey,
-      total_requests: g('số lượng yêu cầu'),
-      avg_time:       g('thời gian xử lý trung bình'),
-      max_time:       g('thời gian xử lý lâu'),
-      devices: {
-        'VN88 2G':  g('VN 88 2G'),
-        'VN88 4G':  g('VN88 4G'),
-        'VN88 4GH': g('VN88 4GH'),
-        'S168':     g('S168'),
-        'DVR':      g('DVR'),
-        'FUEL':     g('FUEL'),
-        'Go168':    g('Gotrack - Go 168'),
-        'MT99':     g('MT99'),
-        'C43&H5':   g('C43 & H5'),
-        'BW':       g('BW'),
-        'Phan mem': g('Phần mềm'),
-      },
-      resolution: {
-        'Chua xu ly': g('Tiếp nhận chưa xử lý'),
-        'Hen xu ly':  g('Hẹn xử lý'),
-        'Ngay 1':     g('số yêu cầu xử lý trong ngày'),
-        'Ngay 2':     g('số yêu cầu xử lý sang ngày thứ 2'),
-        'Ngay 3':     g('số yêu cầu xử lý sang ngày thứ 3'),
-        'Ngay 4':     g('số yêu cầu xử lý sang ngày thứ 4'),
-        'Ngay 5':     g('số yêu cầu xử lý sang ngày thứ 5'),
-        'Tong':       g('Tổng'),
-      },
-      locations: {
-        'Ha Noi':     g('Hà Nội'),
-        'Hai Phong':  g('Hải Phòng'),
-        'Da Nang':    g('Đà Nẵng'),
-        'HCM':        g('Hồ Chí Minh'),
-        'Binh Duong': g('Bình Dương'),
-      },
-      channels: {
-        'Zalo':      g('Tiếp nhận từ zalo'),
-        'Hotline':   g('Tiếp nhận từ hotline'),
-        'Ngay nghi': g('Số lục trong ngày nghỉ'),
-      },
-      errors: {
-        'ACC':   g('ACC'),
-        'RFID':  g('RFID'),
-        'PW':    g('PW'),
-        'GPS':   g('GPS'),
-        'GSM':   g('GSM'),
-        'IO':    g('IO'),
-        'SS':    g('SS'),
-        'DMS':   g('DMS'),
-        'ADAS':  g('ADAS'),
-        'NC':    g('NC'),
-        'SP':    g('SP'),
-        'FS100': g('FS100'),
-        'SOJI':  g('SOJI'),
-      },
-    })
-  }
-
-  return result.sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 }
 
-function parseMetricEntry(entry: string, serial: number, metrics: Map<string, number>) {
-  const serialStr = String(serial)
-  const rest = entry.startsWith(serialStr) ? entry.slice(serialStr.length) : entry
+function parseRawTable(csvText: string, monthNum: number, yearNum: number): DailyRecord[] {
+  const lines = csvText.split('\n')
+  const dayMap = new Map<string, DailyRecord>()
+  let currentKey = ''
 
-  for (const metricName of KNOWN_METRICS) {
-    if (rest.startsWith(metricName)) {
-      const valueStr = rest.slice(metricName.length)
-      const value = parseFloat(valueStr)
-      if (!isNaN(value)) metrics.set(metricName, value)
-      return
+  for (const line of lines) {
+    const cols = parseCSVRow(line)
+    const colA = cols[0]?.trim() ?? ''
+    if (!colA) continue
+
+    // Date header row
+    const hdr = colA.match(DATE_HDR_RE)
+    if (hdr) {
+      const d = hdr[1].padStart(2,'0'), m = hdr[2], y = hdr[3]
+      if (parseInt(m) === monthNum && parseInt(y) === yearNum) {
+        currentKey = `${y}-${m}-${d}`
+        if (!dayMap.has(currentKey)) dayMap.set(currentKey, emptyDay(`${d}/${m}/${y}`, currentKey))
+      } else {
+        currentKey = ''
+      }
+      continue
     }
+
+    // Ticket row: col A is numeric code
+    if (!currentKey || !/^\d{3,}$/.test(colA)) continue
+    const day = dayMap.get(currentKey)!
+    day.total_requests++
+    day.resolution['Tong']++
+
+    // Tags live in reply col (J=idx 9) and content col (I=idx 8)
+    const reply   = (cols[9] ?? '').toLowerCase()
+    const content = (cols[8] ?? '').toLowerCase()
+    const tags    = reply + ' ' + content
+
+    // ── Devices ──
+    if (tags.includes('fuel') || tags.includes('#fuelsensor'))            day.devices['FUEL']++
+    else if (tags.includes('go168') || tags.includes('go 168'))           day.devices['Go168']++
+    else if (tags.includes('vn88 4gh') || tags.includes('vn884gh'))       day.devices['VN88 4GH']++
+    else if (tags.includes('vn 88 2g') || tags.includes('vn882g') || tags.includes('vn88 2g')) day.devices['VN88 2G']++
+    else if (tags.includes('vn88 4g'))                                    day.devices['VN88 4G']++
+    else if (tags.includes('s168'))                                       day.devices['S168']++
+    else if (tags.includes('c43') || tags.includes('h5'))                 day.devices['C43&H5']++
+    else if (tags.includes('dvr'))                                        day.devices['DVR']++
+    else if (tags.includes('mt99'))                                       day.devices['MT99']++
+    else if (tags.includes('#bw') || /\bbw\b/.test(tags))                 day.devices['BW']++
+    else if (tags.includes('phần mềm') || tags.includes('phan mem') || tags.includes('#software')) day.devices['Phan mem']++
+
+    // ── Errors ──
+    if (/#sp\b/.test(tags))   day.errors['SP']++
+    if (/#gps\b/.test(tags))  day.errors['GPS']++
+    if (/#gsm\b/.test(tags))  day.errors['GSM']++
+    if (/#pw\b/.test(tags))   day.errors['PW']++
+    if (/#acc\b/.test(tags))  day.errors['ACC']++
+    if (/#rfid\b/.test(tags)) day.errors['RFID']++
+    if (/#io\b/.test(tags))   day.errors['IO']++
+    if (/#ss\b/.test(tags))   day.errors['SS']++
+    if (/#dms\b/.test(tags))  day.errors['DMS']++
+    if (/#adas\b/.test(tags)) day.errors['ADAS']++
+    if (/#nc\b/.test(tags))   day.errors['NC']++
+    if (tags.includes('fs100'))  day.errors['FS100']++
+    if (tags.includes('soji'))   day.errors['SOJI']++
+
+    // ── Resolution: #F=ngày 1, #N=chưa, #H=hẹn, #2/#3/#4/#5=sang ngày ──
+    if (/#f\b/.test(tags))       day.resolution['Ngay 1']++
+    else if (/#2\b/.test(tags))  day.resolution['Ngay 2']++
+    else if (/#3\b/.test(tags))  day.resolution['Ngay 3']++
+    else if (/#4\b/.test(tags))  day.resolution['Ngay 4']++
+    else if (/#5\b/.test(tags))  day.resolution['Ngay 5']++
+    else if (/#h\b/.test(tags))  day.resolution['Hen xu ly']++
+    else if (/#n\b/.test(tags))  day.resolution['Chua xu ly']++
+
+    // ── Channels: check direction col (H=idx 7) and content ──
+    const dir = (cols[7] ?? '').toLowerCase()
+    if (dir.includes('zalo') || tags.includes('zalo'))       day.channels['Zalo']++
+    else if (dir.includes('hotline') || tags.includes('hotline')) day.channels['Hotline']++
+
+    // ── Locations: startPoint col (O=idx 14) ──
+    const loc = (cols[14] ?? '').toLowerCase()
+    if (loc.includes('hà nội') || loc.includes('ha noi') || loc.includes('hn'))         day.locations['Ha Noi']++
+    else if (loc.includes('hải phòng') || loc.includes('hai phong') || loc.includes('hp')) day.locations['Hai Phong']++
+    else if (loc.includes('đà nẵng') || loc.includes('da nang') || loc.includes('dn'))  day.locations['Da Nang']++
+    else if (loc.includes('hồ chí minh') || loc.includes('hcm') || loc.includes('sài gòn')) day.locations['HCM']++
+    else if (loc.includes('bình dương') || loc.includes('binh duong') || loc.includes('bd')) day.locations['Binh Duong']++
   }
+
+  return Array.from(dayMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 }
 
 // ── Fetch from Google Sheets ──────────────────────────────────
 async function fetchFromSheets(
   sheetId: string, month: number, yearShort: string
 ): Promise<{ rows: DailyRecord[]; sheetName: string; error?: string }> {
-  const sheetName = `báo cáo tháng ${month}/${yearShort}`
+  // Tab name matches write API: "tháng M/YY"
+  const sheetName = `tháng ${month}/${yearShort}`
   try {
     const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&headers=0`
     const res = await fetch(url, { cache: 'no-store' })
@@ -208,22 +162,11 @@ async function fetchFromSheets(
 
     const csvText = await res.text()
     if (csvText.trimStart().startsWith('<')) {
-      return { rows: [], sheetName, error: `Sheet "${sheetName}" không tồn tại hoặc chưa public` }
+      return { rows: [], sheetName, error: `Tab "${sheetName}" không tồn tại hoặc chưa public` }
     }
 
-    const firstLine = csvText.split('\n')[0] ?? ''
-    const firstRow = parseCSVRow(firstLine)
-    const packedStr = firstRow[0] ?? ''
-    const allRows = parsePackedString(packedStr)
-
-    // Filter to requested month/year only
-    const monthNum = month
-    const yearNum  = 2000 + parseInt(yearShort)
-    const rows = allRows.filter(r => {
-      const [, m, y] = r.date.split('/').map(Number)
-      return m === monthNum && y === yearNum
-    })
-
+    const yearNum = 2000 + parseInt(yearShort)
+    const rows = parseRawTable(csvText, month, yearNum)
     return { rows, sheetName }
   } catch (err) {
     return { rows: [], sheetName, error: String(err) }
