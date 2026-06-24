@@ -21,6 +21,73 @@ function getSheetsClient() {
   return google.sheets({ version: 'v4', auth })
 }
 
+// ── Assistant → Location mapping (from DB departments) ───────
+// Departments named like "VP Hà Nội", "VP HCM" etc. are regional offices.
+// Each assistant user is assigned to one such department.
+// Parser reads colN (assistant name) → maps to location key.
+
+function deptNameToLocationKey(deptName: string): string | null {
+  const n = deptName.toLowerCase()
+  if (n.includes('hà nội') || n.includes('ha noi'))               return 'Ha Noi'
+  if (n.includes('hồ chí minh') || n.includes('ho chi minh') || n.includes('hcm')) return 'HCM'
+  if (n.includes('hải phòng') || n.includes('hai phong'))         return 'Hai Phong'
+  if (n.includes('bình dương') || n.includes('binh duong'))       return 'Binh Duong'
+  if (n.includes('đà nẵng') || n.includes('da nang'))             return 'Da Nang'
+  return null
+}
+
+// Returns map: assistant_name_lowercase → location_key
+// e.g. { "canary": "Ha Noi", "vivian": "HCM", ... }
+async function getAssistantLocationMap(
+  db: ReturnType<typeof adminClient>
+): Promise<Record<string, string>> {
+  try {
+    // 1. Get all VP departments
+    const { data: depts } = await db
+      .from('departments')
+      .select('id, name')
+      .like('name', 'VP %')
+
+    if (!depts?.length) return {}
+
+    // Build deptId → locationKey map
+    const deptLocMap: Record<string, string> = {}
+    for (const d of depts) {
+      const loc = deptNameToLocationKey(d.name)
+      if (loc) deptLocMap[d.id] = loc
+    }
+
+    const deptIds = Object.keys(deptLocMap)
+    if (!deptIds.length) return {}
+
+    // 2. Get user_departments for those VP depts
+    const { data: userDepts } = await db
+      .from('user_departments')
+      .select('user_id, department_id')
+      .in('department_id', deptIds)
+
+    if (!userDepts?.length) return {}
+
+    // 3. Get emails from Auth to extract display name
+    const { data: authData } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 })
+    const emailMap: Record<string, string> = Object.fromEntries(
+      (authData?.users ?? []).map(u => [u.id, u.email ?? ''])
+    )
+
+    // 4. Build name → location map
+    const result: Record<string, string> = {}
+    for (const ud of userDepts) {
+      const email = emailMap[ud.user_id] ?? ''
+      const name = email.split('@')[0].toLowerCase()  // "canary@eup.net.vn" → "canary"
+      const loc = deptLocMap[ud.department_id]
+      if (name && loc) result[name] = loc
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
 // ── Parse raw table ────────────────────────────────────────────
 // Sheet structure (per tab "tháng M/YY"):
 //   - Date header rows: col A = "DD/MM/YYYY" (merged, green)
@@ -44,8 +111,10 @@ function emptyDay(display: string, sortKey: string): DailyRecord {
 }
 
 // grid: array of rows, each row is array of cell strings (FORMATTED_VALUE from Sheets API)
+// assistantMap: { "canary" → "Ha Noi", "vivian" → "HCM", ... } — from DB, empty if not configured
 function parseRawTable(
   grid: string[][], monthNum: number, yearNum: number,
+  assistantMap: Record<string, string>,
   debugLog?: string[]
 ): DailyRecord[] {
   const dayMap = new Map<string, DailyRecord>()
@@ -140,13 +209,21 @@ function parseRawTable(
     if (dir.includes('zalo') || tags.includes('zalo'))             day.channels['Zalo']++
     else if (dir.includes('hotline') || tags.includes('hotline')) day.channels['Hotline']++
 
-    // ── Locations: startPoint col (O=idx 14) ──
-    const loc = (cols[14] ?? '').toLowerCase()
-    if (loc.includes('hà nội') || loc.includes('ha noi') || loc.includes('hn'))           day.locations['Ha Noi']++
-    else if (loc.includes('hải phòng') || loc.includes('hai phong') || loc.includes('hp')) day.locations['Hai Phong']++
-    else if (loc.includes('đà nẵng') || loc.includes('da nang') || loc.includes('dn'))    day.locations['Da Nang']++
-    else if (loc.includes('hồ chí minh') || loc.includes('hcm') || loc.includes('sài gòn')) day.locations['HCM']++
-    else if (loc.includes('bình dương') || loc.includes('binh duong') || loc.includes('bd')) day.locations['Binh Duong']++
+    // ── Locations: assistant col (N=idx 13) → lookup assistantMap from DB ──
+    // assistantMap built from user_departments (VP Hà Nội, VP HCM, etc.)
+    const assistantName = (cols[13] ?? '').trim().toLowerCase()
+    const mappedLoc = assistantMap[assistantName]
+    if (mappedLoc && mappedLoc in day.locations) {
+      day.locations[mappedLoc as keyof typeof day.locations]++
+    } else if (assistantName && !mappedLoc) {
+      // Fallback: if assistant not in map, try to read startPoint col (O=idx 14)
+      const loc = (cols[14] ?? '').toLowerCase()
+      if (loc.includes('hà nội') || loc.includes('ha noi') || loc.includes('hn'))           day.locations['Ha Noi']++
+      else if (loc.includes('hải phòng') || loc.includes('hai phong') || loc.includes('hp')) day.locations['Hai Phong']++
+      else if (loc.includes('đà nẵng') || loc.includes('da nang') || loc.includes('dn'))    day.locations['Da Nang']++
+      else if (loc.includes('hồ chí minh') || loc.includes('hcm') || loc.includes('sài gòn')) day.locations['HCM']++
+      else if (loc.includes('bình dương') || loc.includes('binh duong') || loc.includes('bd')) day.locations['Binh Duong']++
+    }
   }
 
   return Array.from(dayMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
@@ -154,7 +231,9 @@ function parseRawTable(
 
 // ── Fetch from Google Sheets via API (service account) ───────
 async function fetchFromSheets(
-  sheetId: string, month: number, yearShort: string, debugMode = false
+  sheetId: string, month: number, yearShort: string,
+  assistantMap: Record<string, string>,
+  debugMode = false
 ): Promise<{ rows: DailyRecord[]; sheetName: string; error?: string; debugLog?: string[]; totalRows?: number }> {
   const sheetName = `tháng ${month}/${yearShort}`
   try {
@@ -174,7 +253,7 @@ async function fetchFromSheets(
 
     const yearNum = 2000 + parseInt(yearShort)
     const debugLog: string[] = []
-    const rows = parseRawTable(grid, month, yearNum, debugMode ? debugLog : undefined)
+    const rows = parseRawTable(grid, month, yearNum, assistantMap, debugMode ? debugLog : undefined)
     return { rows, sheetName, debugLog: debugMode ? debugLog : undefined, totalRows: grid.length }
   } catch (err) {
     return { rows: [], sheetName, error: String(err) }
@@ -282,7 +361,8 @@ export async function GET(req: NextRequest) {
   }
 
   // ── 2. Fetch from Google Sheets ───────────────────────────
-  const { rows, sheetName, error, debugLog, totalRows } = await fetchFromSheets(sheetId, monthNum, yearShort, debugMode)
+  const assistantMap = await getAssistantLocationMap(db)
+  const { rows, sheetName, error, debugLog, totalRows } = await fetchFromSheets(sheetId, monthNum, yearShort, assistantMap, debugMode)
 
   if (error) {
     return NextResponse.json({ error, rows: [], sheetName, cached: false })
