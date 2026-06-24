@@ -185,7 +185,6 @@ function SummaryView({
   const staffNames = allStaff.map(s => s.name)
   const combined = useMemo(() => mergeStaffRecords(staffMap), [staffMap])
 
-  // Pending tickets panel state
   const [showPendingPanel, setShowPendingPanel] = useState(false)
   const [pendingTickets, setPendingTickets] = useState<Record<string, unknown>[]>([])
   const [pendingLoading, setPendingLoading] = useState(false)
@@ -193,19 +192,15 @@ function SummaryView({
   async function fetchPendingTickets() {
     setPendingLoading(true)
     try {
-      const res = await fetch(
-        `/api/ho-tro/tickets?pendingOnly=true&month=${month}&year=${yearShort}&limit=200`
-      )
+      const res = await fetch(`/api/ho-tro/tickets?pendingOnly=true&month=${month}&year=${yearShort}&limit=200`)
       const json = await res.json()
       setPendingTickets(json.tickets ?? [])
     } catch (_e) { /* ignore */ }
     finally { setPendingLoading(false) }
   }
 
-  function handlePendingClick() {
-    setShowPendingPanel(true)
-    fetchPendingTickets()
-  }
+  function handlePendingClick() { setShowPendingPanel(true); fetchPendingTickets() }
+
   const dataRows = combined.filter(r => r.total_requests > 0)
 
   if (loading) return (
@@ -290,13 +285,9 @@ function SummaryView({
         <StatCard icon="👥" label="Nhân viên hoạt động" value={activeStaff} color="teal" />
       </div>
 
-      {/* Pending tickets panel */}
       {showPendingPanel && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end" onClick={() => setShowPendingPanel(false)}>
-          <div
-            className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
+          <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between">
               <div>
                 <h2 className="font-bold text-gray-800 text-lg">Yeu cau can theo doi</h2>
@@ -306,14 +297,12 @@ function SummaryView({
             </div>
             <div className="p-5">
               {pendingLoading ? (
-                <div className="flex justify-center py-12">
-                  <div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-                </div>
+                <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" /></div>
               ) : !pendingTickets.length ? (
                 <div className="text-center py-12 text-gray-400">
-                  <div className="text-4xl mb-2">OK</div>
+                  <p className="text-2xl mb-2">OK</p>
                   <p className="text-sm">Khong co yeu cau can theo doi</p>
-                  <p className="text-xs mt-1">Hoac chua dong bo du lieu (bam Lam moi truoc)</p>
+                  <p className="text-xs mt-1">Bam Lam moi truoc de dong bo du lieu</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -838,6 +827,22 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     window.location.href = '/login'
   }
 
+  const [showStaffPending, setShowStaffPending] = useState(false)
+  const [staffPendingTickets, setStaffPendingTickets] = useState<Record<string, unknown>[]>([])
+  const [staffPendingLoading, setStaffPendingLoading] = useState(false)
+
+  async function fetchStaffPending(staffName: string | undefined) {
+    setStaffPendingLoading(true)
+    try {
+      const params = new URLSearchParams({ pendingOnly: 'true', month: String(selectedMonth.month), year: String(selectedMonth.yearShort), limit: '200' })
+      if (staffName) params.set('staffName', staffName)
+      const res = await fetch(`/api/ho-tro/tickets?${params}`)
+      const json = await res.json()
+      setStaffPendingTickets(json.tickets ?? [])
+    } catch (_e) { /* ignore */ }
+    finally { setStaffPendingLoading(false) }
+  }
+
   // Individual view aggregates
   const dataRows       = filterByWeek(records).filter(r => r.total_requests > 0)
   const totalRequests  = dataRows.reduce((s, r) => s + r.total_requests, 0)
@@ -1100,7 +1105,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   <StatCard icon="📞" label="Tổng yêu cầu"      value={totalRequests.toLocaleString()} sub={`${totalDays} ngày làm việc`} color="blue" />
                   <StatCard icon="⏱️" label="TG xử lý TB"       value={`${avgTime} phút`} sub="Trung bình/ngày" color="purple" />
                   <StatCard icon="⚡" label="Xử lý nhanh (#f)"  value={`${resolveRate}%`} sub={`${totalFast} yêu cầu`} color="green" />
-                  <StatCard icon="🔴" label="Cần theo dõi"      value={totalPending} sub="Hẹn / mai báo lại" color="red" />
+                  <StatCard icon="🔴" label="Cần theo dõi"      value={totalPending} sub="Hen / mai bao lai" color="red" onClick={() => { setShowStaffPending(true); fetchStaffPending(viewingStaff?.name) }} />
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-5 mb-6">
@@ -1243,6 +1248,51 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       {successMsg && (
         <div className="fixed bottom-6 right-6 z-50 bg-teal-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2">
           ✅ {successMsg}
+        </div>
+      )}
+
+      {showStaffPending && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end" onClick={() => setShowStaffPending(false)}>
+          <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-gray-800 text-lg">Yeu cau can theo doi</h2>
+                <p className="text-xs text-gray-400">{viewingStaff?.name} - thang {selectedMonth.month}/{selectedMonth.yearShort}</p>
+              </div>
+              <button onClick={() => setShowStaffPending(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
+            </div>
+            <div className="p-5">
+              {staffPendingLoading ? (
+                <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" /></div>
+              ) : !staffPendingTickets.length ? (
+                <div className="text-center py-12 text-gray-400">
+                  <p className="text-2xl mb-2">OK</p>
+                  <p className="text-sm">Khong co yeu cau can theo doi</p>
+                  <p className="text-xs mt-1">Bam Lam moi truoc de dong bo du lieu</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs text-gray-500 mb-3">{staffPendingTickets.length} yeu cau</p>
+                  {staffPendingTickets.map((t, i) => (
+                    <div key={String(t.id ?? i)} className="bg-red-50 border border-red-100 rounded-xl p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">{String(t.code || '-')}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${t.speed_tag === 'mai_bao_lai' ? 'bg-pink-100 text-pink-700' : 'bg-purple-100 text-purple-700'}`}>
+                            {t.speed_tag === 'mai_bao_lai' ? 'Mai bao lai' : 'Hen'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400 whitespace-nowrap">{String(t.ticket_date ?? '')}</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-700 mb-1">{String(t.company || 'KH khong ro')}</p>
+                      {t.content && <p className="text-xs text-gray-600 mb-1 line-clamp-2">{String(t.content)}</p>}
+                      {t.reply && <p className="text-xs text-gray-500 italic line-clamp-2">{String(t.reply)}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
