@@ -175,13 +175,64 @@ async function writeToTab(
   return msg
 }
 
+// "DD/MM/YYYY" or "YYYY-MM-DD" → "YYYY-MM-DD"
+function toISODate(dateStr: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+    const [d, m, y] = dateStr.split('/')
+    return `${y}-${m}-${d}`
+  }
+  return dateStr
+}
+
+// Save tickets to DB (fire-and-forget, don't fail the request if DB write fails)
+async function saveTicketsToDB(
+  db: ReturnType<typeof adminClient>,
+  rows: ParsedRow[],
+  userId: string,
+  assistantMap: Record<string, string>
+): Promise<void> {
+  const records = rows
+    .filter(r => r.assignee?.trim())
+    .map(r => {
+      const isoDate = toISODate(r.date)
+      const staff   = STAFF_SHEETS.find(s => s.name.toLowerCase() === r.assignee.toLowerCase())
+      const asst    = (r.assistant ?? '').trim().toLowerCase()
+      return {
+        staff_name:  r.assignee.trim(),
+        sheet_id:    staff?.sheetId ?? null,
+        ticket_date: isoDate,
+        code:        r.code       || null,
+        sos:         r.sos        || null,
+        company:     r.company    || null,
+        contact:     r.contact    || null,
+        ticket_type: r.type       || null,
+        sales_alias: r.salesAlias || null,
+        direction:   r.direction  || null,
+        content:     r.content    || null,
+        reply:       r.reply      || null,
+        status:      r.status     || null,
+        sales_man:   r.salesMan   || null,
+        assistant:   r.assistant  || null,
+        location:    assistantMap[asst] ?? null,
+        start_point: r.startPoint || null,
+        end_point:   r.endPoint   || null,
+        created_by:  userId,
+      }
+    })
+
+  if (!records.length) return
+  await db.from('ho_tro_tickets').insert(records)
+}
+
 export async function POST(req: NextRequest) {
   // Auth
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: permData } = await adminClient()
+  const db = adminClient()
+  const { data: permData } = await db
     .from('user_permissions_view')
     .select('permissions')
     .eq('user_id', user.id)
@@ -196,6 +247,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json() as { rows: ParsedRow[] }
   const rows = body.rows ?? []
   if (!rows.length) return NextResponse.json({ error: 'Không có dòng dữ liệu' }, { status: 400 })
+
+  // Build assistant→location map for location tagging in DB
+  const assistantMap = await buildAssistantMap(db)
 
   // Group: assignee → tabName → dateFormatted → rows[]
   type TabMap = Map<string, Map<string, ParsedRow[]>>
@@ -235,6 +289,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Dual-write to DB (fire-and-forget — Sheets is the source of truth for now)
+  saveTicketsToDB(db, rows, user.id, assistantMap).catch(e =>
+    console.error('[add-ticket] DB write error:', e)
+  )
+
   const totalWritten = rows.filter(r =>
     STAFF_SHEETS.some(s => s.name.toLowerCase() === r.assignee?.toLowerCase())
   ).length
@@ -245,4 +304,42 @@ export async function POST(req: NextRequest) {
     results,
     errors,
   })
+}
+
+// Build assistant→location from VP departments (same logic as sheets/route.ts)
+async function buildAssistantMap(db: ReturnType<typeof adminClient>): Promise<Record<string, string>> {
+  try {
+    const { data: depts } = await db.from('departments').select('id, name').like('name', 'VP %')
+    if (!depts?.length) return {}
+
+    const deptLocMap: Record<string, string> = {}
+    for (const d of depts) {
+      const n = d.name.toLowerCase()
+      if (n.includes('hà nội') || n.includes('ha noi'))                  deptLocMap[d.id] = 'Ha Noi'
+      else if (n.includes('hồ chí minh') || n.includes('hcm'))           deptLocMap[d.id] = 'HCM'
+      else if (n.includes('hải phòng') || n.includes('hai phong'))       deptLocMap[d.id] = 'Hai Phong'
+      else if (n.includes('bình dương') || n.includes('binh duong'))     deptLocMap[d.id] = 'Binh Duong'
+      else if (n.includes('đà nẵng') || n.includes('da nang'))           deptLocMap[d.id] = 'Da Nang'
+    }
+
+    const deptIds = Object.keys(deptLocMap)
+    if (!deptIds.length) return {}
+
+    const { data: userDepts } = await db.from('user_departments')
+      .select('user_id, department_id').in('department_id', deptIds)
+    if (!userDepts?.length) return {}
+
+    const { data: authData } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 })
+    const emailMap: Record<string, string> = Object.fromEntries(
+      (authData?.users ?? []).map(u => [u.id, u.email ?? ''])
+    )
+
+    const result: Record<string, string> = {}
+    for (const ud of userDepts) {
+      const name = (emailMap[ud.user_id] ?? '').split('@')[0].toLowerCase()
+      const loc  = deptLocMap[ud.department_id]
+      if (name && loc) result[name] = loc
+    }
+    return result
+  } catch { return {} }
 }

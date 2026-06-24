@@ -25,6 +25,7 @@ import type { DailyRecord } from '@/types/ho-tro'
 
 const AddTicketForm  = dynamic(() => import('./AddTicketForm'),  { ssr: false })
 const JiraBugsTab    = dynamic(() => import('@/components/jira/JiraBugsTab'), { ssr: false })
+const TicketTable    = dynamic(() => import('./TicketTable'), { ssr: false })
 
 interface Props {
   userEmail: string
@@ -434,6 +435,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
   const [isSummaryMode, setIsSummaryMode]   = useState(false)
   const [isJiraBugsMode, setIsJiraBugsMode] = useState(false)
+  const [isTicketMode, setIsTicketMode]     = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [selectedSheetId, setSelectedSheetId] = useState<string>(
@@ -765,12 +767,20 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               </button>
             )}
             <button
-              onClick={() => { setIsJiraBugsMode(true); setIsSummaryMode(false) }}
+              onClick={() => { setIsJiraBugsMode(true); setIsSummaryMode(false); setIsTicketMode(false) }}
               className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
                 isJiraBugsMode ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
               🐛 Jira Bugs
+            </button>
+            <button
+              onClick={() => { setIsTicketMode(true); setIsSummaryMode(false); setIsJiraBugsMode(false) }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
+                isTicketMode ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              📋 Chi tiết yêu cầu
             </button>
           </div>
         </div>
@@ -782,6 +792,29 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
         {/* ── Jira Bugs mode ── */}
         {isJiraBugsMode ? (
           <JiraBugsTab />
+        ) : isTicketMode ? (
+          <>
+            <div className="mb-5">
+              <h2 className="font-bold text-gray-800 text-lg">
+                {viewingStaff ? `Chi tiết yêu cầu — ${viewingStaff.name}` : 'Chi tiết yêu cầu'}
+              </h2>
+              <p className="text-sm text-gray-400">
+                Tháng {selectedMonth.month}/{selectedMonth.yearShort} · dữ liệu từ form nhập liệu
+              </p>
+            </div>
+            {viewingStaff ? (
+              <TicketTable
+                staffName={viewingStaff.name}
+                month={selectedMonth.month}
+                year={selectedMonth.yearShort}
+                isAdmin={isAdmin}
+              />
+            ) : (
+              <div className="text-center py-12 text-gray-400 bg-white rounded-xl border border-gray-200">
+                <p className="text-sm">Chọn nhân viên để xem chi tiết yêu cầu</p>
+              </div>
+            )}
+          </>
         ) : isSummaryMode ? (
           <>
             <div className="mb-5 flex items-center justify-between">
