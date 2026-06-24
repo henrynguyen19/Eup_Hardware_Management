@@ -347,6 +347,29 @@ async function saveToCache(
     .upsert(upsertRows, { onConflict: 'sheet_id,sort_key' })
 }
 
+// ── Extract actual handler from reply tags ──────────────────────
+// Pattern: "<name> DD/M" or "#report <name>" anywhere in reply
+const KNOWN_STAFF = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
+const KNOWN_STAFF_LOWER = KNOWN_STAFF.map(n => n.toLowerCase())
+
+function extractHandlerFromReply(reply: string, defaultName: string | null): string | null {
+  if (!reply) return defaultName
+  const lower = reply.toLowerCase()
+  // Priority 1: "<name> DD/M" pattern (e.g. "irene 18/6", "stefan 17/6")
+  for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
+    const n = KNOWN_STAFF_LOWER[i]
+    const re = new RegExp(`\\b${n}\\s+\\d{1,2}/\\d{1,2}`, 'i')
+    if (re.test(lower)) return KNOWN_STAFF[i]
+  }
+  // Priority 2: "#report <name>" pattern
+  const reportMatch = lower.match(/#report\s+(\w+)/)
+  if (reportMatch) {
+    const found = KNOWN_STAFF_LOWER.indexOf(reportMatch[1].toLowerCase())
+    if (found !== -1) return KNOWN_STAFF[found]
+  }
+  return defaultName
+}
+
 // ── Save individual tickets to DB (upsert by sheet_row_key) ──
 async function saveTicketsFromSheet(
   db: ReturnType<typeof adminClient>,
@@ -358,7 +381,7 @@ async function saveTicketsFromSheet(
 
   const rows = tickets.map(t => ({
     sheet_id:      sheetId,
-    staff_name:    staffName,
+    staff_name:    extractHandlerFromReply(t.reply, staffName),
     sheet_row_key: t.sheet_row_key,
     ticket_date:   t.ticket_date,
     code:          t.code        || null,
@@ -537,10 +560,4 @@ export async function DELETE(req: NextRequest) {
   const db = adminClient()
   const { error } = await db.from('ho_tro_daily_records')
     .delete()
-    .eq('sheet_id', sheetId)
-    .gte('sort_key', `${prefix}01`)
-    .lte('sort_key', `${prefix}31`)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
-}
+    .eq('sheet_i
