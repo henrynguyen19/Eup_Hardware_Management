@@ -68,7 +68,7 @@ function parseRawTable(
           // Show next 3 rows raw to diagnose structure
           for (let peek = 1; peek <= 3 && rowIdx + peek < grid.length; peek++) {
             const pr = grid[rowIdx + peek]
-            debugLog.push(`  +${peek}: A="${pr[0]??''}" B="${pr[1]??''}" C="${pr[2]??''}" D="${pr[3]??''}" E="${pr[4]??''}"`)
+            debugLog?.push(`  +${peek}: A="${pr[0]??''}" B="${pr[1]??''}" C="${pr[2]??''}" D="${pr[3]??''}" E="${pr[4]??''}"`)
           }
         }
       } else {
