@@ -84,6 +84,27 @@ function parseRawTable(csvText: string, monthNum: number, yearNum: number): Dail
       continue
     }
 
+    // Check if colA is an Excel serial date (e.g. 46195 for 23/06/2026)
+    // Date header rows have all other columns empty (merged cell)
+    const serialNum = parseInt(colA)
+    if (!isNaN(serialNum) && serialNum >= 44000 && serialNum <= 48000) {
+      const colB = cols[1]?.trim() ?? ''
+      const colC = cols[2]?.trim() ?? ''
+      if (!colB && !colC) {
+        const di = excelSerialToDate(serialNum)
+        if (di) {
+          const [y, m, d] = di.sortKey.split('-')
+          if (parseInt(m) === monthNum && parseInt(y) === yearNum) {
+            currentKey = di.sortKey
+            if (!dayMap.has(currentKey)) dayMap.set(currentKey, emptyDay(di.display, currentKey))
+          } else {
+            currentKey = ''
+          }
+          continue
+        }
+      }
+    }
+
     // Ticket row: col A is numeric code
     if (!currentKey || !/^\d{3,}$/.test(colA)) continue
     const day = dayMap.get(currentKey)!
