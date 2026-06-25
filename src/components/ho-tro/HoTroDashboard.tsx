@@ -667,7 +667,11 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [summaryLoading, setSummaryLoading]   = useState(false)
 
   // Week mode state
-  const [periodMode, setPeriodMode]           = useState<'thang' | 'tuan'>('tuan')
+  const [periodMode, setPeriodMode]           = useState<'thang' | 'tuan' | 'ngay'>('tuan')
+  const [selectedDay, setSelectedDay]         = useState<string>(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+  })
   const [selectedWeekKey, setSelectedWeekKey] = useState<string | null>(() => {
     // Khởi tạo bằng tuần hiện tại ngay khi mount
     const now = new Date()
@@ -706,11 +710,13 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     return { mon, sun, label: `${fmt(mon)} – ${fmt(sun)}` }
   }
 
-  /** Tính dateFrom/dateTo từ periodMode + selectedWeekKey/selectedMonth để filter ticket list */
+  /** Tính dateFrom/dateTo từ periodMode + selectedWeekKey/selectedMonth/selectedDay */
   function getTicketDateRange(): { dateFrom: string; dateTo: string } | null {
     const toISO = (d: Date) =>
       `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
-    if (periodMode === 'tuan' && selectedWeekKey) {
+    if (periodMode === 'ngay' && selectedDay) {
+      return { dateFrom: selectedDay, dateTo: selectedDay }
+    } else if (periodMode === 'tuan' && selectedWeekKey) {
       const { mon, sun } = isoWeekBounds(selectedWeekKey)
       return { dateFrom: toISO(mon), dateTo: toISO(sun) }
     } else if (periodMode === 'thang') {
@@ -887,6 +893,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   // ── Unread CRM updates ──
   interface UnreadTicket {
     id: number; code: string; ticket_date: string; company: string | null
+    customer_id: string | null; zone: string | null
     content: string | null; reply: string | null; staff_name: string
     speed_tag: string | null; cs_update_time: string | null
   }
@@ -915,11 +922,11 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
 
   // Re-fetch ticket list khi thay đổi kỳ lọc (tuần/tháng) — chạy cả lần đầu
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchCRMTickets(1) }, [periodMode, selectedWeekKey, selectedMonthIdx])
+  useEffect(() => { fetchCRMTickets(1) }, [periodMode, selectedWeekKey, selectedMonthIdx, selectedDay])
 
   // Re-fetch stats khi tab Thống kê được mở hoặc kỳ thay đổi
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (activeTab === 'stats') fetchStatsData() }, [activeTab, periodMode, selectedWeekKey, selectedMonthIdx])
+  useEffect(() => { if (activeTab === 'stats') fetchStatsData() }, [activeTab, periodMode, selectedWeekKey, selectedMonthIdx, selectedDay])
 
   // ── CRM Ticket List (Tab Yêu cầu) ────────────────────────────
   interface CRMTicketRow {
@@ -927,6 +934,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     company: string | null; contact: string | null; ticket_type: string | null
     content: string | null; reply: string | null; staff_name: string
     speed_tag: string | null; has_unread_update: boolean; direction: string | null
+    customer_id: string | null; zone: string | null
   }
   const [crmTickets, setCrmTickets]         = useState<CRMTicketRow[]>([])
   const [crmTicketsLoading, setCrmTicketsLoading] = useState(false)
@@ -1097,27 +1105,43 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             {/* Period mode toggle */}
             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
               <button
+                onClick={() => setPeriodMode('ngay')}
+                className={`px-3 py-2 font-medium transition ${periodMode === 'ngay' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >Ngày</button>
+              <button
+                onClick={() => setPeriodMode('tuan')}
+                className={`px-3 py-2 font-medium transition ${periodMode === 'tuan' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >Tuần</button>
+              <button
                 onClick={() => setPeriodMode('thang')}
                 className={`px-3 py-2 font-medium transition ${periodMode === 'thang' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
               >Tháng</button>
-              <button
-                onClick={() => { setPeriodMode('tuan'); }}
-                className={`px-3 py-2 font-medium transition ${periodMode === 'tuan' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-              >Tuần</button>
             </div>
 
-            {/* Month selector */}
-            <select
-              value={selectedMonthIdx}
-              onChange={e => setSelectedMonthIdx(Number(e.target.value))}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-            >
-              {MONTHS.map((m, i) => (
-                <option key={i} value={i}>{m.label}</option>
-              ))}
-            </select>
+            {/* Day picker (ngày mode) */}
+            {periodMode === 'ngay' && (
+              <input
+                type="date"
+                value={selectedDay}
+                onChange={e => setSelectedDay(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            )}
 
-            {/* Week navigator (only in tuần mode) */}
+            {/* Month selector (tháng mode) */}
+            {periodMode === 'thang' && (
+              <select
+                value={selectedMonthIdx}
+                onChange={e => setSelectedMonthIdx(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                {MONTHS.map((m, i) => (
+                  <option key={i} value={i}>{m.label}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Week navigator (tuần mode) */}
             {periodMode === 'tuan' && (
               <div className="flex items-center gap-1">
                 <button
@@ -1308,7 +1332,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                         <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" title="Có cập nhật mới" />
                       )}
                       <span className="font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded shrink-0">
-                        #{t.code}
+                        {t.customer_id ? `KH${t.customer_id}` : `#${t.code}`}
                       </span>
                       {isAdmin && (
                         <span className={`text-xs px-2 py-0.5 rounded font-medium shrink-0 ${STAFF_COLORS[t.staff_name] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -1448,13 +1472,13 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               if (/#bd\b/.test(t))  return 'Bình Dương'
               return null
             }
-            function parseMemoChannel(memo: string, direction: string | null): string | null {
+            function parseMemoChannel(memo: string, direction: string | null): string {
               const t = (memo ?? '').toLowerCase()
               const d = (direction ?? '').toLowerCase()
-              if (t.includes('zalo') || d.includes('zalo'))         return 'Zalo'
-              if (t.includes('hotline') || d.includes('hotline'))   return 'Hotline'
+              if (t.includes('zalo') || d.includes('zalo'))           return 'Zalo'
+              if (t.includes('hotline') || d.includes('hotline'))     return 'Hotline'
               if (t.includes('ngày nghỉ') || t.includes('ngay nghi')) return 'Ngày nghỉ'
-              return null
+              return 'Trợ lý'  // mặc định: trợ lý ghi lục
             }
 
             const dayMap = new Map<string, CRMDay>()
@@ -1487,7 +1511,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               const zone = (t as {zone?: string|null}).zone
               if (zone) day.byLocation[zone] = (day.byLocation[zone] ?? 0) + 1
               const ch = parseMemoChannel(memo, t.direction as string | null)
-              if (ch) day.byChannel[ch] = (day.byChannel[ch] ?? 0) + 1
+              day.byChannel[ch] = (day.byChannel[ch] ?? 0) + 1
             }
             const days = Array.from(dayMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 
@@ -1519,7 +1543,9 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             }
 
             const activeStaffCount = Object.keys(byStaffTotal).length
-            const periodLabel = periodMode === 'tuan' && selectedWeekKey
+            const periodLabel = periodMode === 'ngay'
+              ? `Ngày ${selectedDay.split('-').reverse().join('/')}`
+              : periodMode === 'tuan' && selectedWeekKey
               ? `Tuần ${isoWeekBounds(selectedWeekKey).label}`
               : `Tháng ${selectedMonth.month}/${selectedMonth.yearShort}`
 
@@ -1922,7 +1948,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className={`font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded`}>
-                            #{t.code}
+                            {t.customer_id ? `KH${t.customer_id}` : `#${t.code}`}
                           </span>
                           {isAdmin && (
                             <span className={`text-xs px-2 py-0.5 rounded font-medium ${STAFF_COLORS[t.staff_name] ?? 'bg-gray-100 text-gray-600'}`}>

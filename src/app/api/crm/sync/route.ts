@@ -276,6 +276,7 @@ export async function POST(req: NextRequest) {
         speed_tag:        parseSpeedTag(t.CS_Memo ?? ''),
         code:             String(t.CS_ID),
         zone:             t.Cust_SaleManAssistant_Zone || null,
+        customer_id:      t.Cust_ID ? String(t.Cust_ID) : null,
         created_by:       user?.id ?? 'cron',
         cs_update_time:   crmUpdateTime,
         has_unread_update: true,
@@ -312,6 +313,7 @@ export async function POST(req: NextRequest) {
         speed_tag:        parseSpeedTag(t.CS_Memo ?? ''),
         code:             String(t.CS_ID),
         zone:             t.Cust_SaleManAssistant_Zone || null,
+        customer_id:      t.Cust_ID ? String(t.Cust_ID) : null,
         created_by:       user?.id ?? 'cron',
         cs_update_time:   crmUpdateTime,
         has_unread_update: false, // record mới không cần thông báo

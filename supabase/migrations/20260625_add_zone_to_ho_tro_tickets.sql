@@ -2,3 +2,6 @@
 ALTER TABLE ho_tro_tickets ADD COLUMN IF NOT EXISTS zone TEXT;
 
 COMMENT ON COLUMN ho_tro_tickets.zone IS 'Vùng/văn phòng từ CRM field Cust_SaleManAssistant_Zone';
+
+ALTER TABLE ho_tro_tickets ADD COLUMN IF NOT EXISTS customer_id TEXT;
+COMMENT ON COLUMN ho_tro_tickets.customer_id IS 'Mã khách hàng từ CRM (Cust_ID)';
