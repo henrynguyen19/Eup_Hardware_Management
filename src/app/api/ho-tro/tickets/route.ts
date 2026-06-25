@@ -26,6 +26,8 @@ export async function GET(req: NextRequest) {
   const staffName   = sp.get('staffName')
   const month       = sp.get('month')
   const year        = sp.get('year')
+  const dateFrom    = sp.get('dateFrom')   // YYYY-MM-DD — ưu tiên hơn month/year
+  const dateTo      = sp.get('dateTo')     // YYYY-MM-DD
   const search      = sp.get('search') ?? ''
   const pendingOnly = sp.get('pendingOnly') === 'true'
   const crmOnly     = sp.get('crmOnly') !== 'false' // mặc định chỉ lấy CRM data
@@ -53,7 +55,10 @@ export async function GET(req: NextRequest) {
     query = query.ilike('staff_name', staffName)
   }
 
-  if (month && year) {
+  // Date range filter: dateFrom/dateTo takes priority over month/year
+  if (dateFrom && dateTo) {
+    query = query.gte('ticket_date', dateFrom).lte('ticket_date', dateTo)
+  } else if (month && year) {
     const y = year.length === 4 ? year : `20${year}`
     const m = parseInt(month)
     const lastDay = new Date(parseInt(y), m, 0).getDate()

@@ -668,7 +668,16 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
 
   // Week mode state
   const [periodMode, setPeriodMode]           = useState<'thang' | 'tuan'>('tuan')
-  const [selectedWeekKey, setSelectedWeekKey] = useState<string | null>(null) // "YYYY-Www"
+  const [selectedWeekKey, setSelectedWeekKey] = useState<string | null>(() => {
+    // Khởi tạo bằng tuần hiện tại ngay khi mount
+    const now = new Date()
+    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+    const day = d.getUTCDay() || 7
+    d.setUTCDate(d.getUTCDate() + 4 - day)
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+    const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+    return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+  }) // "YYYY-Www"
 
   const selectedMonth = MONTHS[selectedMonthIdx]
 
@@ -697,15 +706,35 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     return { mon, sun, label: `${fmt(mon)} – ${fmt(sun)}` }
   }
 
+  /** Tính dateFrom/dateTo từ periodMode + selectedWeekKey/selectedMonth để filter ticket list */
+  function getTicketDateRange(): { dateFrom: string; dateTo: string } | null {
+    const toISO = (d: Date) =>
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+    if (periodMode === 'tuan' && selectedWeekKey) {
+      const { mon, sun } = isoWeekBounds(selectedWeekKey)
+      return { dateFrom: toISO(mon), dateTo: toISO(sun) }
+    } else if (periodMode === 'thang') {
+      const y = `20${selectedMonth.yearShort}`
+      const m = selectedMonth.month
+      const lastDay = new Date(parseInt(y), m, 0).getDate()
+      const mStr = String(m).padStart(2, '0')
+      return {
+        dateFrom: `${y}-${mStr}-01`,
+        dateTo:   `${y}-${mStr}-${String(lastDay).padStart(2, '0')}`,
+      }
+    }
+    return null
+  }
+
   // Derive sorted list of ISO week keys from current records
   const allWeekKeys = useMemo(() => {
-    const source = isSummaryMode
+    const source = (activeTab === 'stats' && isAdmin)
       ? Object.values(staffDataMap).flat()
       : records
     const keys = new Set(source.filter(r => r.total_requests > 0).map(r => getISOWeekKey(r.sortKey)))
     return Array.from(keys).sort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records, staffDataMap, isSummaryMode])
+  }, [records, staffDataMap, activeTab, isAdmin])
 
   // Auto-select latest week when entering week mode or data changes
   useEffect(() => {
@@ -802,18 +831,21 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     }
   }, [allStaff])
 
+  // Dùng activeTab + isAdmin thay vì isSummaryMode để quyết định fetch gì
+  const needsSummary = activeTab === 'stats' && isAdmin
+
   useEffect(() => {
-    if (isSummaryMode) {
+    if (needsSummary) {
       fetchAllStaff(selectedMonth.month, selectedMonth.year)
     } else {
       fetchData(selectedSheetId, selectedMonth.month, selectedMonth.year)
     }
-  }, [isSummaryMode, selectedSheetId, selectedMonthIdx, fetchData, fetchAllStaff,
+  }, [needsSummary, selectedSheetId, selectedMonthIdx, fetchData, fetchAllStaff,
       selectedMonth.month, selectedMonth.year])
 
   // ── Force refresh from Google Sheets ──
   function handleRefresh() {
-    if (isSummaryMode) {
+    if (needsSummary) {
       fetchAllStaff(selectedMonth.month, selectedMonth.year, true)
     } else {
       fetchData(selectedSheetId, selectedMonth.month, selectedMonth.year, true)
@@ -873,11 +905,14 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     finally { setUnreadLoading(false) }
   }
 
-  // Load unread on mount + load tickets
+  // Load unread on mount
   useEffect(() => {
     fetchUnreadUpdates()
-    fetchCRMTickets()
   }, [])
+
+  // Re-fetch ticket list khi thay đổi kỳ lọc (tuần/tháng) — chạy cả lần đầu
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchCRMTickets(1) }, [periodMode, selectedWeekKey, selectedMonthIdx])
 
   // ── CRM Ticket List (Tab Yêu cầu) ────────────────────────────
   interface CRMTicketRow {
@@ -899,13 +934,18 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   async function fetchCRMTickets(page = 1, staffF = crmStaffFilter, searchF = crmSearch, pendingF = crmPendingOnly) {
     setCrmTicketsLoading(true)
     try {
+      const dateRange = getTicketDateRange()
       const p = new URLSearchParams({
         page: String(page), limit: String(CRM_PAGE_SIZE),
         sortBy: 'cs_update_time', crmOnly: 'true',
       })
-      if (staffF)   p.set('staffName', staffF)
-      if (searchF)  p.set('search', searchF)
-      if (pendingF) p.set('pendingOnly', 'true')
+      if (staffF)        p.set('staffName', staffF)
+      if (searchF)       p.set('search', searchF)
+      if (pendingF)      p.set('pendingOnly', 'true')
+      if (dateRange) {
+        p.set('dateFrom', dateRange.dateFrom)
+        p.set('dateTo',   dateRange.dateTo)
+      }
       const res  = await fetch(`/api/ho-tro/tickets?${p}`)
       const json = await res.json()
       setCrmTickets(json.tickets ?? [])
@@ -1168,6 +1208,13 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
           <div>
             {/* Toolbar */}
             <div className="flex flex-wrap items-center gap-2 mb-4">
+              {/* Label kỳ hiện tại */}
+              <span className="text-xs font-medium text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-1.5 rounded-lg whitespace-nowrap">
+                {periodMode === 'tuan' && selectedWeekKey
+                  ? `📅 Tuần ${isoWeekBounds(selectedWeekKey).label}`
+                  : `📅 Tháng ${selectedMonth.month}/${selectedMonth.yearShort}`
+                }
+              </span>
               {isAdmin && (
                 <select
                   value={crmStaffFilter}
@@ -1597,35 +1644,30 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     <div key={t.id} className="bg-orange-50 border border-orange-100 rounded-xl p-4">
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">{t.code}</span>
-                          <span className="text-xs text-gray-500">{t.staff_name}</span>
-                          {t.speed_tag && (
-                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                              t.speed_tag === 'mai_bao_lai' ? 'bg-pink-100 text-pink-700' :
-                              t.speed_tag === 'hen'         ? 'bg-purple-100 text-purple-700' :
-                              t.speed_tag === 'fast'        ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                            }`}>{t.speed_tag}</span>
+                          <span className={`font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded`}>
+                            #{t.code}
+                          </span>
+                          {isAdmin && (
+                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${STAFF_COLORS[t.staff_name] ?? 'bg-gray-100 text-gray-600'}`}>
+                              {t.staff_name}
+                            </span>
                           )}
+                          <span className="text-sm font-medium text-gray-800">{t.company || 'KH không rõ'}</span>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs text-gray-400">{t.ticket_date}</span>
-                          <button
-                            onClick={() => markAsRead([t.id])}
-                            disabled={markingIds.has(t.id)}
-                            className="px-2.5 py-1 text-xs bg-white border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-100 transition disabled:opacity-50"
-                          >
-                            {markingIds.has(t.id) ? '...' : '✓ Đã đọc'}
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => markAsRead([t.id])}
+                          disabled={markingIds.has(t.id)}
+                          className="shrink-0 text-xs px-3 py-1 bg-orange-100 border border-orange-200 text-orange-700 rounded-lg hover:bg-orange-200 transition disabled:opacity-40"
+                        >
+                          {markingIds.has(t.id) ? '...' : '✓ Đã đọc'}
+                        </button>
                       </div>
-                      <p className="text-sm font-medium text-gray-700 mb-1">{t.company || 'KH không rõ'}</p>
-                      {!!t.content && <p className="text-xs text-gray-600 mb-1 line-clamp-2">{t.content}</p>}
-                      {!!t.reply   && <p className="text-xs text-gray-500 italic line-clamp-2">{t.reply}</p>}
-                      {t.cs_update_time && (
-                        <p className="text-[10px] text-orange-400 mt-1">
-                          Cập nhật lúc: {new Date(t.cs_update_time).toLocaleString('vi-VN')}
-                        </p>
+                      {!!t.content && (
+                        <p className="text-xs text-gray-600 bg-white rounded-lg p-2 mb-2 line-clamp-2">{t.content}</p>
                       )}
+                      <p className="text-xs text-orange-500">
+                        🕐 Cập nhật: {t.cs_update_time ? new Date(t.cs_update_time).toLocaleString('vi-VN') : '—'}
+                      </p>
                     </div>
                   ))}
                 </div>
