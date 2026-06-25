@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const crmOnly     = sp.get('crmOnly') !== 'false' // mặc định chỉ lấy CRM data
   const sortBy      = sp.get('sortBy') ?? 'cs_update_time' // cs_update_time | ticket_date
   const page        = Math.max(1, parseInt(sp.get('page') ?? '1'))
-  const limit       = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '50')))
+  const limit       = Math.min(2000, Math.max(1, parseInt(sp.get('limit') ?? '50')))
   const offset      = (page - 1) * limit
 
   let query = db.from('ho_tro_tickets').select('*', { count: 'exact' })
