@@ -22,6 +22,7 @@ interface LoginResult {
   rawResponse:       Record<string, unknown>
   detectedSessionId: string | null
   error?:            string
+  debug?:            Record<string, unknown>
 }
 
 const KNOWN_IDS = [
@@ -163,6 +164,14 @@ export default function CrmTestPage() {
               <div className="mb-2">
                 <span className="text-xs font-mono text-gray-500">detectedSessionId: </span>
                 <code className="text-xs text-green-800 break-all">{loginResult.detectedSessionId.slice(0, 60)}…</code>
+              </div>
+            )}
+            {loginResult.debug && (
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-gray-500 mb-1">🔍 Debug info:</p>
+                <pre className="text-xs bg-blue-950 text-blue-200 rounded-lg p-3 overflow-auto max-h-48">
+                  {JSON.stringify(loginResult.debug, null, 2)}
+                </pre>
               </div>
             )}
             <div>

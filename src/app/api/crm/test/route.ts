@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
-import { crmLoginRaw, getCRMSessionForUser } from '@/lib/crm-session'
+import { crmLoginRaw, getCRMCredentials, getCRMSessionForUser } from '@/lib/crm-session'
 
 const adminClient = () =>
   createClient(
@@ -131,6 +131,36 @@ export async function POST(req: NextRequest) {
   const perms: string[] = permData?.permissions ?? []
   if (!perms.includes('admin:users')) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
-  const result = await crmLoginRaw()
-  return NextResponse.json(result)
+  // ── Debug info ──
+  const debug = {
+    user_id:          user.id,
+    has_soap_url:     !!process.env.CRM_SOAP_URL,
+    soap_url_preview: process.env.CRM_SOAP_URL?.slice(0, 40) ?? null,
+    has_supabase_url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    has_service_key:  !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    crm_creds:        null as null | { crm_staff_id: number; crm_account: string; has_password: boolean },
+    creds_error:      null as null | string,
+  }
+
+  let creds: Awaited<ReturnType<typeof getCRMCredentials>>
+  try {
+    creds = await getCRMCredentials(user.id)
+    if (creds) {
+      debug.crm_creds = { crm_staff_id: creds.crm_staff_id, crm_account: creds.crm_account, has_password: !!creds.crm_password }
+    }
+  } catch (e) {
+    debug.creds_error = String(e)
+    return NextResponse.json({ ok: false, rawResponse: {}, detectedSessionId: null, error: 'DB error khi đọc credentials', debug })
+  }
+
+  if (!creds) {
+    return NextResponse.json({
+      ok: false, rawResponse: {}, detectedSessionId: null,
+      error: 'User chưa có CRM credentials. Chưa chạy seed-crm-passwords.sql?',
+      debug,
+    })
+  }
+
+  const result = await crmLoginRaw(creds.crm_account, creds.crm_password)
+  return NextResponse.json({ ...result, debug })
 }
