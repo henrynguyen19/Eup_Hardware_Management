@@ -147,35 +147,59 @@ export async function POST(req: NextRequest) {
   } else {
     // Self sync: chỉ user đang đăng nhập
     if (!user) return NextResponse.json({ error: 'user required for self sync' }, { status: 400 })
-    let crmSession: { sessionId: string; crm_staff_id: number; identity: string }
-    try {
-      crmSession = await getCRMSessionForUser(user.id)
-    } catch (err) {
-      return NextResponse.json({ error: String(err) }, { status: 400 })
-    }
     const creds = await getCRMCredentials(user.id)
-    myNickName = creds?.crm_nick_name ?? null
-    staffToFetch = [{ id: crmSession.crm_staff_id, name: myNickName ?? 'Self' }]
+    if (!creds) return NextResponse.json({ error: 'Chưa cấu hình CRM credentials' }, { status: 400 })
+    myNickName = creds.crm_nick_name ?? null
+    staffToFetch = [{ id: creds.crm_staff_id, name: myNickName ?? 'Self' }]
   }
 
   const db = adminClient()
 
-  // ── Fetch từ CRM (song song, mỗi staff tự login bằng credentials riêng) ──
+  // ── Build session map: crm_staff_id -> { sessionId, identity } ──
+  // Load ALL mappings từ DB một lần, lookup bằng crm_staff_id (chính xác hơn crm_nick_name)
+  const { data: allMappings } = await db
+    .from('user_crm_mapping')
+    .select('user_id, crm_staff_id, crm_nick_name')
+
+  const staffIdToUserId = new Map<number, string>()
+  for (const m of (allMappings ?? [])) {
+    if (m.crm_staff_id) staffIdToUserId.set(m.crm_staff_id, m.user_id)
+  }
+
+  // Với self mode, chắc chắn có session từ user đang đăng nhập
+  let selfSession: { sessionId: string; crm_staff_id: number; identity: string } | null = null
+  if (mode === 'self' && user) {
+    try { selfSession = await getCRMSessionForUser(user.id) }
+    catch (err) { return NextResponse.json({ error: String(err) }, { status: 400 }) }
+  }
+
+  // ── Fetch từ CRM song song, mỗi staff dùng session riêng ──
   const fetchResults = await Promise.allSettled(
     staffToFetch.map(async s => {
       try {
-        // Lấy user_id tương ứng với staff name
-        const { data: mapping } = await db
-          .from('user_crm_mapping')
-          .select('user_id')
-          .ilike('crm_nick_name', s.name)
-          .single()
-        if (!mapping?.user_id) throw new Error(`Không tìm thấy mapping cho ${s.name}`)
-        const session = await getCRMSessionForUser(mapping.user_id)
-        const tickets = await callCRMSoap(s.id, session.sessionId, session.identity, url)
-        return { name: s.name, tickets, userId: mapping.user_id }
+        let sessionId: string
+        let identity: string
+
+        if (selfSession && mode === 'self') {
+          // Self mode: dùng session của chính user đang đăng nhập
+          sessionId = selfSession.sessionId
+          identity  = selfSession.identity
+        } else {
+          // Full mode: tìm session của staff này bằng crm_staff_id (chắc chắn hơn crm_nick_name)
+          const userId = staffIdToUserId.get(s.id)
+          if (!userId) throw new Error(`Không tìm thấy user_crm_mapping cho staff_id=${s.id}`)
+          const sess = await getCRMSessionForUser(userId)
+          sessionId = sess.sessionId
+          identity  = sess.identity
+        }
+
+        const tickets = await callCRMSoap(s.id, sessionId, identity, url)
+        console.log(`[sync] ${s.name}(${s.id}): ${tickets.length} tickets`)
+        return { name: s.name, tickets }
       } catch (err) {
-        return { name: s.name, tickets: [] as CRMTicket[], error: String(err), userId: '' }
+        const msg = String(err)
+        console.error(`[sync] FAILED ${s.name}(${s.id}):`, msg)
+        return { name: s.name, tickets: [] as CRMTicket[], error: msg }
       }
     })
   )
@@ -301,17 +325,27 @@ export async function POST(req: NextRequest) {
     saved += batch.length
   }
 
+  // Build per-staff breakdown for debug
+  const perStaff: Record<string, number> = {}
+  for (const r of fetchResults) {
+    if (r.status === 'fulfilled') {
+      const v = r.value as { name: string; tickets: CRMTicket[] }
+      perStaff[v.name] = v.tickets.length
+    }
+  }
+
   return NextResponse.json({
     ok:           true,
     mode,
     myNickName,
     totalFetched,
     uniqueAfterMerge: allTickets.length,
-    newCount,       // record mới được thêm
-    updatedCount,   // record cũ có cập nhật
-    skippedCount,   // record không thay đổi
-    rejectedCount,  // record mới bị từ chối (không có hashtag tên mình)
+    newCount,
+    updatedCount,
+    skippedCount,
+    rejectedCount,
     saved,
+    perStaff,
     fetchErrors: Object.keys(fetchErrors).length ? fetchErrors : undefined,
   })
 }
