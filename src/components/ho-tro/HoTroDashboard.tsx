@@ -1332,7 +1332,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                         <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" title="Có cập nhật mới" />
                       )}
                       <span className="font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded shrink-0">
-                        {t.customer_id ? `KH${t.customer_id}` : `#${t.code}`}
+                        {t.customer_id ?? `#${t.code}`}
                       </span>
                       {isAdmin && (
                         <span className={`text-xs px-2 py-0.5 rounded font-medium shrink-0 ${STAFF_COLORS[t.staff_name] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -1948,7 +1948,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className={`font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded`}>
-                            {t.customer_id ? `KH${t.customer_id}` : `#${t.code}`}
+                            {t.customer_id ?? `#${t.code}`}
                           </span>
                           {isAdmin && (
                             <span className={`text-xs px-2 py-0.5 rounded font-medium ${STAFF_COLORS[t.staff_name] ?? 'bg-gray-100 text-gray-600'}`}>
