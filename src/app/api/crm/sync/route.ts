@@ -208,6 +208,7 @@ export async function POST(req: NextRequest) {
   // ── Merge & dedup by CS_ID ──
   const ticketMap = new Map<number, CRMTicket>()
   const fetchErrors: Record<string, string> = {}
+  const perStaffRaw: Record<string, number> = {}
   let totalFetched = 0
 
   for (const r of fetchResults) {
@@ -215,6 +216,7 @@ export async function POST(req: NextRequest) {
     const { name, tickets, error } = r.value as { name: string; tickets: CRMTicket[]; error?: string }
     if (error) { fetchErrors[name] = error; continue }
     totalFetched += tickets.length
+    perStaffRaw[name] = tickets.length
     for (const t of tickets) {
       const existing = ticketMap.get(t.CS_ID)
       if (!existing) {
@@ -314,7 +316,7 @@ export async function POST(req: NextRequest) {
       newCount++
       rows.push({
         sheet_row_key:    key,
-        staff_name:       handler ?? 'Unknown',
+        staff_name:       handler,
         ticket_date:      t.CS_Date,
         company:          t.Cust_Name  || null,
         contact:          t.CM_Name    || null,
@@ -338,31 +340,4 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < rows.length; i += 500) {
     const batch = rows.slice(i, i + 500)
     const { error } = await db.from('ho_tro_tickets').upsert(batch, { onConflict: 'sheet_row_key' })
-    if (error) return NextResponse.json({ error: error.message, saved }, { status: 500 })
-    saved += batch.length
-  }
-
-  // Build per-staff breakdown for debug
-  const perStaff: Record<string, number> = {}
-  for (const r of fetchResults) {
-    if (r.status === 'fulfilled') {
-      const v = r.value as { name: string; tickets: CRMTicket[] }
-      perStaff[v.name] = v.tickets.length
-    }
-  }
-
-  return NextResponse.json({
-    ok:           true,
-    mode,
-    myNickName,
-    totalFetched,
-    uniqueAfterMerge: allTickets.length,
-    newCount,
-    updatedCount,
-    skippedCount,
-    rejectedCount,
-    saved,
-    perStaff,
-    fetchErrors: Object.keys(fetchErrors).length ? fetchErrors : undefined,
-  })
-}
+    if (error) return NextRes
