@@ -132,26 +132,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  let totalNew = 0, totalUpdated = 0, totalSkipped = 0
   const errors: string[] = []
 
-  for (const { from, to } of months) {
-    // Fetch all 5 staff for this month, song song
+  // ── Hàm xử lý 1 tháng: fetch 5 staff song song → merge → return rows ──
+  async function processMonth(from: string, to: string): Promise<{
+    newCount: number; updatedCount: number; skippedCount: number; rows: object[]
+  }> {
+    let newCount = 0, updatedCount = 0, skippedCount = 0
+
     const fetched = await Promise.allSettled(
       FULL_STAFF.map(async s => {
         try {
-          const uid = staffIdToUserId.get(s.id)
+          const uid  = staffIdToUserId.get(s.id)
           const sess = uid ? await getCRMSessionForUser(uid) : session
-          const tickets = await callCRM(s.id, sess.sessionId, sess.identity, url, from, to)
-          return { name: s.name, tickets }
+          return { name: s.name, tickets: await callCRM(s.id, sess.sessionId, sess.identity, url, from, to) }
         } catch (err) {
-          errors.push(`${s.name} ${from}: ${String(err)}`)
+          errors.push(`${s.name} ${from}: ${String(err).substring(0, 80)}`)
           return { name: s.name, tickets: [] as CRMTicket[] }
         }
       })
     )
 
-    // Merge by CS_ID
+    // Merge by CS_ID (newest wins)
     const ticketMap = new Map<number, CRMTicket>()
     for (const r of fetched) {
       if (r.status === 'rejected') continue
@@ -163,12 +165,12 @@ export async function POST(req: NextRequest) {
         if (nT && (!exT || nT > exT)) ticketMap.set(t.CS_ID, t)
       }
     }
-    if (ticketMap.size === 0) continue
+    if (ticketMap.size === 0) return { newCount, updatedCount, skippedCount, rows: [] }
 
     const allTickets = Array.from(ticketMap.values())
     const keys = allTickets.map(t => `crm:${t.CS_ID}`)
 
-    // Fetch existing từ DB
+    // Check DB để biết cái nào đã có
     const existMap = new Map<string, { cs_update_time: string | null }>()
     for (let i = 0; i < keys.length; i += 500) {
       const { data } = await db.from('ho_tro_tickets')
@@ -177,57 +179,72 @@ export async function POST(req: NextRequest) {
       for (const row of (data ?? [])) existMap.set(row.sheet_row_key, row)
     }
 
-    // Build upsert rows
-    const rows = []
+    const rows: object[] = []
     for (const t of allTickets) {
-      const key = `crm:${t.CS_ID}`
-      const crmUpdateTime = parseCRMTime(t.CS_UpdateTime)
-      const existing = existMap.get(key)
-      const handler = extractHandler(t.CS_Memo ?? '')
-      if (!handler) { totalSkipped++; continue }
+      const key            = `crm:${t.CS_ID}`
+      const crmUpdateTime  = parseCRMTime(t.CS_UpdateTime)
+      const existing       = existMap.get(key)
+      const handler        = extractHandler(t.CS_Memo ?? '')
+      if (!handler) { skippedCount++; continue }
 
       if (existing) {
         const dbMs  = existing.cs_update_time ? new Date(existing.cs_update_time).getTime() : 0
         const crmMs = crmUpdateTime ? new Date(crmUpdateTime).getTime() : 0
         if (crmMs <= dbMs) {
-          // Luôn update customer_id và zone (backfill)
-          rows.push({
-            sheet_row_key: key,
-            customer_id:   t.Cust_ID ? String(t.Cust_ID) : null,
-            zone:          t.Cust_SaleManAssistant_Zone || null,
+          rows.push({ sheet_row_key: key,
+            customer_id: t.Cust_ID ? String(t.Cust_ID) : null,
+            zone: t.Cust_SaleManAssistant_Zone || null,
           })
           continue
         }
-        totalUpdated++
+        updatedCount++
       } else {
-        totalNew++
+        newCount++
       }
 
       rows.push({
-        sheet_row_key:    key,
-        staff_name:       handler,
-        ticket_date:      t.CS_Date,
-        company:          t.Cust_Name  || null,
-        contact:          t.CM_Name    || null,
-        ticket_type:      t.CC_Name    || null,
-        direction:        t.CS_IO      || null,
-        content:          t.CS_Context || null,
-        reply:            t.CS_Memo    || null,
-        speed_tag:        parseSpeedTag(t.CS_Memo ?? ''),
-        code:             String(t.CS_ID),
-        customer_id:      t.Cust_ID ? String(t.Cust_ID) : null,
-        zone:             t.Cust_SaleManAssistant_Zone || null,
-        created_by:       user.id,
-        cs_update_time:   crmUpdateTime,
+        sheet_row_key: key, staff_name: handler,
+        ticket_date: t.CS_Date, company: t.Cust_Name || null,
+        contact: t.CM_Name || null, ticket_type: t.CC_Name || null,
+        direction: t.CS_IO || null, content: t.CS_Context || null,
+        reply: t.CS_Memo || null, speed_tag: parseSpeedTag(t.CS_Memo ?? ''),
+        code: String(t.CS_ID),
+        customer_id: t.Cust_ID ? String(t.Cust_ID) : null,
+        zone: t.Cust_SaleManAssistant_Zone || null,
+        created_by: user.id, cs_update_time: crmUpdateTime,
         has_unread_update: false,
       })
     }
 
-    // Upsert
-    for (let i = 0; i < rows.length; i += 500) {
+    return { newCount, updatedCount, skippedCount, rows }
+  }
+
+  // ── Xử lý tất cả tháng SONG SONG theo batches (tránh quá tải CRM) ──
+  const BATCH_SIZE = 6   // 6 tháng cùng lúc → ~5 vòng cho 30 tháng
+  let totalNew = 0, totalUpdated = 0, totalSkipped = 0
+
+  for (let i = 0; i < months.length; i += BATCH_SIZE) {
+    const batch = months.slice(i, i + BATCH_SIZE)
+
+    // Fetch BATCH_SIZE tháng song song
+    const batchResults = await Promise.allSettled(
+      batch.map(({ from, to }) => processMonth(from, to))
+    )
+
+    // Gom toàn bộ rows từ batch → upsert 1 lần
+    const allRows: object[] = []
+    for (const r of batchResults) {
+      if (r.status === 'rejected') { errors.push(String(r.reason)); continue }
+      totalNew      += r.value.newCount
+      totalUpdated  += r.value.updatedCount
+      totalSkipped  += r.value.skippedCount
+      allRows.push(...r.value.rows)
+    }
+
+    for (let j = 0; j < allRows.length; j += 500) {
       const { error } = await db.from('ho_tro_tickets')
-        .upsert(rows.slice(i, i + 500), { onConflict: 'sheet_row_key' })
-      if (error) errors.push(`upsert ${from}: ${error.message}`)
+        .upsert(allRows.slice(j, j + 500) as Parameters<typeof db.from>[0][], { onConflict: 'sheet_row_key' })
+      if (error) errors.push(`upsert batch ${i}: ${error.message}`)
     }
   }
 

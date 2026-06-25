@@ -74,7 +74,7 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form.toString(),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(20_000),
   })
   if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
   const json: CRMResponse = JSON.parse(await resp.text())
@@ -82,15 +82,10 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
   return json.result ?? []
 }
 
+export const runtime     = 'nodejs'
+export const maxDuration = 120   // 2 phút — đủ cho full sync 5 staff
+
 // ── POST /api/crm/sync ─────────────────────────────────────────────────────
-//
-// mode=full  (admin only): sync cả 5 staff cùng lúc, không lọc hashtag
-//            → dùng cho lần đầu khởi tạo dữ liệu
-//
-// mode=self  (default):    sync theo staff của user đang đăng nhập
-//            → record mới chỉ được thêm nếu CS_Memo có hashtag tên mình
-//            → record đã có → update nếu CS_UpdateTime mới hơn
-//
 export async function POST(req: NextRequest) {
   // Cho phép internal call từ cron job (xác thực bằng x-cron-secret header)
   const cronSecret = process.env.CRON_SECRET
@@ -340,4 +335,22 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < rows.length; i += 500) {
     const batch = rows.slice(i, i + 500)
     const { error } = await db.from('ho_tro_tickets').upsert(batch, { onConflict: 'sheet_row_key' })
-    if (error) return NextRes
+    if (error) return NextResponse.json({ error: error.message, saved }, { status: 500 })
+    saved += batch.length
+  }
+
+  return NextResponse.json({
+    ok:               true,
+    mode,
+    myNickName,
+    totalFetched,
+    perStaffRaw,
+    uniqueAfterMerge: allTickets.length,
+    newCount,
+    updatedCount,
+    skippedCount,
+    rejectedCount,
+    saved,
+    fetchErrors:      Object.keys(fetchErrors).length ? fetchErrors : undefined,
+  })
+}
