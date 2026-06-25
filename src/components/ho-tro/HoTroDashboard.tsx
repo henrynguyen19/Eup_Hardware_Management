@@ -1326,4 +1326,38 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             </div>
             <div className="p-5">
               {staffPendingLoading ? (
-                <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full 
+                <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" /></div>
+              ) : !staffPendingTickets.length ? (
+                <div className="text-center py-12 text-gray-400">
+                  <p className="text-2xl mb-2">OK</p>
+                  <p className="text-sm">Khong co yeu cau can theo doi</p>
+                  <p className="text-xs mt-1">Bam Lam moi truoc de dong bo du lieu</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs text-gray-500 mb-3">{staffPendingTickets.length} yeu cau</p>
+                  {staffPendingTickets.map((t, i) => (
+                    <div key={String(t.id ?? i)} className="bg-red-50 border border-red-100 rounded-xl p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">{String(t.code || '-')}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${t.speed_tag === 'mai_bao_lai' ? 'bg-pink-100 text-pink-700' : 'bg-purple-100 text-purple-700'}`}>
+                            {t.speed_tag === 'mai_bao_lai' ? 'Mai bao lai' : 'Hen'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400 whitespace-nowrap">{String(t.ticket_date ?? '')}</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-700 mb-1">{String(t.company || 'KH khong ro')}</p>
+                      {t.content && <p className="text-xs text-gray-600 mb-1 line-clamp-2">{String(t.content)}</p>}
+                      {t.reply && <p className="text-xs text-gray-500 italic line-clamp-2">{String(t.reply)}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
