@@ -28,18 +28,49 @@ interface DebugResponse {
   data: StaffResult[]
 }
 
-const STAFF_LIST = ['Tất cả', 'Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
+interface SessionInfo {
+  staffId: number
+  name: string
+  status: string
+  isExpired?: boolean
+  sessionId?: string
+  expiresAt?: string
+  updatedAt?: string
+}
 
+interface SessionCheckResponse {
+  ok: boolean
+  now: string
+  sessions: SessionInfo[]
+}
+
+interface ReloginResult {
+  name: string
+  staffId: number
+  ok: boolean
+  ms?: number
+  error?: string
+  sessionPreview?: string
+}
+
+const STAFF_LIST = ['Tất cả', 'Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
 type Filter = 'rejected' | 'ok' | 'all'
 
 export default function CRMDebugPage() {
-  const [loading, setLoading]   = useState(false)
-  const [result, setResult]     = useState<DebugResponse | null>(null)
-  const [error, setError]       = useState<string | null>(null)
-  const [staff, setStaff]       = useState('Tất cả')
-  const [filter, setFilter]     = useState<Filter>('rejected')
-  const [limit, setLimit]       = useState(300)
-  const [expandMemo, setExpandMemo] = useState<Set<number>>(new Set())
+  const [loading, setLoading]         = useState(false)
+  const [result, setResult]           = useState<DebugResponse | null>(null)
+  const [error, setError]             = useState<string | null>(null)
+  const [staff, setStaff]             = useState('Tất cả')
+  const [filter, setFilter]           = useState<Filter>('rejected')
+  const [limit, setLimit]             = useState(300)
+  const [expandMemo, setExpandMemo]   = useState<Set<number>>(new Set())
+
+  // Session panel
+  const [sessLoading, setSessLoading] = useState(false)
+  const [sessions, setSessions]       = useState<SessionInfo[] | null>(null)
+  const [reloginLoading, setReloginLoading] = useState(false)
+  const [reloginResults, setReloginResults] = useState<ReloginResult[] | null>(null)
+  const [sessError, setSessError]     = useState<string | null>(null)
 
   async function fetchDebug() {
     setLoading(true); setError(null); setResult(null)
@@ -52,6 +83,35 @@ export default function CRMDebugPage() {
       setResult(json)
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
+  }
+
+  async function checkSessions() {
+    setSessLoading(true); setSessError(null); setSessions(null); setReloginResults(null)
+    try {
+      const res  = await fetch('/api/crm/session-check')
+      const json: SessionCheckResponse = await res.json()
+      if (!json.ok) throw new Error('Lỗi khi check session')
+      setSessions(json.sessions)
+    } catch (e) { setSessError(String(e)) }
+    finally { setSessLoading(false) }
+  }
+
+  async function forceRelogin(staffId?: number) {
+    setReloginLoading(true); setSessError(null); setReloginResults(null)
+    try {
+      const body = staffId ? { staffId } : {}
+      const res  = await fetch('/api/crm/session-check', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      })
+      const json = await res.json()
+      if (!json.ok) throw new Error(json.error ?? 'Lỗi re-login')
+      setReloginResults(json.reloginResults)
+      // Refresh session list sau khi re-login
+      await checkSessions()
+    } catch (e) { setSessError(String(e)) }
+    finally { setReloginLoading(false) }
   }
 
   function toggleMemo(id: number) {
@@ -74,11 +134,85 @@ export default function CRMDebugPage() {
           <a href="/ho-tro" className="text-sm text-gray-400 hover:text-blue-600">← Hỗ trợ kỹ thuật</a>
           <h1 className="text-2xl font-bold text-gray-900 mt-1">🔍 CRM Reject Analyzer</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Xem dữ liệu thô từ CRM và lý do ticket bị bỏ qua khi sync. Mục đích: kiểm tra CS_Memo thực tế.
+            Debug ticket bị reject + kiểm tra session CRM. Dùng khi sync bị timeout liên tục.
           </p>
         </div>
 
-        {/* Controls */}
+        {/* ── SESSION PANEL ── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="font-semibold text-gray-800 text-sm">🔐 Trạng thái Session CRM</h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Nếu sync bị timeout → check session trước. Session hết hạn → Force Re-login.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={checkSessions} disabled={sessLoading}
+                className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-50 transition disabled:opacity-40">
+                {sessLoading ? '⏳ Đang check...' : '🔍 Check Sessions'}
+              </button>
+              <button onClick={() => forceRelogin()} disabled={reloginLoading || sessLoading}
+                className="px-3 py-1.5 bg-orange-500 text-white rounded-lg text-xs font-medium hover:bg-orange-600 transition disabled:opacity-40">
+                {reloginLoading ? '⏳ Đang re-login...' : '🔄 Force Re-login Tất Cả'}
+              </button>
+            </div>
+          </div>
+
+          {sessError && (
+            <div className="text-red-600 text-xs bg-red-50 rounded-lg p-2">{sessError}</div>
+          )}
+
+          {sessions && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mt-2">
+              {sessions.map(s => (
+                <div key={s.staffId}
+                  className={`rounded-lg border p-2.5 text-xs ${
+                    s.status === 'no_cache'  ? 'border-gray-200 bg-gray-50' :
+                    s.isExpired              ? 'border-red-200 bg-red-50' :
+                                               'border-green-200 bg-green-50'
+                  }`}>
+                  <div className="font-semibold text-gray-800 mb-1">{s.name}</div>
+                  <div className={`font-medium ${
+                    s.status === 'no_cache' ? 'text-gray-400' :
+                    s.isExpired             ? 'text-red-600'  : 'text-green-600'
+                  }`}>
+                    {s.status === 'no_cache' ? '⚪ Chưa có cache' :
+                     s.isExpired             ? `🔴 ${s.status}` :
+                                               `🟢 ${s.status}`}
+                  </div>
+                  {s.updatedAt && (
+                    <div className="text-gray-400 mt-1">
+                      Login lúc: {new Date(s.updatedAt).toLocaleString('vi-VN', { hour:'2-digit', minute:'2-digit', day:'2-digit', month:'2-digit' })}
+                    </div>
+                  )}
+                  <button onClick={() => forceRelogin(s.staffId)} disabled={reloginLoading}
+                    className="mt-1.5 text-[10px] text-orange-500 hover:text-orange-700 underline disabled:opacity-40">
+                    Re-login riêng
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Re-login results */}
+          {reloginResults && (
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+              {reloginResults.map((r, i) => (
+                <div key={i} className={`rounded-lg border p-2.5 text-xs ${r.ok ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
+                  <div className="font-semibold text-gray-800">{r.name}</div>
+                  {r.ok
+                    ? <><div className="text-green-600 font-medium">✅ OK ({r.ms}ms)</div>
+                        <div className="text-gray-400 font-mono">{r.sessionPreview}</div></>
+                    : <div className="text-red-600 break-all">{r.error}</div>
+                  }
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── TICKET DEBUG PANEL ── */}
         <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5 flex flex-wrap gap-3 items-end">
           <div>
             <label className="text-xs font-medium text-gray-500 block mb-1">Nhân viên</label>
@@ -109,24 +243,35 @@ export default function CRMDebugPage() {
             className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-40 self-end">
             {loading ? '⏳ Đang tải CRM...' : '🔍 Fetch & Phân tích'}
           </button>
+          {loading && (
+            <div className="text-xs text-gray-400 self-end pb-2">
+              Đang gọi CRM SOAP... (~10-20s, nếu quá 30s là CRM timeout)
+            </div>
+          )}
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-4 text-sm">{error}</div>
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-4 text-sm">
+            <strong>Lỗi:</strong> {error}
+            {error.includes('timeout') || error.includes('Timeout') ? (
+              <div className="mt-2 text-xs text-red-500">
+                💡 CRM bị timeout → Thử <strong>Force Re-login</strong> ở panel trên rồi fetch lại.
+                Nếu re-login cũng timeout thì CRM SOAP server đang có vấn đề (không phải lỗi code).
+              </div>
+            ) : null}
+          </div>
         )}
 
         {/* Summary */}
         {result && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
-              {/* Tổng */}
               <div className="md:col-span-1 bg-white rounded-xl border border-gray-200 p-3">
                 <div className="text-xs text-gray-500 mb-1">Tổng cộng</div>
                 <div className="text-2xl font-bold text-gray-800">{totalRaw}</div>
                 <div className="text-xs text-red-500 mt-1">❌ Reject: {totalRejected}</div>
                 <div className="text-xs text-green-500">✅ OK: {totalRaw - totalRejected}</div>
               </div>
-              {/* Per staff */}
               {result.data.map(s => (
                 <div key={s.staffName}
                   className={`bg-white rounded-xl border p-3 ${s.error ? 'border-red-300' : s.noHandler > 0 ? 'border-orange-200' : 'border-gray-200'}`}>
@@ -139,7 +284,6 @@ export default function CRMDebugPage() {
                         <div className={`text-xs ${s.noHandler > 0 ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
                           ❌ {s.noHandler} không tên
                         </div>
-                        {/* breakdown */}
                         {Object.keys(s.handlerBreakdown).length > 0 && (
                           <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-gray-400 space-y-0.5">
                             {Object.entries(s.handlerBreakdown)
