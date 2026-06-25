@@ -1507,6 +1507,56 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   )}
                 </div>
 
+                {/* Recharts: Xu hướng theo ngày */}
+                {days.length > 1 && (
+                  <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
+                    <h3 className="font-semibold text-gray-700 mb-3">Xu hướng theo ngày</h3>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <ComposedChart data={days.map(d => ({
+                        date: `${d.date.slice(0,2)}/${d.date.slice(3,5)}`,
+                        'Tổng YC': d.total,
+                        'Cần theo dõi': d.hen + d.maiBoLai,
+                      }))} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} />
+                        <Tooltip />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        <Bar dataKey="Tổng YC" fill="#60a5fa" radius={[3,3,0,0]} />
+                        <Line type="monotone" dataKey="Cần theo dõi" stroke="#f87171" strokeWidth={2} dot={{ r: 3 }} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Recharts: Phân loại xử lý theo ngày */}
+                {days.length > 1 && (
+                  <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
+                    <h3 className="font-semibold text-gray-700 mb-3">Phân loại xử lý theo ngày</h3>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={days.map(d => ({
+                        date: `${d.date.slice(0,2)}/${d.date.slice(3,5)}`,
+                        '#f Nhanh': d.fast,
+                        '#n Thường': d.normal,
+                        '#l Thấp': d.low,
+                        'Hẹn': d.hen,
+                        'MBL': d.maiBoLai,
+                      }))} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} />
+                        <Tooltip />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        <Bar dataKey="#f Nhanh"  stackId="a" fill="#34d399" />
+                        <Bar dataKey="#n Thường" stackId="a" fill="#60a5fa" />
+                        <Bar dataKey="#l Thấp"   stackId="a" fill="#fb923c" />
+                        <Bar dataKey="Hẹn"       stackId="a" fill="#c084fc" />
+                        <Bar dataKey="MBL"        stackId="a" fill="#f472b6" radius={[3,3,0,0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
                 {/* Daily table */}
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                   <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
