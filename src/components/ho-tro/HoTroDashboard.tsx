@@ -914,6 +914,10 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchCRMTickets(1) }, [periodMode, selectedWeekKey, selectedMonthIdx])
 
+  // Re-fetch stats khi tab Thống kê được mở hoặc kỳ thay đổi
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (activeTab === 'stats') fetchStatsData() }, [activeTab, periodMode, selectedWeekKey, selectedMonthIdx])
+
   // ── CRM Ticket List (Tab Yêu cầu) ────────────────────────────
   interface CRMTicketRow {
     id: number; code: string; ticket_date: string; cs_update_time: string | null
@@ -953,6 +957,23 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       setCrmPage(page)
     } catch (_e) { /* ignore */ }
     finally { setCrmTicketsLoading(false) }
+  }
+
+  // ── Stats from CRM ──
+  const [statsTickets, setStatsTickets] = useState<CRMTicketRow[]>([])
+  const [statsLoading, setStatsLoading] = useState(false)
+
+  async function fetchStatsData() {
+    setStatsLoading(true)
+    try {
+      const dateRange = getTicketDateRange()
+      const p = new URLSearchParams({ limit: '2000', crmOnly: 'true', sortBy: 'ticket_date' })
+      if (dateRange) { p.set('dateFrom', dateRange.dateFrom); p.set('dateTo', dateRange.dateTo) }
+      const res  = await fetch(`/api/ho-tro/tickets?${p}`)
+      const json = await res.json()
+      setStatsTickets(json.tickets ?? [])
+    } catch (_e) { /* ignore */ }
+    finally { setStatsLoading(false) }
   }
 
   // Helpers
@@ -1366,195 +1387,195 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             )}
           </div>
 
-        ) : /* activeTab === 'stats' */ isAdmin ? (
-          /* ── Stats: Admin → SummaryView ── */
-          <>
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h2 className="font-bold text-gray-800 text-lg">Tổng quan nhóm</h2>
-                <p className="text-sm text-gray-400">
-                  {periodMode === 'tuan' && selectedWeekKey
-                    ? `Tuần ${isoWeekBounds(selectedWeekKey).label} — tổng hợp tất cả nhân viên`
-                    : `Tháng ${selectedMonth.month}/${selectedMonth.yearShort} — tổng hợp tất cả nhân viên`
-                  }
-                </p>
-              </div>
-              {summaryLoading && (
-                <div className="flex items-center gap-2 text-sm text-teal-600">
-                  <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
-                  Đang tải...
-                </div>
-              )}
-            </div>
-            <SummaryView
-              staffMap={filteredStaffMap}
-              allStaff={allStaff}
-              month={selectedMonth.month}
-              yearShort={selectedMonth.yearShort}
-              loading={summaryLoading}
-            />
-          </>
-
         ) : (
-          /* ── Stats: Member → individual charts ── */
-          <>
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h2 className="font-bold text-gray-800 text-lg">Thống kê của bạn</h2>
-                <p className="text-sm text-gray-400">
-                  {periodMode === 'tuan' && selectedWeekKey
-                    ? `Tuần ${isoWeekBounds(selectedWeekKey).label} · ${totalDays} ngày`
-                    : `${sheetName || `tháng ${selectedMonth.month}/${selectedMonth.yearShort}`}${totalDays > 0 ? ` · ${totalDays} ngày` : ''}`
-                  }
-                </p>
+          /* ── Tab: Thống kê (CRM data) ── */
+          (() => {
+            // ── Tính toán thống kê từ CRM tickets ──
+            const total   = statsTickets.length
+            const fast    = statsTickets.filter(t => t.speed_tag === 'fast').length
+            const pending = statsTickets.filter(t => t.speed_tag === 'hen' || t.speed_tag === 'mai_bao_lai').length
+            const fastPct = total ? Math.round((fast / total) * 100) : 0
+
+            // By day
+            const byDay: Record<string, number> = {}
+            for (const t of statsTickets) {
+              const d = t.ticket_date?.slice(0, 10) ?? ''
+              if (d) byDay[d] = (byDay[d] ?? 0) + 1
+            }
+            const dailyData = Object.entries(byDay)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([date, count]) => ({
+                date: date.slice(5).replace('-', '/'), // MM/DD
+                'Yêu cầu': count,
+              }))
+
+            // By staff (admin only)
+            const byStaff: Record<string, number> = {}
+            for (const t of statsTickets) {
+              byStaff[t.staff_name] = (byStaff[t.staff_name] ?? 0) + 1
+            }
+
+            // By staff + day stacked (admin)
+            const staffDayMap: Record<string, Record<string, number>> = {}
+            for (const t of statsTickets) {
+              const d = t.ticket_date?.slice(0, 10) ?? ''
+              if (!d) continue
+              if (!staffDayMap[d]) staffDayMap[d] = {}
+              staffDayMap[d][t.staff_name] = (staffDayMap[d][t.staff_name] ?? 0) + 1
+            }
+            const stackedData = Object.entries(staffDayMap)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([date, vals]) => ({ date: date.slice(5).replace('-', '/'), ...vals }))
+
+            // Speed tag
+            const SPEED_LABEL: Record<string, string> = {
+              fast: '⚡ Nhanh', normal: '• Thường', low: '↓ Thấp',
+              hen: '📅 Hẹn', mai_bao_lai: '🔁 Mai báo lại',
+            }
+            const SPEED_COLOR: Record<string, string> = {
+              fast: '#22c55e', normal: '#94a3b8', low: '#64748b',
+              hen: '#a855f7', mai_bao_lai: '#ec4899',
+            }
+            const speedCounts: Record<string, number> = {}
+            for (const t of statsTickets) {
+              const tag = t.speed_tag ?? 'normal'
+              speedCounts[tag] = (speedCounts[tag] ?? 0) + 1
+            }
+            const speedPie = Object.entries(speedCounts).map(([k, v]) => ({
+              name: SPEED_LABEL[k] ?? k, value: v, color: SPEED_COLOR[k] ?? '#94a3b8',
+            }))
+
+            // Ticket type
+            const byType: Record<string, number> = {}
+            for (const t of statsTickets) {
+              if (t.ticket_type) byType[t.ticket_type] = (byType[t.ticket_type] ?? 0) + 1
+            }
+
+            // Active staff
+            const activeStaff = new Set(statsTickets.map(t => t.staff_name)).size
+
+            const periodLabel = periodMode === 'tuan' && selectedWeekKey
+              ? `Tuần ${isoWeekBounds(selectedWeekKey).label}`
+              : `Tháng ${selectedMonth.month}/${selectedMonth.yearShort}`
+
+            const C = 'bg-white rounded-xl border border-gray-200 p-5'
+            const xProps = { tick: { fontSize: 9 }, interval: 'preserveStartEnd' as const }
+            const yProps = { tick: { fontSize: 9 } }
+            const STAFF_BAR_COLORS = ['#3b82f6','#a855f7','#22c55e','#ec4899','#f97316']
+            const staffNames = Array.from(new Set(statsTickets.map(t => t.staff_name)))
+
+            if (statsLoading) return (
+              <div className="flex items-center justify-center py-20 gap-2 text-teal-600">
+                <div className="w-5 h-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm">Đang tải thống kê...</span>
               </div>
-              {loading && (
-                <div className="flex items-center gap-2 text-sm text-teal-600">
-                  <div className="w-4 h-4 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
-                  Đang tải...
-                </div>
-              )}
-            </div>
+            )
 
-            {error && !loading && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-sm text-amber-700 mb-5">
-                {error}
-              </div>
-            )}
-
-            {!loading && dataRows.length > 0 && (
-              <div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <StatCard icon="📞" label="Tổng yêu cầu"      value={totalRequests.toLocaleString()} sub={`${totalDays} ngày làm việc`} color="blue" />
-                  <StatCard icon="⏱️" label="TG xử lý TB"       value={`${avgTime} phút`} sub="Trung bình/ngày" color="purple" />
-                  <StatCard icon="⚡" label="Xử lý nhanh (#f)"  value={`${resolveRate}%`} sub={`${totalFast} yêu cầu`} color="green" />
-                  <StatCard icon="🔴" label="Cần theo dõi"      value={totalPending} sub="Hen / mai bao lai" color="red" onClick={() => { setShowStaffPending(true); fetchStaffPending(viewingStaff?.name) }} />
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-5 mb-6">
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h3 className="font-semibold text-gray-700 mb-4">Thiết bị (top 6)</h3>
-                    <HorizBar data={deviceSum} total={totalRequests} color="bg-blue-500" maxBars={6} />
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h3 className="font-semibold text-gray-700 mb-4">Địa điểm</h3>
-                    <HorizBar data={locationSum} total={totalRequests} color="bg-teal-500" maxBars={6} />
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h3 className="font-semibold text-gray-700 mb-4">Kênh tiếp nhận</h3>
-                    <HorizBar data={channelSum} total={totalRequests} color="bg-indigo-500" maxBars={3} />
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h3 className="font-semibold text-gray-700 mb-4">Loại lỗi (top 6)</h3>
-                    <HorizBar data={errorSum} total={totalRequests} color="bg-orange-400" maxBars={6} />
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                    <h3 className="font-semibold text-gray-700">Chi tiết theo ngày</h3>
-                    <span className="text-xs text-gray-400">{dataRows.length} ngày</span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                          <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngày</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">YC</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">TG TB</th>
-        
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-green-600">#f</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-amber-600">#n</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-red-500">#l</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-purple-600">Hẹn</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">HN</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">HP</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">ĐN</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">HCM</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">BD</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">Zalo</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">Hotline</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dataRows.map((r, i) => {
-                          const fast   = r.resolution['Fast'] ?? 0
-                          const normal = r.resolution['Normal'] ?? 0
-                          const low    = r.resolution['Low'] ?? 0
-                          const hen    = (r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0)
-                          return (
-                            <tr key={r.sortKey} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50/70 ${i % 2 === 1 ? 'bg-gray-50/30' : ''}`}>
-                              <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{r.date}</td>
-                              <td className="px-3 py-2.5 text-right font-bold text-blue-700">{r.total_requests}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.avg_time}p</td>
-                              <td className="px-3 py-2.5 text-right text-green-600">{fast || <span className="text-gray-300">-</span>}</td>
-                              <td className="px-3 py-2.5 text-right text-amber-600">{normal || <span className="text-gray-300">-</span>}</td>
-                              <td className="px-3 py-2.5 text-right text-red-500">{low || <span className="text-gray-300">-</span>}</td>
-                              <td className="px-3 py-2.5 text-right">
-                                {hen > 0 ? <span className="text-purple-600 font-medium">{hen}</span> : <span className="text-gray-300">-</span>}
-                              </td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Ha Noi'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Hai Phong'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Da Nang'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['HCM'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.locations['Binh Duong'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Zalo'] || '-'}</td>
-                              <td className="px-3 py-2.5 text-right text-gray-600">{r.channels['Hotline'] || '-'}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                      <tfoot className="border-t-2 border-gray-300 bg-blue-50">
-                        <tr>
-                          <td className="px-4 py-3 font-bold text-gray-800">
-                            {periodMode === 'tuan' ? 'Tổng tuần' : 'Tổng tháng'}
-                          </td>
-                          <td className="px-3 py-3 text-right font-bold text-blue-800">{totalRequests}</td>
-                          <td className="px-3 py-3 text-right text-gray-600">{avgTime}p</td>
-                          <td className="px-3 py-3 text-right font-bold text-green-700">{totalFast || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium text-amber-600">
-                            {dataRows.reduce((s, r) => s + (r.resolution['Normal'] ?? 0), 0) || '-'}
-                          </td>
-                          <td className="px-3 py-3 text-right font-medium text-red-500">
-                            {dataRows.reduce((s, r) => s + (r.resolution['Low'] ?? 0), 0) || '-'}
-                          </td>
-                          <td className="px-3 py-3 text-right">
-                            {totalPending > 0 ? <span className="text-purple-700 font-bold">{totalPending}</span> : <span className="text-gray-300">-</span>}
-                          </td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['Ha Noi'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['Hai Phong'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['Da Nang'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['HCM'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{locationSum['Binh Duong'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{channelSum['Zalo'] || '-'}</td>
-                          <td className="px-3 py-3 text-right font-medium">{channelSum['Hotline'] || '-'}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {!loading && dataRows.length === 0 && !error && (
+            if (!total) return (
               <div className="text-center py-20 text-gray-400">
-                <div className="text-5xl mb-4">📋</div>
+                <div className="text-5xl mb-4">📊</div>
                 <p className="text-lg font-medium text-gray-500">Không có dữ liệu</p>
-                <p className="text-sm mt-1">Chưa có báo cáo cho kỳ này</p>
+                <p className="text-sm mt-1">Chưa có yêu cầu nào trong {periodLabel}</p>
               </div>
-            )}
+            )
 
-            {!isAdmin && !staffConfig && (
-              <div className="text-center py-20 text-gray-400">
-                <div className="text-5xl mb-4">🔗</div>
-                <p className="text-lg font-medium text-gray-500">Chưa được liên kết</p>
-                <p className="text-sm mt-1">Tài khoản chưa được gắn sheet báo cáo. Liên hệ Admin.</p>
+            return (
+              <div>
+                {/* Header */}
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <h2 className="font-bold text-gray-800 text-lg">
+                      {isAdmin ? 'Tổng quan nhóm' : 'Thống kê của bạn'}
+                    </h2>
+                    <p className="text-sm text-gray-400">{periodLabel} · {total} yêu cầu từ CRM</p>
+                  </div>
+                </div>
+
+                {/* KPI Cards */}
+                <div className={`grid gap-3 mb-6 ${isAdmin ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
+                  <StatCard icon="📞" label="Tổng yêu cầu"     value={total.toLocaleString()} color="blue" />
+                  <StatCard icon="⚡" label="Xử lý nhanh"      value={`${fastPct}%`} sub={`${fast} yêu cầu`} color="green" />
+                  <StatCard icon="📅" label="Cần theo dõi"     value={pending} sub="Hẹn + Mai báo lại" color="red" />
+                  {isAdmin && <StatCard icon="👥" label="Nhân viên" value={activeStaff} color="teal" />}
+                </div>
+
+                {/* Charts row 1 */}
+                <div className="grid md:grid-cols-2 gap-5 mb-5">
+                  {/* Daily trend */}
+                  <div className={C}>
+                    <h3 className="font-semibold text-gray-700 mb-4">Yêu cầu theo ngày</h3>
+                    {dailyData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={dailyData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="date" {...xProps} />
+                          <YAxis {...yProps} />
+                          <Tooltip />
+                          <Bar dataKey="Yêu cầu" fill="#3b82f6" radius={[3,3,0,0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : <p className="text-xs text-gray-400">Không có dữ liệu</p>}
+                  </div>
+
+                  {/* Speed tag pie */}
+                  <div className={C}>
+                    <h3 className="font-semibold text-gray-700 mb-4">Phân loại xử lý</h3>
+                    {speedPie.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={180}>
+                        <PieChart>
+                          <Pie data={speedPie} dataKey="value" nameKey="name"
+                            cx="50%" cy="50%" outerRadius={65} label={({ name, percent }) => `${name} ${Math.round(percent*100)}%`}
+                            labelLine={false}>
+                            {speedPie.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : <p className="text-xs text-gray-400">Không có dữ liệu</p>}
+                  </div>
+                </div>
+
+                {/* Admin: stacked by staff */}
+                {isAdmin && stackedData.length > 0 && (
+                  <div className={`${C} mb-5`}>
+                    <h3 className="font-semibold text-gray-700 mb-4">Yêu cầu theo nhân viên / ngày</h3>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={stackedData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="date" {...xProps} />
+                        <YAxis {...yProps} />
+                        <Tooltip />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        {staffNames.map((name, i) => (
+                          <Bar key={name} dataKey={name} stackId="a"
+                            fill={STAFF_BAR_COLORS[i % STAFF_BAR_COLORS.length]}
+                            radius={i === staffNames.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Row 2: staff breakdown + ticket type */}
+                <div className="grid md:grid-cols-2 gap-5">
+                  {isAdmin && (
+                    <div className={C}>
+                      <h3 className="font-semibold text-gray-700 mb-4">Tổng theo nhân viên</h3>
+                      <HorizBar data={byStaff} total={total} color="bg-blue-500" maxBars={10} />
+                    </div>
+                  )}
+                  {Object.keys(byType).length > 0 && (
+                    <div className={C}>
+                      <h3 className="font-semibold text-gray-700 mb-4">Loại yêu cầu (top 8)</h3>
+                      <HorizBar data={byType} total={total} color="bg-orange-400" maxBars={8} />
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-          </>
+            )
+          })()
         )}
       </div>
-
       {/* ── Success toast ── */}
       {successMsg && (
         <div className="fixed bottom-6 right-6 z-50 bg-teal-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2">
