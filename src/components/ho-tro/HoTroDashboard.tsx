@@ -862,6 +862,23 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [crmSyncing, setCrmSyncing] = useState(false)
   const [crmResult, setCrmResult] = useState<string | null>(null)
 
+  async function handleSyncAll() {
+    setCrmSyncing(true); setCrmResult('')
+    try {
+      const r = await fetch('/api/crm/sync-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromYear: 2024 }),
+      })
+      const d = await r.json() as { ok?: boolean; totalNew?: number; totalUpdated?: number; months?: number; errors?: string[]; error?: string }
+      if (!r.ok) { setCrmResult(`❌ ${d.error ?? 'Lỗi sync-all'}`); return }
+      setCrmResult(`✅ Sync-all xong: ${d.months} tháng — mới: ${d.totalNew}, cập nhật: ${d.totalUpdated}`)
+      fetchCRMTickets(1)
+    } catch (err) {
+      setCrmResult(`❌ ${err instanceof Error ? err.message : String(err)}`)
+    } finally { setCrmSyncing(false) }
+  }
+
   async function handleSyncCRM(mode: 'self' | 'full' = 'self') {
     setCrmSyncing(true)
     setCrmResult(null)
@@ -1185,6 +1202,16 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   {crmSyncing ? '⏳' : '🏢'} Full Sync
                 </button>
               )}
+              {isAdmin && (
+                <button
+                  onClick={handleSyncAll}
+                  disabled={crmSyncing}
+                  title="Sync toàn bộ lịch sử CRM từ 2024 đến nay (chạy lâu ~3-5 phút)"
+                  className="px-2.5 py-2 text-sm text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded-lg border border-orange-200 transition disabled:opacity-40 whitespace-nowrap"
+                >
+                  {crmSyncing ? '⏳' : '📦'} Sync All
+                </button>
+              )}
               <button
                 onClick={() => handleSyncCRM('self')}
                 disabled={crmSyncing}
@@ -1332,7 +1359,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                         <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" title="Có cập nhật mới" />
                       )}
                       <span className="font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded shrink-0">
-                        {t.customer_id ?? `#${t.code}`}
+                        {t.customer_id ?? '—'}
                       </span>
                       {isAdmin && (
                         <span className={`text-xs px-2 py-0.5 rounded font-medium shrink-0 ${STAFF_COLORS[t.staff_name] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -1948,7 +1975,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className={`font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded`}>
-                            {t.customer_id ?? `#${t.code}`}
+                            {t.customer_id ?? '—'}
                           </span>
                           {isAdmin && (
                             <span className={`text-xs px-2 py-0.5 rounded font-medium ${STAFF_COLORS[t.staff_name] ?? 'bg-gray-100 text-gray-600'}`}>

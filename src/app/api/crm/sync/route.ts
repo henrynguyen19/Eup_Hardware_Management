@@ -235,12 +235,12 @@ export async function POST(req: NextRequest) {
 
   // ── Fetch existing từ DB ──
   const keys = allTickets.map(t => `crm:${t.CS_ID}`)
-  type ExistingRow = { sheet_row_key: string; cs_update_time: string | null; has_unread_update: boolean }
+  type ExistingRow = { sheet_row_key: string; cs_update_time: string | null; has_unread_update: boolean; customer_id: string | null; zone: string | null }
   const existingMap = new Map<string, ExistingRow>()
   for (let i = 0; i < keys.length; i += 500) {
     const { data } = await db
       .from('ho_tro_tickets')
-      .select('sheet_row_key, cs_update_time, has_unread_update')
+      .select('sheet_row_key, cs_update_time, has_unread_update, customer_id, zone')
       .in('sheet_row_key', keys.slice(i, i + 500))
     for (const row of (data ?? [])) existingMap.set(row.sheet_row_key, row as ExistingRow)
   }
@@ -259,7 +259,19 @@ export async function POST(req: NextRequest) {
       if (existing.cs_update_time && crmUpdateTime) {
         const dbMs  = new Date(existing.cs_update_time).getTime()
         const crmMs = new Date(crmUpdateTime).getTime()
-        if (crmMs <= dbMs) { skippedCount++; continue } // Không đổi → bỏ qua
+        if (crmMs <= dbMs) {
+          // Không đổi — nhưng backfill customer_id/zone nếu đang null
+          if (!existing.customer_id || !existing.zone) {
+            rows.push({
+              sheet_row_key: key,
+              customer_id:   t.Cust_ID ? String(t.Cust_ID) : null,
+              zone:          t.Cust_SaleManAssistant_Zone || null,
+            })
+          } else {
+            skippedCount++
+          }
+          continue
+        }
       }
       // CS_UpdateTime mới hơn → update + flag unread
       updatedCount++
