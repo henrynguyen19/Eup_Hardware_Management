@@ -60,6 +60,7 @@ interface CRMTicket {
   CS_RecordTime: string; CS_UpdateTime: string; CS_Task: string; CS_SPlace: string
   CS_Miles: string; CS_Attached: string; CS_HighlightStaffID: number
   CS_HighlightStaffName: string; Cust_ID: number; Cust_Name: string
+  Cust_SaleManAssistant_Zone: string
 }
 interface CRMResponse { status: number; error: string; result: CRMTicket[] }
 
@@ -274,6 +275,7 @@ export async function POST(req: NextRequest) {
         reply:            t.CS_Memo    || null,
         speed_tag:        parseSpeedTag(t.CS_Memo ?? ''),
         code:             String(t.CS_ID),
+        zone:             t.Cust_SaleManAssistant_Zone || null,
         created_by:       user?.id ?? 'cron',
         cs_update_time:   crmUpdateTime,
         has_unread_update: true,
@@ -309,6 +311,7 @@ export async function POST(req: NextRequest) {
         reply:            t.CS_Memo    || null,
         speed_tag:        parseSpeedTag(t.CS_Memo ?? ''),
         code:             String(t.CS_ID),
+        zone:             t.Cust_SaleManAssistant_Zone || null,
         created_by:       user?.id ?? 'cron',
         cs_update_time:   crmUpdateTime,
         has_unread_update: false, // record mới không cần thông báo

@@ -1396,14 +1396,67 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             // ── Tổng hợp CRM tickets thành daily records giả ──
             // Group theo ngày để dùng lại UI bảng + biểu đồ cũ
             type CRMDay = {
-              date: string           // DD/MM/YYYY
-              sortKey: string        // YYYY-MM-DD
-              total: number
-              fast: number; normal: number; low: number
-              hen: number; maiBoLai: number
-              byStaff: Record<string, number>
-              byType: Record<string, number>
+              date: string; sortKey: string; total: number
+              fast: number; normal: number; low: number; hen: number; maiBoLai: number
+              byStaff: Record<string, number>; byType: Record<string, number>
+              byDevice: Record<string, number>; byError: Record<string, number>
+              byLocation: Record<string, number>; byChannel: Record<string, number>
             }
+
+            // ── Parse hashtags từ CS_Memo (reply) ──
+            function parseMemoDevice(memo: string): string | null {
+              const t = (memo ?? '').toLowerCase()
+              if (/#vn88 4gh\b/.test(t))     return 'VN88 4GH'
+              if (/#vn88 4g\b/.test(t))      return 'VN88 4G'
+              if (/#vn88\b/.test(t))         return 'VN88'
+              if (/#go168\b/.test(t))        return 'Go168'
+              if (/#gotrack\b/.test(t))      return 'Gotrack'
+              if (/#mt99\b/.test(t))         return 'MT99'
+              if (/#dvr\b/.test(t))          return 'DVR'
+              if (/#bw\b/.test(t))           return 'BW'
+              if (/#c43\b/.test(t))          return 'C43'
+              if (/#h5\b/.test(t))           return 'H5'
+              if (/#soji\b/.test(t))         return 'Soji'
+              if (/#fs\b/.test(t))           return 'FS100'
+              if (/#fuelsensor\b/.test(t))   return 'FuelSensor'
+              if (/#pm\b/.test(t))           return 'PM'
+              return null
+            }
+            function parseMemoErrors(memo: string): string[] {
+              const t = (memo ?? '').toLowerCase(); const r: string[] = []
+              if (/#nc\b/.test(t))      r.push('No Connect')
+              if (/#gsm\b/.test(t))     r.push('GSM')
+              if (/#gps\b/.test(t))     r.push('GPS')
+              if (/#sd\b/.test(t))      r.push('SD')
+              if (/#roaming\b/.test(t)) r.push('Roaming')
+              if (/#acc\b/.test(t))     r.push('ACC')
+              if (/#rfid\b/.test(t))    r.push('RFID')
+              if (/#pw\b/.test(t))      r.push('PW')
+              if (/#ss\b/.test(t))      r.push('SS')
+              if (/#dms\b/.test(t))     r.push('DMS')
+              if (/#adas\b/.test(t))    r.push('ADAS')
+              if (/#sp\b/.test(t))      r.push('Support')
+              if (/#io\b/.test(t))      r.push('IO')
+              return r
+            }
+            function parseMemoLocation(memo: string): string | null {
+              const t = (memo ?? '').toLowerCase()
+              if (/#hn\b/.test(t))  return 'Hà Nội'
+              if (/#hp\b/.test(t))  return 'Hải Phòng'
+              if (/#dn\b/.test(t))  return 'Đà Nẵng'
+              if (/#hcm\b/.test(t)) return 'HCM'
+              if (/#bd\b/.test(t))  return 'Bình Dương'
+              return null
+            }
+            function parseMemoChannel(memo: string, direction: string | null): string | null {
+              const t = (memo ?? '').toLowerCase()
+              const d = (direction ?? '').toLowerCase()
+              if (t.includes('zalo') || d.includes('zalo'))         return 'Zalo'
+              if (t.includes('hotline') || d.includes('hotline'))   return 'Hotline'
+              if (t.includes('ngày nghỉ') || t.includes('ngay nghi')) return 'Ngày nghỉ'
+              return null
+            }
+
             const dayMap = new Map<string, CRMDay>()
             for (const t of statsTickets) {
               const sk = t.ticket_date?.slice(0, 10) ?? ''
@@ -1413,7 +1466,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               if (!dayMap.has(sk)) dayMap.set(sk, {
                 date: dateLabel, sortKey: sk,
                 total: 0, fast: 0, normal: 0, low: 0, hen: 0, maiBoLai: 0,
-                byStaff: {}, byType: {},
+                byStaff: {}, byType: {}, byDevice: {}, byError: {}, byLocation: {}, byChannel: {},
               })
               const day = dayMap.get(sk)!
               day.total++
@@ -1424,6 +1477,17 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               else if (t.speed_tag === 'mai_bao_lai') day.maiBoLai++
               day.byStaff[t.staff_name] = (day.byStaff[t.staff_name] ?? 0) + 1
               if (t.ticket_type) day.byType[t.ticket_type] = (day.byType[t.ticket_type] ?? 0) + 1
+              const memo = (t.reply ?? '') as string
+              const dev = parseMemoDevice(memo)
+              if (dev) day.byDevice[dev] = (day.byDevice[dev] ?? 0) + 1
+              for (const e of parseMemoErrors(memo)) day.byError[e] = (day.byError[e] ?? 0) + 1
+              const loc = parseMemoLocation(memo)
+              if (loc) day.byLocation[loc] = (day.byLocation[loc] ?? 0) + 1
+              // Zone từ CRM field Cust_SaleManAssistant_Zone
+              const zone = (t as {zone?: string|null}).zone
+              if (zone) day.byLocation[zone] = (day.byLocation[zone] ?? 0) + 1
+              const ch = parseMemoChannel(memo, t.direction as string | null)
+              if (ch) day.byChannel[ch] = (day.byChannel[ch] ?? 0) + 1
             }
             const days = Array.from(dayMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 
@@ -1441,6 +1505,18 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             const byTypeTotal: Record<string, number> = {}
             for (const t of statsTickets)
               if (t.ticket_type) byTypeTotal[t.ticket_type] = (byTypeTotal[t.ticket_type] ?? 0) + 1
+
+            // Aggregate device / error / location / channel từ tất cả days
+            const byDeviceTotal: Record<string,number> = {}
+            const byErrorTotal:  Record<string,number> = {}
+            const byLocTotal:    Record<string,number> = {}
+            const byChTotal:     Record<string,number> = {}
+            for (const d of days) {
+              for (const [k,v] of Object.entries(d.byDevice))   byDeviceTotal[k] = (byDeviceTotal[k]??0)+v
+              for (const [k,v] of Object.entries(d.byError))    byErrorTotal[k]  = (byErrorTotal[k]??0)+v
+              for (const [k,v] of Object.entries(d.byLocation)) byLocTotal[k]    = (byLocTotal[k]??0)+v
+              for (const [k,v] of Object.entries(d.byChannel))  byChTotal[k]     = (byChTotal[k]??0)+v
+            }
 
             const activeStaffCount = Object.keys(byStaffTotal).length
             const periodLabel = periodMode === 'tuan' && selectedWeekKey
@@ -1461,10 +1537,60 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               </div>
             )
 
+            // ── Build chart data từ CRM days ──
+            const STAFF_COLORS: Record<string,string> = {
+              Kane:'#3b82f6', Stefan:'#10b981', Shiro:'#f59e0b', Irene:'#8b5cf6', Blue:'#ec4899'
+            }
+            const SPEED_COLORS = ['#34d399','#60a5fa','#fb923c','#c084fc','#f472b6']
+            const PIE_COLORS   = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316']
+
+            // Chart 1 — Total request
+            const chartTotal = days.map(d => ({
+              date: d.date.slice(0,5),
+              'Tổng YC': d.total,
+              '#f Nhanh': d.fast,
+              'Cần XĐ':  d.hen + d.maiBoLai,
+            }))
+
+            // Chart 2 — Response time (resolution breakdown)
+            const chartResolution = days.map(d => ({
+              date: d.date.slice(0,5),
+              '#f Nhanh':  d.fast,
+              '#n Thường': d.normal,
+              '#l Thấp':   d.low,
+              'Hẹn':       d.hen,
+              'MBL':        d.maiBoLai,
+            }))
+
+            // Chart 3 — Pending %
+            const chartPendPct = days.map(d => ({
+              date: d.date.slice(0,5),
+              'Cần theo dõi (%)': d.total ? +((( d.hen + d.maiBoLai) / d.total) * 100).toFixed(1) : 0,
+            }))
+
+            // Chart 4 — Staff weekly (% của mỗi người mỗi ngày)
+            const staffNames4 = Object.keys(byStaffTotal).sort()
+            const chartStaff = days.map(d => {
+              const row: Record<string,string|number> = { date: d.date.slice(0,5) }
+              staffNames4.forEach(n => {
+                row[n] = d.total ? +((( d.byStaff[n] ?? 0) / d.total) * 100).toFixed(1) : 0
+              })
+              return row
+            })
+
+            // Chart 6 — Staff bar tổng
+            const chartStaffBar = Object.entries(byStaffTotal)
+              .sort((a,b) => b[1]-a[1])
+              .map(([name,value]) => ({ name, value }))
+
+            const xP  = { tick: { fontSize: 9 }, interval: 'preserveStartEnd' as const }
+            const yP  = { tick: { fontSize: 9 } }
+            const C8  = 'bg-white rounded-xl border border-gray-200 p-4'
+
             return (
               <div>
                 {/* Header */}
-                <div className="mb-5 flex items-center justify-between">
+                <div className="mb-4 flex items-center justify-between">
                   <div>
                     <h2 className="font-bold text-gray-800 text-lg">
                       {isAdmin ? 'Tổng quan nhóm' : 'Thống kê của bạn'}
@@ -1473,89 +1599,166 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   </div>
                 </div>
 
-                {/* KPI */}
-                <div className={`grid gap-3 mb-6 ${isAdmin ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
+                {/* KPI row */}
+                <div className={`grid gap-3 mb-5 ${isAdmin ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
                   <StatCard icon="📞" label="Tổng yêu cầu"    value={totalReq.toLocaleString()} sub={`${days.length} ngày`} color="blue" />
                   <StatCard icon="⚡" label="Xử lý nhanh (#f)" value={`${fastPct}%`} sub={`${totalFastC} yêu cầu`} color="green" />
                   <StatCard icon="📅" label="Cần theo dõi"    value={totalPendC} sub="Hẹn + Mai báo lại" color="red" />
                   {isAdmin && <StatCard icon="👥" label="Nhân viên" value={activeStaffCount} color="teal" />}
                 </div>
 
-                {/* HorizBar charts */}
-                <div className="grid md:grid-cols-2 gap-5 mb-6">
-                  {isAdmin && (
-                    <div className="bg-white rounded-xl border border-gray-200 p-5">
-                      <h3 className="font-semibold text-gray-700 mb-4">Nhân viên</h3>
-                      <HorizBar data={byStaffTotal} total={totalReq} color="bg-blue-500" maxBars={6} />
-                    </div>
-                  )}
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h3 className="font-semibold text-gray-700 mb-4">Phân loại xử lý</h3>
-                    <HorizBar data={{
-                      '⚡ Nhanh (#f)':       days.reduce((s,d)=>s+d.fast,0),
-                      '• Thường (#n)':       days.reduce((s,d)=>s+d.normal,0),
-                      '↓ Thấp (#l)':         days.reduce((s,d)=>s+d.low,0),
-                      '📅 Hẹn':             days.reduce((s,d)=>s+d.hen,0),
-                      '🔁 Mai báo lại':      days.reduce((s,d)=>s+d.maiBoLai,0),
-                    }} total={totalReq} color="bg-teal-500" maxBars={5} />
-                  </div>
-                  {Object.keys(byTypeTotal).length > 0 && (
-                    <div className="bg-white rounded-xl border border-gray-200 p-5">
-                      <h3 className="font-semibold text-gray-700 mb-4">Loại yêu cầu (top 6)</h3>
-                      <HorizBar data={byTypeTotal} total={totalReq} color="bg-orange-400" maxBars={6} />
-                    </div>
-                  )}
-                </div>
-
-                {/* Recharts: Xu hướng theo ngày */}
-                {days.length > 1 && (
-                  <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
-                    <h3 className="font-semibold text-gray-700 mb-3">Xu hướng theo ngày</h3>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <ComposedChart data={days.map(d => ({
-                        date: `${d.date.slice(0,2)}/${d.date.slice(3,5)}`,
-                        'Tổng YC': d.total,
-                        'Cần theo dõi': d.hen + d.maiBoLai,
-                      }))} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                {/* Row 1 — 4 charts */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+                  {/* Chart 1: Total number of request */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">Total number of request</p>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <ComposedChart data={chartTotal} margin={{top:4,right:4,bottom:0,left:-20}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                        <YAxis tick={{ fontSize: 10 }} />
+                        <XAxis dataKey="date" {...xP} />
+                        <YAxis {...yP} />
                         <Tooltip />
-                        <Legend wrapperStyle={{ fontSize: 11 }} />
-                        <Bar dataKey="Tổng YC" fill="#60a5fa" radius={[3,3,0,0]} />
-                        <Line type="monotone" dataKey="Cần theo dõi" stroke="#f87171" strokeWidth={2} dot={{ r: 3 }} />
+                        <Legend wrapperStyle={{fontSize:9}} />
+                        <Bar dataKey="Tổng YC" fill="#60a5fa" radius={[2,2,0,0]} />
+                        <Bar dataKey="#f Nhanh" fill="#34d399" radius={[2,2,0,0]} />
+                        <Line type="monotone" dataKey="Cần XĐ" stroke="#f87171" strokeWidth={1.5} dot={{r:2}} />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
-                )}
 
-                {/* Recharts: Phân loại xử lý theo ngày */}
-                {days.length > 1 && (
-                  <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
-                    <h3 className="font-semibold text-gray-700 mb-3">Phân loại xử lý theo ngày</h3>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={days.map(d => ({
-                        date: `${d.date.slice(0,2)}/${d.date.slice(3,5)}`,
-                        '#f Nhanh': d.fast,
-                        '#n Thường': d.normal,
-                        '#l Thấp': d.low,
-                        'Hẹn': d.hen,
-                        'MBL': d.maiBoLai,
-                      }))} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                  {/* Chart 2: Response time breakdown */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">Response time for processing</p>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <BarChart data={chartResolution} margin={{top:4,right:4,bottom:0,left:-20}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                        <YAxis tick={{ fontSize: 10 }} />
+                        <XAxis dataKey="date" {...xP} />
+                        <YAxis {...yP} />
                         <Tooltip />
-                        <Legend wrapperStyle={{ fontSize: 11 }} />
-                        <Bar dataKey="#f Nhanh"  stackId="a" fill="#34d399" />
-                        <Bar dataKey="#n Thường" stackId="a" fill="#60a5fa" />
-                        <Bar dataKey="#l Thấp"   stackId="a" fill="#fb923c" />
-                        <Bar dataKey="Hẹn"       stackId="a" fill="#c084fc" />
-                        <Bar dataKey="MBL"        stackId="a" fill="#f472b6" radius={[3,3,0,0]} />
+                        <Legend wrapperStyle={{fontSize:9}} />
+                        {['#f Nhanh','#n Thường','#l Thấp','Hẹn','MBL'].map((k,i) => (
+                          <Bar key={k} dataKey={k} stackId="a" fill={SPEED_COLORS[i]} radius={i===4?[2,2,0,0]:undefined} />
+                        ))}
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                )}
+
+                  {/* Chart 3: Pending % */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">Percentage of pending requests</p>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <LineChart data={chartPendPct} margin={{top:4,right:4,bottom:0,left:-20}}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="date" {...xP} />
+                        <YAxis unit="%" {...yP} />
+                        <Tooltip formatter={(v: number) => `${v}%`} />
+                        <Line type="monotone" dataKey="Cần theo dõi (%)" stroke="#3b82f6" strokeWidth={2} dot={{r:3}} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Chart 4: Staff weekly progress */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">Weekly chart of department's work progress</p>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <LineChart data={chartStaff} margin={{top:4,right:4,bottom:0,left:-20}}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="date" {...xP} />
+                        <YAxis unit="%" {...yP} />
+                        <Tooltip formatter={(v: number) => `${v}%`} />
+                        <Legend wrapperStyle={{fontSize:9}} />
+                        {staffNames4.map(n => (
+                          <Line key={n} type="monotone" dataKey={n} stroke={STAFF_COLORS[n] ?? '#6b7280'}
+                            strokeWidth={1.5} dot={{r:2}} />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Row 2 — 4 charts */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+                  {/* Chart 5: Device pie — Rate devices getting errors */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">Rate devices getting errors by week</p>
+                    {Object.keys(byDeviceTotal).length ? (
+                      <ResponsiveContainer width="100%" height={170}>
+                        <PieChart>
+                          <Pie data={Object.entries(byDeviceTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))}
+                            cx="38%" cy="50%" outerRadius={65}
+                            dataKey="value" label={({name,percent}) => percent>0.04?`${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
+                            {Object.keys(byDeviceTotal).map((_,i) => <Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip />
+                          <Legend wrapperStyle={{fontSize:8}} layout="vertical" align="right" verticalAlign="middle" />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : <p className="text-xs text-gray-400 mt-8 text-center">Chưa có hashtag thiết bị<br/>(#vn88, #c43, #dvr…)</p>}
+                  </div>
+
+                  {/* Chart 6: Office bar — number of requests by location */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">The number of requests is divided by office</p>
+                    {Object.keys(byLocTotal).length ? (
+                      <ResponsiveContainer width="100%" height={170}>
+                        <BarChart data={Object.entries(byLocTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))}
+                          margin={{top:4,right:8,bottom:20,left:-20}}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="name" tick={{fontSize:9}} angle={-20} textAnchor="end" />
+                          <YAxis {...yP} />
+                          <Tooltip />
+                          <Bar dataKey="value" name="YC" radius={[3,3,0,0]}>
+                            {Object.keys(byLocTotal).map((_,i) => <Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : <p className="text-xs text-gray-400 mt-8 text-center">Chưa có hashtag văn phòng<br/>(#hn, #hp, #dn, #hcm, #bd)</p>}
+                  </div>
+
+                  {/* Chart 7: Channel % — Zalo / Hotline / Ngày nghỉ */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">The percentage of requirement received</p>
+                    {Object.keys(byChTotal).length ? (
+                      <ResponsiveContainer width="100%" height={170}>
+                        <LineChart data={days.map(d => {
+                          const tot = Object.values(d.byChannel).reduce((s,v)=>s+v,0) || 1
+                          const row: Record<string,string|number> = { date: d.date.slice(0,5) }
+                          Object.keys(byChTotal).forEach(ch => {
+                            row[`${ch} (%)`] = +((( d.byChannel[ch]??0)/tot)*100).toFixed(1)
+                          })
+                          return row
+                        })} margin={{top:4,right:4,bottom:0,left:-20}}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="date" {...xP} />
+                          <YAxis unit="%" {...yP} />
+                          <Tooltip formatter={(v:number) => `${v}%`} />
+                          <Legend wrapperStyle={{fontSize:9}} />
+                          {Object.keys(byChTotal).map((ch,i) => (
+                            <Line key={ch} type="monotone" dataKey={`${ch} (%)`} stroke={PIE_COLORS[i]} strokeWidth={1.5} dot={{r:2}} />
+                          ))}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : <p className="text-xs text-gray-400 mt-8 text-center">Chưa có dữ liệu kênh<br/>(zalo / hotline trong memo)</p>}
+                  </div>
+
+                  {/* Chart 8: Error rate pie */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">Error rate chart encountered during the week</p>
+                    {Object.keys(byErrorTotal).length ? (
+                      <ResponsiveContainer width="100%" height={170}>
+                        <PieChart>
+                          <Pie data={Object.entries(byErrorTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))}
+                            cx="38%" cy="50%" outerRadius={65}
+                            dataKey="value" label={({name,percent}) => percent>0.04?`${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
+                            {Object.keys(byErrorTotal).map((_,i) => <Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip />
+                          <Legend wrapperStyle={{fontSize:8}} layout="vertical" align="right" verticalAlign="middle" />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : <p className="text-xs text-gray-400 mt-8 text-center">Chưa có hashtag lỗi<br/>(#nc, #gsm, #gps, #acc…)</p>}
+                  </div>
+                </div>
 
                 {/* Daily table */}
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
