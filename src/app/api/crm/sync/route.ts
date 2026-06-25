@@ -91,16 +91,29 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
 //            → record đã có → update nếu CS_UpdateTime mới hơn
 //
 export async function POST(req: NextRequest) {
-  const supabase = createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Cho phép internal call từ cron job (xác thực bằng x-cron-secret header)
+  const cronSecret = process.env.CRON_SECRET
+  const internalCall = cronSecret && req.headers.get('x-cron-secret') === cronSecret
 
-  const db = adminClient()
-  const { data: permData } = await db
-    .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = permData?.permissions ?? []
-  if (!perms.includes('admin:users') && !perms.includes('ho_tro:write'))
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  let isAdmin = false
+  let user: { id: string } | null = null
+
+  if (!internalCall) {
+    const supabase = createSupabaseServerClient()
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    user = authUser
+
+    const db2 = adminClient()
+    const { data: permData } = await db2
+      .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
+    const perms: string[] = permData?.permissions ?? []
+    if (!perms.includes('admin:users') && !perms.includes('ho_tro:write'))
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    isAdmin = perms.includes('admin:users')
+  } else {
+    isAdmin = true // cron luôn chạy với quyền admin (full sync)
+  }
 
   const url = process.env.CRM_SOAP_URL
   if (!url) return NextResponse.json({ error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
@@ -113,20 +126,8 @@ export async function POST(req: NextRequest) {
   const mode = body.mode ?? 'self'
 
   // Full mode chỉ dành cho admin
-  if (mode === 'full' && !perms.includes('admin:users'))
+  if (mode === 'full' && !isAdmin)
     return NextResponse.json({ error: 'Full sync chỉ dành cho admin' }, { status: 403 })
-
-  // Lấy session của user đang đăng nhập
-  let crmSession: { sessionId: string; crm_staff_id: number; identity: string }
-  try {
-    crmSession = await getCRMSessionForUser(user.id)
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 400 })
-  }
-
-  // Lấy nick_name của user (Kane/Stefan/...) để kiểm tra hashtag
-  const creds = await getCRMCredentials(user.id)
-  const myNickName = creds?.crm_nick_name ?? null  // ví dụ: "Kane"
 
   // ── Xác định danh sách staff cần fetch ──
   const FULL_STAFF = [
@@ -137,22 +138,46 @@ export async function POST(req: NextRequest) {
     { id: 9268, name: 'Blue'   },
   ]
 
-  const staffToFetch = mode === 'full'
-    ? FULL_STAFF
-    : [{ id: crmSession.crm_staff_id, name: myNickName ?? 'Self' }]
+  let staffToFetch: { id: number; name: string }[]
+  let myNickName: string | null = null
 
-  // ── Fetch từ CRM (song song nếu full) ──
+  if (mode === 'full') {
+    // Full sync: tất cả nhân viên (cron hoặc admin)
+    staffToFetch = FULL_STAFF
+  } else {
+    // Self sync: chỉ user đang đăng nhập
+    if (!user) return NextResponse.json({ error: 'user required for self sync' }, { status: 400 })
+    let crmSession: { sessionId: string; crm_staff_id: number; identity: string }
+    try {
+      crmSession = await getCRMSessionForUser(user.id)
+    } catch (err) {
+      return NextResponse.json({ error: String(err) }, { status: 400 })
+    }
+    const creds = await getCRMCredentials(user.id)
+    myNickName = creds?.crm_nick_name ?? null
+    staffToFetch = [{ id: crmSession.crm_staff_id, name: myNickName ?? 'Self' }]
+  }
+
+  const db = adminClient()
+
+  // ── Fetch từ CRM (song song, mỗi staff tự login bằng credentials riêng) ──
   const fetchResults = await Promise.allSettled(
-    staffToFetch.map(s =>
-      callCRMSoap(s.id, crmSession.sessionId, crmSession.identity, url)
-        .then(tickets => ({ name: s.name, tickets }))
-        .catch(err => {
-          const msg = String(err)
-          if (msg.includes('status=0') || msg.includes('401'))
-            invalidateCRMSession(crmSession.crm_staff_id)
-          return { name: s.name, tickets: [] as CRMTicket[], error: msg }
-        })
-    )
+    staffToFetch.map(async s => {
+      try {
+        // Lấy user_id tương ứng với staff name
+        const { data: mapping } = await db
+          .from('user_crm_mapping')
+          .select('user_id')
+          .ilike('crm_nick_name', s.name)
+          .single()
+        if (!mapping?.user_id) throw new Error(`Không tìm thấy mapping cho ${s.name}`)
+        const session = await getCRMSessionForUser(mapping.user_id)
+        const tickets = await callCRMSoap(s.id, session.sessionId, session.identity, url)
+        return { name: s.name, tickets, userId: mapping.user_id }
+      } catch (err) {
+        return { name: s.name, tickets: [] as CRMTicket[], error: String(err), userId: '' }
+      }
+    })
   )
 
   // ── Merge & dedup by CS_ID ──
@@ -225,7 +250,7 @@ export async function POST(req: NextRequest) {
         reply:            t.CS_Memo    || null,
         speed_tag:        parseSpeedTag(t.CS_Memo ?? ''),
         code:             String(t.CS_ID),
-        created_by:       user.id,
+        created_by:       user?.id ?? 'cron',
         cs_update_time:   crmUpdateTime,
         has_unread_update: true,
       })
@@ -260,7 +285,7 @@ export async function POST(req: NextRequest) {
         reply:            t.CS_Memo    || null,
         speed_tag:        parseSpeedTag(t.CS_Memo ?? ''),
         code:             String(t.CS_ID),
-        created_by:       user.id,
+        created_by:       user?.id ?? 'cron',
         cs_update_time:   crmUpdateTime,
         has_unread_update: false, // record mới không cần thông báo
       })

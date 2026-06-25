@@ -905,9 +905,12 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     finally { setUnreadLoading(false) }
   }
 
-  // Load unread on mount
+  // Load unread + auto-sync khi mở trang
   useEffect(() => {
     fetchUnreadUpdates()
+    // Tự động đồng bộ dữ liệu CRM khi mở trang (silent)
+    handleSyncCRM(isAdmin ? 'full' : 'self')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Re-fetch ticket list khi thay đổi kỳ lọc (tuần/tháng) — chạy cả lần đầu
@@ -1387,82 +1390,62 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             )}
           </div>
 
-        ) : (
-          /* ── Tab: Thống kê (CRM data) ── */
+        ) : /* activeTab === 'stats' */ (
+          /* ── Tab: Thống kê — CRM data, UI cũ ── */
           (() => {
-            // ── Tính toán thống kê từ CRM tickets ──
-            const total   = statsTickets.length
-            const fast    = statsTickets.filter(t => t.speed_tag === 'fast').length
-            const pending = statsTickets.filter(t => t.speed_tag === 'hen' || t.speed_tag === 'mai_bao_lai').length
-            const fastPct = total ? Math.round((fast / total) * 100) : 0
-
-            // By day
-            const byDay: Record<string, number> = {}
+            // ── Tổng hợp CRM tickets thành daily records giả ──
+            // Group theo ngày để dùng lại UI bảng + biểu đồ cũ
+            type CRMDay = {
+              date: string           // DD/MM/YYYY
+              sortKey: string        // YYYY-MM-DD
+              total: number
+              fast: number; normal: number; low: number
+              hen: number; maiBoLai: number
+              byStaff: Record<string, number>
+              byType: Record<string, number>
+            }
+            const dayMap = new Map<string, CRMDay>()
             for (const t of statsTickets) {
-              const d = t.ticket_date?.slice(0, 10) ?? ''
-              if (d) byDay[d] = (byDay[d] ?? 0) + 1
+              const sk = t.ticket_date?.slice(0, 10) ?? ''
+              if (!sk) continue
+              const [y, m, d] = sk.split('-')
+              const dateLabel = `${d}/${m}/${y}`
+              if (!dayMap.has(sk)) dayMap.set(sk, {
+                date: dateLabel, sortKey: sk,
+                total: 0, fast: 0, normal: 0, low: 0, hen: 0, maiBoLai: 0,
+                byStaff: {}, byType: {},
+              })
+              const day = dayMap.get(sk)!
+              day.total++
+              if      (t.speed_tag === 'fast')        day.fast++
+              else if (t.speed_tag === 'normal')      day.normal++
+              else if (t.speed_tag === 'low')         day.low++
+              else if (t.speed_tag === 'hen')         day.hen++
+              else if (t.speed_tag === 'mai_bao_lai') day.maiBoLai++
+              day.byStaff[t.staff_name] = (day.byStaff[t.staff_name] ?? 0) + 1
+              if (t.ticket_type) day.byType[t.ticket_type] = (day.byType[t.ticket_type] ?? 0) + 1
             }
-            const dailyData = Object.entries(byDay)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([date, count]) => ({
-                date: date.slice(5).replace('-', '/'), // MM/DD
-                'Yêu cầu': count,
-              }))
+            const days = Array.from(dayMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey))
 
-            // By staff (admin only)
-            const byStaff: Record<string, number> = {}
-            for (const t of statsTickets) {
-              byStaff[t.staff_name] = (byStaff[t.staff_name] ?? 0) + 1
-            }
+            const totalReq  = days.reduce((s, d) => s + d.total, 0)
+            const totalFastC  = days.reduce((s, d) => s + d.fast, 0)
+            const totalPendC  = days.reduce((s, d) => s + d.hen + d.maiBoLai, 0)
+            const fastPct   = totalReq ? Math.round((totalFastC / totalReq) * 100) : 0
 
-            // By staff + day stacked (admin)
-            const staffDayMap: Record<string, Record<string, number>> = {}
-            for (const t of statsTickets) {
-              const d = t.ticket_date?.slice(0, 10) ?? ''
-              if (!d) continue
-              if (!staffDayMap[d]) staffDayMap[d] = {}
-              staffDayMap[d][t.staff_name] = (staffDayMap[d][t.staff_name] ?? 0) + 1
-            }
-            const stackedData = Object.entries(staffDayMap)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([date, vals]) => ({ date: date.slice(5).replace('-', '/'), ...vals }))
+            // Tổng theo nhân viên
+            const byStaffTotal: Record<string, number> = {}
+            for (const t of statsTickets)
+              byStaffTotal[t.staff_name] = (byStaffTotal[t.staff_name] ?? 0) + 1
 
-            // Speed tag
-            const SPEED_LABEL: Record<string, string> = {
-              fast: '⚡ Nhanh', normal: '• Thường', low: '↓ Thấp',
-              hen: '📅 Hẹn', mai_bao_lai: '🔁 Mai báo lại',
-            }
-            const SPEED_COLOR: Record<string, string> = {
-              fast: '#22c55e', normal: '#94a3b8', low: '#64748b',
-              hen: '#a855f7', mai_bao_lai: '#ec4899',
-            }
-            const speedCounts: Record<string, number> = {}
-            for (const t of statsTickets) {
-              const tag = t.speed_tag ?? 'normal'
-              speedCounts[tag] = (speedCounts[tag] ?? 0) + 1
-            }
-            const speedPie = Object.entries(speedCounts).map(([k, v]) => ({
-              name: SPEED_LABEL[k] ?? k, value: v, color: SPEED_COLOR[k] ?? '#94a3b8',
-            }))
+            // Tổng loại yêu cầu
+            const byTypeTotal: Record<string, number> = {}
+            for (const t of statsTickets)
+              if (t.ticket_type) byTypeTotal[t.ticket_type] = (byTypeTotal[t.ticket_type] ?? 0) + 1
 
-            // Ticket type
-            const byType: Record<string, number> = {}
-            for (const t of statsTickets) {
-              if (t.ticket_type) byType[t.ticket_type] = (byType[t.ticket_type] ?? 0) + 1
-            }
-
-            // Active staff
-            const activeStaff = new Set(statsTickets.map(t => t.staff_name)).size
-
+            const activeStaffCount = Object.keys(byStaffTotal).length
             const periodLabel = periodMode === 'tuan' && selectedWeekKey
               ? `Tuần ${isoWeekBounds(selectedWeekKey).label}`
               : `Tháng ${selectedMonth.month}/${selectedMonth.yearShort}`
-
-            const C = 'bg-white rounded-xl border border-gray-200 p-5'
-            const xProps = { tick: { fontSize: 9 }, interval: 'preserveStartEnd' as const }
-            const yProps = { tick: { fontSize: 9 } }
-            const STAFF_BAR_COLORS = ['#3b82f6','#a855f7','#22c55e','#ec4899','#f97316']
-            const staffNames = Array.from(new Set(statsTickets.map(t => t.staff_name)))
 
             if (statsLoading) return (
               <div className="flex items-center justify-center py-20 gap-2 text-teal-600">
@@ -1470,12 +1453,11 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 <span className="text-sm">Đang tải thống kê...</span>
               </div>
             )
-
-            if (!total) return (
+            if (!totalReq) return (
               <div className="text-center py-20 text-gray-400">
                 <div className="text-5xl mb-4">📊</div>
                 <p className="text-lg font-medium text-gray-500">Không có dữ liệu</p>
-                <p className="text-sm mt-1">Chưa có yêu cầu nào trong {periodLabel}</p>
+                <p className="text-sm mt-1">Chưa có yêu cầu nào trong {periodLabel}. Hãy đồng bộ CRM trước.</p>
               </div>
             )
 
@@ -1487,89 +1469,110 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     <h2 className="font-bold text-gray-800 text-lg">
                       {isAdmin ? 'Tổng quan nhóm' : 'Thống kê của bạn'}
                     </h2>
-                    <p className="text-sm text-gray-400">{periodLabel} · {total} yêu cầu từ CRM</p>
+                    <p className="text-sm text-gray-400">{periodLabel} · {totalReq} yêu cầu từ CRM</p>
                   </div>
                 </div>
 
-                {/* KPI Cards */}
+                {/* KPI */}
                 <div className={`grid gap-3 mb-6 ${isAdmin ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
-                  <StatCard icon="📞" label="Tổng yêu cầu"     value={total.toLocaleString()} color="blue" />
-                  <StatCard icon="⚡" label="Xử lý nhanh"      value={`${fastPct}%`} sub={`${fast} yêu cầu`} color="green" />
-                  <StatCard icon="📅" label="Cần theo dõi"     value={pending} sub="Hẹn + Mai báo lại" color="red" />
-                  {isAdmin && <StatCard icon="👥" label="Nhân viên" value={activeStaff} color="teal" />}
+                  <StatCard icon="📞" label="Tổng yêu cầu"    value={totalReq.toLocaleString()} sub={`${days.length} ngày`} color="blue" />
+                  <StatCard icon="⚡" label="Xử lý nhanh (#f)" value={`${fastPct}%`} sub={`${totalFastC} yêu cầu`} color="green" />
+                  <StatCard icon="📅" label="Cần theo dõi"    value={totalPendC} sub="Hẹn + Mai báo lại" color="red" />
+                  {isAdmin && <StatCard icon="👥" label="Nhân viên" value={activeStaffCount} color="teal" />}
                 </div>
 
-                {/* Charts row 1 */}
-                <div className="grid md:grid-cols-2 gap-5 mb-5">
-                  {/* Daily trend */}
-                  <div className={C}>
-                    <h3 className="font-semibold text-gray-700 mb-4">Yêu cầu theo ngày</h3>
-                    {dailyData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={180}>
-                        <BarChart data={dailyData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                          <XAxis dataKey="date" {...xProps} />
-                          <YAxis {...yProps} />
-                          <Tooltip />
-                          <Bar dataKey="Yêu cầu" fill="#3b82f6" radius={[3,3,0,0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    ) : <p className="text-xs text-gray-400">Không có dữ liệu</p>}
-                  </div>
-
-                  {/* Speed tag pie */}
-                  <div className={C}>
-                    <h3 className="font-semibold text-gray-700 mb-4">Phân loại xử lý</h3>
-                    {speedPie.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={180}>
-                        <PieChart>
-                          <Pie data={speedPie} dataKey="value" nameKey="name"
-                            cx="50%" cy="50%" outerRadius={65} label={({ name, percent }) => `${name} ${Math.round(percent*100)}%`}
-                            labelLine={false}>
-                            {speedPie.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    ) : <p className="text-xs text-gray-400">Không có dữ liệu</p>}
-                  </div>
-                </div>
-
-                {/* Admin: stacked by staff */}
-                {isAdmin && stackedData.length > 0 && (
-                  <div className={`${C} mb-5`}>
-                    <h3 className="font-semibold text-gray-700 mb-4">Yêu cầu theo nhân viên / ngày</h3>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={stackedData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis dataKey="date" {...xProps} />
-                        <YAxis {...yProps} />
-                        <Tooltip />
-                        <Legend wrapperStyle={{ fontSize: 11 }} />
-                        {staffNames.map((name, i) => (
-                          <Bar key={name} dataKey={name} stackId="a"
-                            fill={STAFF_BAR_COLORS[i % STAFF_BAR_COLORS.length]}
-                            radius={i === staffNames.length - 1 ? [3,3,0,0] : [0,0,0,0]} />
-                        ))}
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-
-                {/* Row 2: staff breakdown + ticket type */}
-                <div className="grid md:grid-cols-2 gap-5">
+                {/* HorizBar charts */}
+                <div className="grid md:grid-cols-2 gap-5 mb-6">
                   {isAdmin && (
-                    <div className={C}>
-                      <h3 className="font-semibold text-gray-700 mb-4">Tổng theo nhân viên</h3>
-                      <HorizBar data={byStaff} total={total} color="bg-blue-500" maxBars={10} />
+                    <div className="bg-white rounded-xl border border-gray-200 p-5">
+                      <h3 className="font-semibold text-gray-700 mb-4">Nhân viên</h3>
+                      <HorizBar data={byStaffTotal} total={totalReq} color="bg-blue-500" maxBars={6} />
                     </div>
                   )}
-                  {Object.keys(byType).length > 0 && (
-                    <div className={C}>
-                      <h3 className="font-semibold text-gray-700 mb-4">Loại yêu cầu (top 8)</h3>
-                      <HorizBar data={byType} total={total} color="bg-orange-400" maxBars={8} />
+                  <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h3 className="font-semibold text-gray-700 mb-4">Phân loại xử lý</h3>
+                    <HorizBar data={{
+                      '⚡ Nhanh (#f)':       days.reduce((s,d)=>s+d.fast,0),
+                      '• Thường (#n)':       days.reduce((s,d)=>s+d.normal,0),
+                      '↓ Thấp (#l)':         days.reduce((s,d)=>s+d.low,0),
+                      '📅 Hẹn':             days.reduce((s,d)=>s+d.hen,0),
+                      '🔁 Mai báo lại':      days.reduce((s,d)=>s+d.maiBoLai,0),
+                    }} total={totalReq} color="bg-teal-500" maxBars={5} />
+                  </div>
+                  {Object.keys(byTypeTotal).length > 0 && (
+                    <div className="bg-white rounded-xl border border-gray-200 p-5">
+                      <h3 className="font-semibold text-gray-700 mb-4">Loại yêu cầu (top 6)</h3>
+                      <HorizBar data={byTypeTotal} total={totalReq} color="bg-orange-400" maxBars={6} />
                     </div>
                   )}
+                </div>
+
+                {/* Daily table */}
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-700">Chi tiết theo ngày</h3>
+                    <span className="text-xs text-gray-400">{days.length} ngày</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngày</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">YC</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-green-600">#f</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-amber-600">#n</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-red-500">#l</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-purple-600">Hẹn</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-pink-500">MBL</th>
+                          {isAdmin && Object.keys(byStaffTotal).sort().map(n => (
+                            <th key={n} className="text-right px-3 py-3 text-gray-500 font-medium">{n}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {days.map((d, i) => (
+                          <tr key={d.sortKey} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50/70 ${i % 2 === 1 ? 'bg-gray-50/30' : ''}`}>
+                            <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{d.date}</td>
+                            <td className="px-3 py-2.5 text-right font-bold text-blue-700">{d.total}</td>
+                            <td className="px-3 py-2.5 text-right text-green-600">{d.fast || <span className="text-gray-300">-</span>}</td>
+                            <td className="px-3 py-2.5 text-right text-amber-600">{d.normal || <span className="text-gray-300">-</span>}</td>
+                            <td className="px-3 py-2.5 text-right text-red-500">{d.low || <span className="text-gray-300">-</span>}</td>
+                            <td className="px-3 py-2.5 text-right">
+                              {d.hen > 0 ? <span className="text-purple-600 font-medium">{d.hen}</span> : <span className="text-gray-300">-</span>}
+                            </td>
+                            <td className="px-3 py-2.5 text-right">
+                              {d.maiBoLai > 0 ? <span className="text-pink-600 font-medium">{d.maiBoLai}</span> : <span className="text-gray-300">-</span>}
+                            </td>
+                            {isAdmin && Object.keys(byStaffTotal).sort().map(n => (
+                              <td key={n} className="px-3 py-2.5 text-right text-gray-600">
+                                {d.byStaff[n] || <span className="text-gray-300">-</span>}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="border-t-2 border-gray-300 bg-blue-50">
+                        <tr>
+                          <td className="px-4 py-3 font-bold text-gray-800">
+                            {periodMode === 'tuan' ? 'Tổng tuần' : 'Tổng tháng'}
+                          </td>
+                          <td className="px-3 py-3 text-right font-bold text-blue-800">{totalReq}</td>
+                          <td className="px-3 py-3 text-right font-bold text-green-700">{totalFastC || '-'}</td>
+                          <td className="px-3 py-3 text-right font-medium text-amber-600">{days.reduce((s,d)=>s+d.normal,0) || '-'}</td>
+                          <td className="px-3 py-3 text-right font-medium text-red-500">{days.reduce((s,d)=>s+d.low,0) || '-'}</td>
+                          <td className="px-3 py-3 text-right">
+                            {totalPendC > 0 ? <span className="text-purple-700 font-bold">{days.reduce((s,d)=>s+d.hen,0)}</span> : '-'}
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            {days.reduce((s,d)=>s+d.maiBoLai,0) > 0 ? <span className="text-pink-700 font-bold">{days.reduce((s,d)=>s+d.maiBoLai,0)}</span> : '-'}
+                          </td>
+                          {isAdmin && Object.keys(byStaffTotal).sort().map(n => (
+                            <td key={n} className="px-3 py-3 text-right font-medium">{byStaffTotal[n] || '-'}</td>
+                          ))}
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
               </div>
             )

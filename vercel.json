@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/crm/cron-sync",
+      "schedule": "30 11 * * 1-5"
+    }
+  ]
+}
