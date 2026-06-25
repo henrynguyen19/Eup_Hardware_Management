@@ -23,36 +23,44 @@ export async function GET(req: NextRequest) {
   if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const sp          = new URL(req.url).searchParams
-  const staffName = sp.get('staffName')
-  const month     = sp.get('month')
-  const year      = sp.get('year')
+  const staffName   = sp.get('staffName')
+  const month       = sp.get('month')
+  const year        = sp.get('year')
   const search      = sp.get('search') ?? ''
   const pendingOnly = sp.get('pendingOnly') === 'true'
-  const page      = Math.max(1, parseInt(sp.get('page') ?? '1'))
-  const limit     = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '100')))
-  const offset    = (page - 1) * limit
+  const crmOnly     = sp.get('crmOnly') !== 'false' // mặc định chỉ lấy CRM data
+  const sortBy      = sp.get('sortBy') ?? 'cs_update_time' // cs_update_time | ticket_date
+  const page        = Math.max(1, parseInt(sp.get('page') ?? '1'))
+  const limit       = Math.min(200, Math.max(1, parseInt(sp.get('limit') ?? '50')))
+  const offset      = (page - 1) * limit
 
   let query = db.from('ho_tro_tickets').select('*', { count: 'exact' })
 
-  // Non-admin: can only see their own staff name
-  if (!isAdmin && staffName) {
-    const myName = user.email?.split('@')[0] ?? ''
-    if (staffName.toLowerCase() !== myName.toLowerCase()) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-  }
+  // Chỉ lấy data từ CRM (sheet_row_key bắt đầu bằng 'crm:')
+  if (crmOnly) query = query.like('sheet_row_key', 'crm:%')
 
-  if (staffName) query = query.ilike('staff_name', staffName)
+  // Non-admin chỉ xem data của mình (dựa vào crm_nick_name trong mapping)
+  if (!isAdmin) {
+    const { data: mapping } = await db
+      .from('user_crm_mapping')
+      .select('crm_nick_name')
+      .eq('user_id', user.id)
+      .single()
+    const myNick = mapping?.crm_nick_name ?? null
+    if (!myNick) return NextResponse.json({ tickets: [], total: 0, page, limit })
+    query = query.ilike('staff_name', myNick)
+  } else if (staffName) {
+    query = query.ilike('staff_name', staffName)
+  }
 
   if (month && year) {
     const y = year.length === 4 ? year : `20${year}`
     const m = parseInt(month)
-    const lastDay = new Date(parseInt(y), m, 0).getDate() // last day of month
+    const lastDay = new Date(parseInt(y), m, 0).getDate()
     const mStr = String(m).padStart(2, '0')
-    const lastStr = String(lastDay).padStart(2, '0')
     query = query
       .gte('ticket_date', `${y}-${mStr}-01`)
-      .lte('ticket_date', `${y}-${mStr}-${lastStr}`)
+      .lte('ticket_date', `${y}-${mStr}-${String(lastDay).padStart(2, '0')}`)
   }
 
   if (search) {
@@ -61,11 +69,12 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  if (pendingOnly) {
-    query = query.in('speed_tag', ['hen', 'mai_bao_lai'])
-  }
+  if (pendingOnly) query = query.in('speed_tag', ['hen', 'mai_bao_lai'])
 
+  // Sort: cs_update_time mới nhất lên đầu (nulls last), sau đó ticket_date
+  const sortCol = sortBy === 'ticket_date' ? 'ticket_date' : 'cs_update_time'
   const { data, error, count } = await query
+    .order(sortCol, { ascending: false, nullsFirst: false })
     .order('ticket_date', { ascending: false })
     .range(offset, offset + limit - 1)
 

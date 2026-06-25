@@ -240,15 +240,13 @@ export default function CrmTestPage() {
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-2">PREVIEW ({r.preview.length} records)</p>
                 <div className="space-y-2">
-                  {r.preview.map((row, i) => (
+                  {r.preview.map((rec, j) => (
                     <button
-                      key={i}
-                      onClick={() => setSelRow(selRow === row ? null : row)}
-                      className="w-full text-left p-2 bg-gray-50 hover:bg-blue-50 rounded-lg border border-gray-100 text-xs transition"
+                      key={j}
+                      onClick={() => setSelRow(rec)}
+                      className="w-full text-left text-xs bg-gray-50 rounded p-2 hover:bg-blue-50 truncate font-mono"
                     >
-                      <div className="font-mono text-blue-600">#{row.CS_ID as string}</div>
-                      <div className="text-gray-600 truncate">{row.CS_Date as string} · {row.Cust_Name as string}</div>
-                      <div className="text-gray-400 truncate">{String(row.CS_Memo ?? '').slice(0, 60)}</div>
+                      #{String(rec.CS_ID ?? '')} · {String(rec.CS_Date ?? '')} · {String(rec.Cust_Name ?? '?')} · {String(rec.CS_Memo ?? '').slice(0,60)}
                     </button>
                   ))}
                 </div>
@@ -257,12 +255,6 @@ export default function CrmTestPage() {
           )}
         </div>
       ))}
-
-      {results.length === 0 && (
-        <div className="text-center text-gray-400 text-sm py-16">
-          Nhập Staff ID và bấm Test để xem dữ liệu thô từ CRM
-        </div>
-      )}
 
       {/* Detail modal */}
       {selRow && (
@@ -274,9 +266,9 @@ export default function CrmTestPage() {
             </div>
             <div className="space-y-2">
               {Object.entries(selRow).map(([k, v]) => (
-                <div key={k} className="flex gap-2 text-sm border-b border-gray-50 pb-1">
-                  <span className="font-mono text-blue-600 w-36 shrink-0 text-xs">{k}</span>
-                  <span className="text-gray-700 break-all">{String(v ?? '')}</span>
+                <div key={k} className="flex gap-2 text-sm border-b border-gray-100 pb-1">
+                  <span className="text-gray-500 font-medium w-40 shrink-0">{k}</span>
+                  <span className="text-gray-800 break-all">{String(v ?? '')}</span>
                 </div>
               ))}
             </div>

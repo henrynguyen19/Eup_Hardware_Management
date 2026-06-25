@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
-import { getCRMSessionForUser, invalidateCRMSession } from '@/lib/crm-session'
+import { getCRMSessionForUser, getCRMCredentials, invalidateCRMSession } from '@/lib/crm-session'
 
 type SpeedTag = 'fast' | 'normal' | 'low' | 'hen' | 'mai_bao_lai'
 
@@ -11,14 +11,14 @@ const adminClient = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-const KNOWN_STAFF = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
+const KNOWN_STAFF       = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
 const KNOWN_STAFF_LOWER = KNOWN_STAFF.map(n => n.toLowerCase())
 
 function extractHandlerFromMemo(memo: string): string | null {
   if (!memo) return null
   const lower = memo.toLowerCase()
   for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
-    const n = KNOWN_STAFF_LOWER[i]
+    const n   = KNOWN_STAFF_LOWER[i]
     const re1 = new RegExp(`\\b${n}\\s+\\d{1,2}/\\d{1,2}`, 'i')
     const re2 = new RegExp(`\\d{1,2}/\\d{1,2}\\s+${n}\\b`, 'i')
     if (re1.test(lower) || re2.test(lower)) return KNOWN_STAFF[i]
@@ -37,13 +37,21 @@ function extractHandlerFromMemo(memo: string): string | null {
 function parseSpeedTag(memo: string): SpeedTag | null {
   const s = (memo ?? '').toLowerCase()
   let tag: SpeedTag | null = null
-  if (/#f\b/.test(s)) tag = 'fast'
-  else if (/#n\b/.test(s)) tag = 'normal'
-  else if (/#l\b/.test(s)) tag = 'low'
-  else if (/hẽn/i.test(s) || /#hen\b/i.test(s)) tag = 'hen'
+  if (/#f\b/.test(s))                                    tag = 'fast'
+  else if (/#n\b/.test(s))                               tag = 'normal'
+  else if (/#l\b/.test(s))                               tag = 'low'
+  else if (/hẽn/i.test(s) || /#hen\b/i.test(s))         tag = 'hen'
   else if (/mai báo lại/i.test(s) || /#mbl\b/i.test(s)) tag = 'mai_bao_lai'
   if (/#update\b/i.test(s) && (tag === 'hen' || tag === 'mai_bao_lai')) tag = null
   return tag
+}
+
+function parseCRMTime(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  try {
+    const d = new Date(raw.replace(' ', 'T'))
+    return isNaN(d.getTime()) ? null : d.toISOString()
+  } catch { return null }
 }
 
 interface CRMTicket {
@@ -53,12 +61,9 @@ interface CRMTicket {
   CS_Miles: string; CS_Attached: string; CS_HighlightStaffID: number
   CS_HighlightStaffName: string; Cust_ID: number; Cust_Name: string
 }
-
 interface CRMResponse { status: number; error: string; result: CRMTicket[] }
 
-async function callCRMSoap(staffId: number, sessionId: string, identity: string): Promise<CRMTicket[]> {
-  const url = process.env.CRM_SOAP_URL
-  if (!url) throw new Error('Thieu CRM_SOAP_URL')
+async function callCRMSoap(staffId: number, sessionId: string, identity: string, url: string): Promise<CRMTicket[]> {
   const form = new URLSearchParams()
   form.append('MethodName', 'GetCustServiceByStaff')
   form.append('Param', JSON.stringify({ NotRead: '0', Staff_ID: String(staffId) }))
@@ -76,6 +81,15 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string)
   return json.result ?? []
 }
 
+// ── POST /api/crm/sync ─────────────────────────────────────────────────────
+//
+// mode=full  (admin only): sync cả 5 staff cùng lúc, không lọc hashtag
+//            → dùng cho lần đầu khởi tạo dữ liệu
+//
+// mode=self  (default):    sync theo staff của user đang đăng nhập
+//            → record mới chỉ được thêm nếu CS_Memo có hashtag tên mình
+//            → record đã có → update nếu CS_UpdateTime mới hơn
+//
 export async function POST(req: NextRequest) {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -88,6 +102,21 @@ export async function POST(req: NextRequest) {
   if (!perms.includes('admin:users') && !perms.includes('ho_tro:write'))
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
+  const url = process.env.CRM_SOAP_URL
+  if (!url) return NextResponse.json({ error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
+
+  const body = await req.json().catch(() => ({})) as {
+    mode?: 'full' | 'self'
+    fromDate?: string
+    toDate?: string
+  }
+  const mode = body.mode ?? 'self'
+
+  // Full mode chỉ dành cho admin
+  if (mode === 'full' && !perms.includes('admin:users'))
+    return NextResponse.json({ error: 'Full sync chỉ dành cho admin' }, { status: 403 })
+
+  // Lấy session của user đang đăng nhập
   let crmSession: { sessionId: string; crm_staff_id: number; identity: string }
   try {
     crmSession = await getCRMSessionForUser(user.id)
@@ -95,37 +124,150 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: String(err) }, { status: 400 })
   }
 
-  const body = await req.json().catch(() => ({})) as { fromDate?: string; toDate?: string }
-  const { fromDate, toDate } = body
+  // Lấy nick_name của user (Kane/Stefan/...) để kiểm tra hashtag
+  const creds = await getCRMCredentials(user.id)
+  const myNickName = creds?.crm_nick_name ?? null  // ví dụ: "Kane"
 
-  let allTickets: CRMTicket[]
-  try {
-    allTickets = await callCRMSoap(crmSession.crm_staff_id, crmSession.sessionId, crmSession.identity)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    if (msg.includes('status=0') || msg.includes('401')) invalidateCRMSession(crmSession.crm_staff_id)
-    return NextResponse.json({ error: `CRM fetch failed: ${msg}` }, { status: 502 })
+  // ── Xác định danh sách staff cần fetch ──
+  const FULL_STAFF = [
+    { id: 9141, name: 'Kane'   },
+    { id: 9090, name: 'Stefan' },
+    { id: 9146, name: 'Shiro'  },
+    { id: 9168, name: 'Irene'  },
+    { id: 9268, name: 'Blue'   },
+  ]
+
+  const staffToFetch = mode === 'full'
+    ? FULL_STAFF
+    : [{ id: crmSession.crm_staff_id, name: myNickName ?? 'Self' }]
+
+  // ── Fetch từ CRM (song song nếu full) ──
+  const fetchResults = await Promise.allSettled(
+    staffToFetch.map(s =>
+      callCRMSoap(s.id, crmSession.sessionId, crmSession.identity, url)
+        .then(tickets => ({ name: s.name, tickets }))
+        .catch(err => {
+          const msg = String(err)
+          if (msg.includes('status=0') || msg.includes('401'))
+            invalidateCRMSession(crmSession.crm_staff_id)
+          return { name: s.name, tickets: [] as CRMTicket[], error: msg }
+        })
+    )
+  )
+
+  // ── Merge & dedup by CS_ID ──
+  const ticketMap = new Map<number, CRMTicket>()
+  const fetchErrors: Record<string, string> = {}
+  let totalFetched = 0
+
+  for (const r of fetchResults) {
+    if (r.status === 'rejected') continue
+    const { name, tickets, error } = r.value as { name: string; tickets: CRMTicket[]; error?: string }
+    if (error) { fetchErrors[name] = error; continue }
+    totalFetched += tickets.length
+    for (const t of tickets) {
+      const existing = ticketMap.get(t.CS_ID)
+      if (!existing) {
+        ticketMap.set(t.CS_ID, t)
+      } else {
+        const existT = parseCRMTime(existing.CS_UpdateTime)
+        const newT   = parseCRMTime(t.CS_UpdateTime)
+        if (newT && (!existT || newT > existT)) ticketMap.set(t.CS_ID, t)
+      }
+    }
   }
 
-  let filtered = allTickets
-  if (fromDate) filtered = filtered.filter(t => t.CS_Date >= fromDate)
-  if (toDate)   filtered = filtered.filter(t => t.CS_Date <= toDate)
+  let allTickets = Array.from(ticketMap.values())
 
-  const rows = filtered.map(t => ({
-    sheet_row_key: `crm:${t.CS_ID}`,
-    staff_name:    extractHandlerFromMemo(t.CS_Memo ?? '') ?? 'Unknown',
-    ticket_date:   t.CS_Date,
-    company:       t.Cust_Name  || null,
-    contact:       t.CM_Name    || null,
-    ticket_type:   t.CC_Name    || null,
-    direction:     t.CS_IO      || null,
-    content:       t.CS_Context || null,
-    reply:         t.CS_Memo    || null,
-    speed_tag:     parseSpeedTag(t.CS_Memo ?? ''),
-    code:          String(t.CS_ID),
-    created_by:    user.id,
-  }))
+  // Lọc date range
+  if (body.fromDate) allTickets = allTickets.filter(t => t.CS_Date >= body.fromDate!)
+  if (body.toDate)   allTickets = allTickets.filter(t => t.CS_Date <= body.toDate!)
 
+  // ── Fetch existing từ DB ──
+  const keys = allTickets.map(t => `crm:${t.CS_ID}`)
+  type ExistingRow = { sheet_row_key: string; cs_update_time: string | null; has_unread_update: boolean }
+  const existingMap = new Map<string, ExistingRow>()
+  for (let i = 0; i < keys.length; i += 500) {
+    const { data } = await db
+      .from('ho_tro_tickets')
+      .select('sheet_row_key, cs_update_time, has_unread_update')
+      .in('sheet_row_key', keys.slice(i, i + 500))
+    for (const row of (data ?? [])) existingMap.set(row.sheet_row_key, row as ExistingRow)
+  }
+
+  // ── Build rows cần upsert ──
+  let newCount = 0, updatedCount = 0, skippedCount = 0, rejectedCount = 0
+  const rows = []
+
+  for (const t of allTickets) {
+    const key           = `crm:${t.CS_ID}`
+    const crmUpdateTime = parseCRMTime(t.CS_UpdateTime)
+    const existing      = existingMap.get(key)
+
+    if (existing) {
+      // ── Record đã có trong DB ──
+      if (existing.cs_update_time && crmUpdateTime) {
+        const dbMs  = new Date(existing.cs_update_time).getTime()
+        const crmMs = new Date(crmUpdateTime).getTime()
+        if (crmMs <= dbMs) { skippedCount++; continue } // Không đổi → bỏ qua
+      }
+      // CS_UpdateTime mới hơn → update + flag unread
+      updatedCount++
+      rows.push({
+        sheet_row_key:    key,
+        staff_name:       extractHandlerFromMemo(t.CS_Memo ?? '') ?? 'Unknown',
+        ticket_date:      t.CS_Date,
+        company:          t.Cust_Name  || null,
+        contact:          t.CM_Name    || null,
+        ticket_type:      t.CC_Name    || null,
+        direction:        t.CS_IO      || null,
+        content:          t.CS_Context || null,
+        reply:            t.CS_Memo    || null,
+        speed_tag:        parseSpeedTag(t.CS_Memo ?? ''),
+        code:             String(t.CS_ID),
+        created_by:       user.id,
+        cs_update_time:   crmUpdateTime,
+        has_unread_update: true,
+      })
+    } else {
+      // ── Record mới ──
+      const handler = extractHandlerFromMemo(t.CS_Memo ?? '')
+
+      if (mode === 'self') {
+        // Chỉ thêm nếu CS_Memo có hashtag đúng tên mình
+        if (!handler || handler.toLowerCase() !== (myNickName ?? '').toLowerCase()) {
+          rejectedCount++
+          continue
+        }
+      } else {
+        // full mode: thêm nếu CS_Memo có hashtag của bất kỳ 1 trong 5 người
+        if (!handler) {
+          rejectedCount++
+          continue
+        }
+      }
+
+      newCount++
+      rows.push({
+        sheet_row_key:    key,
+        staff_name:       handler ?? 'Unknown',
+        ticket_date:      t.CS_Date,
+        company:          t.Cust_Name  || null,
+        contact:          t.CM_Name    || null,
+        ticket_type:      t.CC_Name    || null,
+        direction:        t.CS_IO      || null,
+        content:          t.CS_Context || null,
+        reply:            t.CS_Memo    || null,
+        speed_tag:        parseSpeedTag(t.CS_Memo ?? ''),
+        code:             String(t.CS_ID),
+        created_by:       user.id,
+        cs_update_time:   crmUpdateTime,
+        has_unread_update: false, // record mới không cần thông báo
+      })
+    }
+  }
+
+  // ── Upsert ──
   let saved = 0
   for (let i = 0; i < rows.length; i += 500) {
     const batch = rows.slice(i, i + 500)
@@ -134,5 +276,17 @@ export async function POST(req: NextRequest) {
     saved += batch.length
   }
 
-  return NextResponse.json({ ok: true, fetched: allTickets.length, filtered: filtered.length, saved })
+  return NextResponse.json({
+    ok:           true,
+    mode,
+    myNickName,
+    totalFetched,
+    uniqueAfterMerge: allTickets.length,
+    newCount,       // record mới được thêm
+    updatedCount,   // record cũ có cập nhật
+    skippedCount,   // record không thay đổi
+    rejectedCount,  // record mới bị từ chối (không có hashtag tên mình)
+    saved,
+    fetchErrors: Object.keys(fetchErrors).length ? fetchErrors : undefined,
+  })
 }

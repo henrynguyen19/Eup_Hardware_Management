@@ -319,9 +319,9 @@ function SummaryView({
                         <span className="text-xs text-gray-400 whitespace-nowrap">{String(t.ticket_date ?? '')}</span>
                       </div>
                       <p className="text-sm font-medium text-gray-700 mb-1">{String(t.company || 'KH khong ro')}</p>
-                      {t.content && <p className="text-xs text-gray-600 mb-1 line-clamp-2">{String(t.content)}</p>}
-                      {t.reply && <p className="text-xs text-gray-500 italic line-clamp-2">{String(t.reply)}</p>}
-                      {t.staff_name && <p className="text-xs text-teal-600 mt-1">{String(t.staff_name)}</p>}
+                      {!!t.content && <p className="text-xs text-gray-600 mb-1 line-clamp-2">{String(t.content)}</p>}
+                      {!!t.reply && <p className="text-xs text-gray-500 italic line-clamp-2">{String(t.reply)}</p>}
+                      {!!t.staff_name && <p className="text-xs text-teal-600 mt-1">{String(t.staff_name)}</p>}
                     </div>
                   ))}
                 </div>
@@ -645,6 +645,8 @@ function SummaryView({
 // ── Main Dashboard ─────────────────────────────────────────────────
 export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
+  const [activeTab, setActiveTab] = useState<'tickets' | 'stats' | 'jira'>('tickets')
+  // Legacy — kept for stats tab internals
   const [isSummaryMode, setIsSummaryMode]   = useState(false)
   const [isJiraBugsMode, setIsJiraBugsMode] = useState(false)
   const [isTicketMode, setIsTicketMode]     = useState(false)
@@ -822,31 +824,134 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [crmSyncing, setCrmSyncing] = useState(false)
   const [crmResult, setCrmResult] = useState<string | null>(null)
 
-  async function handleSyncCRM() {
+  async function handleSyncCRM(mode: 'self' | 'full' = 'self') {
     setCrmSyncing(true)
     setCrmResult(null)
     try {
-      const y = selectedMonth.year
-      const m = selectedMonth.month
-      const lastDay = new Date(y, m, 0).getDate()
-      const mStr = String(m).padStart(2, '0')
-      const fromDate = `${y}-${mStr}-01`
-      const toDate   = `${y}-${mStr}-${String(lastDay).padStart(2, '0')}`
       const res = await fetch('/api/crm/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromDate, toDate }),
+        body: JSON.stringify({ mode }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Lỗi sync CRM')
-      setCrmResult(`✅ CRM: ${json.saved} tickets (lọc ${json.filtered}/${json.fetched})`)
-      // Reload data after sync
-      if (isSummaryMode) fetchAllStaff(selectedMonth.month, selectedMonth.year)
-      else fetchData(selectedSheetId, selectedMonth.month, selectedMonth.year)
+      const parts = [
+        mode === 'full' ? `🏢 Full sync` : `🔄 Sync`,
+        `+${json.newCount} mới`,
+        `↑${json.updatedCount} cập nhật`,
+        json.skippedCount > 0 ? `=${json.skippedCount} giữ nguyên` : null,
+      ].filter(Boolean).join(' · ')
+      setCrmResult(`✅ ${parts}`)
+      // Refresh ticket list + unread
+      fetchCRMTickets(1)
+      fetchUnreadUpdates()
     } catch (err) {
       setCrmResult(`❌ ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setCrmSyncing(false)
+    }
+  }
+
+  // ── Unread CRM updates ──
+  interface UnreadTicket {
+    id: number; code: string; ticket_date: string; company: string | null
+    content: string | null; reply: string | null; staff_name: string
+    speed_tag: string | null; cs_update_time: string | null
+  }
+  const [showUnread, setShowUnread] = useState(false)
+  const [unreadTickets, setUnreadTickets] = useState<UnreadTicket[]>([])
+  const [unreadLoading, setUnreadLoading] = useState(false)
+  const [markingIds, setMarkingIds] = useState<Set<number>>(new Set())
+
+  async function fetchUnreadUpdates() {
+    setUnreadLoading(true)
+    try {
+      const res = await fetch('/api/ho-tro/mark-read?limit=100')
+      const json = await res.json()
+      setUnreadTickets(json.tickets ?? [])
+    } catch (_e) { /* ignore */ }
+    finally { setUnreadLoading(false) }
+  }
+
+  // Load unread on mount + load tickets
+  useEffect(() => {
+    fetchUnreadUpdates()
+    fetchCRMTickets()
+  }, [])
+
+  // ── CRM Ticket List (Tab Yêu cầu) ────────────────────────────
+  interface CRMTicketRow {
+    id: number; code: string; ticket_date: string; cs_update_time: string | null
+    company: string | null; contact: string | null; ticket_type: string | null
+    content: string | null; reply: string | null; staff_name: string
+    speed_tag: string | null; has_unread_update: boolean; direction: string | null
+  }
+  const [crmTickets, setCrmTickets]         = useState<CRMTicketRow[]>([])
+  const [crmTicketsLoading, setCrmTicketsLoading] = useState(false)
+  const [crmTotal, setCrmTotal]             = useState(0)
+  const [crmPage, setCrmPage]               = useState(1)
+  const [crmStaffFilter, setCrmStaffFilter] = useState('')
+  const [crmSearch, setCrmSearch]           = useState('')
+  const [crmPendingOnly, setCrmPendingOnly] = useState(false)
+  const [expandedTicket, setExpandedTicket] = useState<number | null>(null)
+  const CRM_PAGE_SIZE = 50
+
+  async function fetchCRMTickets(page = 1, staffF = crmStaffFilter, searchF = crmSearch, pendingF = crmPendingOnly) {
+    setCrmTicketsLoading(true)
+    try {
+      const p = new URLSearchParams({
+        page: String(page), limit: String(CRM_PAGE_SIZE),
+        sortBy: 'cs_update_time', crmOnly: 'true',
+      })
+      if (staffF)   p.set('staffName', staffF)
+      if (searchF)  p.set('search', searchF)
+      if (pendingF) p.set('pendingOnly', 'true')
+      const res  = await fetch(`/api/ho-tro/tickets?${p}`)
+      const json = await res.json()
+      setCrmTickets(json.tickets ?? [])
+      setCrmTotal(json.total ?? 0)
+      setCrmPage(page)
+    } catch (_e) { /* ignore */ }
+    finally { setCrmTicketsLoading(false) }
+  }
+
+  // Helpers
+  function fmtDate(iso: string | null) {
+    if (!iso) return ''
+    const d = new Date(iso)
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  }
+  const STAFF_COLORS: Record<string, string> = {
+    Kane: 'bg-blue-100 text-blue-700', Stefan: 'bg-purple-100 text-purple-700',
+    Shiro: 'bg-teal-100 text-teal-700', Irene: 'bg-pink-100 text-pink-700',
+    Blue: 'bg-indigo-100 text-indigo-700',
+  }
+  const SPEED_LABELS: Record<string, string> = {
+    fast: '⚡ Nhanh', normal: '• Thường', low: '↓ Thấp',
+    hen: '📅 Hẹn', mai_bao_lai: '🔁 Mai báo lại',
+  }
+  const SPEED_COLORS: Record<string, string> = {
+    fast: 'bg-green-100 text-green-700', normal: 'bg-gray-100 text-gray-600',
+    low: 'bg-gray-100 text-gray-500', hen: 'bg-purple-100 text-purple-700',
+    mai_bao_lai: 'bg-pink-100 text-pink-700',
+  }
+
+  async function markAsRead(ids: number[]) {
+    setMarkingIds(prev => new Set([...Array.from(prev), ...ids]))
+    try {
+      await fetch('/api/ho-tro/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
+      setUnreadTickets(prev => prev.filter(t => !ids.includes(t.id)))
+    } catch (_e) { /* ignore */ }
+    finally {
+      setMarkingIds(prev => {
+        const next = new Set(prev)
+        ids.forEach(id => next.delete(id))
+        return next
+      })
     }
   }
 
@@ -966,44 +1071,43 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 >›</button>
               </div>
             )}
-            {/* Cache badge + refresh */}
+            {/* Sync buttons + notifications */}
             <div className="flex items-center gap-1.5">
-              {isCached && fetchedAt && !loading && !summaryLoading && (
-                <span className="text-[10px] text-gray-400 whitespace-nowrap">
-                  ⚡ {fmtFetchedAt(fetchedAt)}
-                </span>
-              )}
               {crmResult && (
-                <span className="text-[10px] text-gray-500 whitespace-nowrap max-w-[180px] truncate" title={crmResult}>
+                <span className="text-[10px] text-gray-500 whitespace-nowrap max-w-[200px] truncate" title={crmResult}>
                   {crmResult}
                 </span>
               )}
+              {unreadTickets.length > 0 && (
+                <button
+                  onClick={() => setShowUnread(true)}
+                  className="relative px-2.5 py-2 text-sm text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded-lg border border-orange-200 transition whitespace-nowrap"
+                  title="Xem các yêu cầu có cập nhật mới từ CRM"
+                >
+                  🔔 {unreadTickets.length}
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  onClick={() => handleSyncCRM('full')}
+                  disabled={crmSyncing}
+                  title="Full Sync: đồng bộ tất cả 5 nhân viên từ CRM"
+                  className="px-2.5 py-2 text-sm text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded-lg border border-purple-200 transition disabled:opacity-40 whitespace-nowrap"
+                >
+                  {crmSyncing ? '⏳' : '🏢'} Full Sync
+                </button>
+              )}
               <button
-                onClick={handleSyncCRM}
-                disabled={crmSyncing || loading || summaryLoading}
-                title={`Đồng bộ từ CRM (tháng ${selectedMonth.month}/${selectedMonth.yearShort})`}
+                onClick={() => handleSyncCRM('self')}
+                disabled={crmSyncing}
+                title="Đồng bộ dữ liệu của bạn từ CRM"
                 className="px-2.5 py-2 text-sm text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-gray-200 transition disabled:opacity-40 whitespace-nowrap"
               >
-                {crmSyncing ? '⏳' : '🏢'} CRM
-              </button>
-              <button
-                onClick={handleRefresh}
-                disabled={loading || summaryLoading}
-                title="Làm mới từ Google Sheets"
-                className="px-2.5 py-2 text-sm text-gray-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg border border-gray-200 transition disabled:opacity-40"
-              >
-                🔄
+                {crmSyncing ? '⏳' : '🔄'} Đồng bộ
               </button>
             </div>
 
-            {canWrite && (
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm border border-teal-400 text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-xl transition font-medium"
-              >
-                ✏️ Nhập liệu
-              </button>
-            )}
+            {/* Nhập liệu thủ công đã bỏ — dữ liệu lấy từ CRM */}
             {isAdmin && (
               <a href="/admin/users" className="flex items-center gap-1.5 px-3 py-2 text-sm border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-xl transition">
                 Admin
@@ -1020,59 +1124,34 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
         </div>
       </header>
 
-      {/* ── Staff / Summary / Jira tabs ── */}
+      {/* ── Main tabs ── */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-1 py-2 overflow-x-auto">
-            {isAdmin && allStaff.map(staff => (
+          <div className="flex gap-1 py-2">
+            {[
+              { key: 'tickets', label: '📋 Yêu cầu' },
+              { key: 'stats',   label: '📊 Thống kê' },
+              { key: 'jira',    label: '🐛 Jira Bugs' },
+            ].map(({ key, label }) => (
               <button
-                key={staff.sheetId}
-                onClick={() => { setIsSummaryMode(false); setIsJiraBugsMode(false); setIsTicketMode(false); setSelectedSheetId(staff.sheetId) }}
+                key={key}
+                onClick={() => setActiveTab(key as 'tickets' | 'stats' | 'jira')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-                  !isSummaryMode && !isJiraBugsMode && selectedSheetId === staff.sheetId
-                    ? `${staff.bgClass} ring-2 ring-offset-1 ring-current`
+                  activeTab === key
+                    ? key === 'tickets' ? 'bg-blue-600 text-white'
+                    : key === 'stats'   ? 'bg-gray-800 text-white'
+                    :                     'bg-red-600 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                {staff.name}
+                {label}
+                {key === 'tickets' && unreadTickets.length > 0 && (
+                  <span className="ml-1.5 bg-orange-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                    {unreadTickets.length}
+                  </span>
+                )}
               </button>
             ))}
-            {isAdmin && (
-              <button
-                onClick={() => { setIsSummaryMode(true); setIsJiraBugsMode(false); setIsTicketMode(false) }}
-                className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-                  isSummaryMode && !isJiraBugsMode ? 'bg-gray-800 text-white' : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                📊 Tổng quan
-              </button>
-            )}
-            {!isAdmin && (
-              <button
-                onClick={() => { setIsJiraBugsMode(false); setIsTicketMode(false) }}
-                className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-                  !isJiraBugsMode && !isTicketMode ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                📊 Thống kê
-              </button>
-            )}
-            <button
-              onClick={() => { setIsJiraBugsMode(true); setIsSummaryMode(false); setIsTicketMode(false) }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-                isJiraBugsMode ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              🐛 Jira Bugs
-            </button>
-            <button
-              onClick={() => { setIsTicketMode(true); setIsSummaryMode(false); setIsJiraBugsMode(false) }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-                isTicketMode ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              📋 Chi tiết yêu cầu
-            </button>
           </div>
         </div>
       </div>
@@ -1080,33 +1159,168 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       {/* ── Content ── */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
 
-        {/* ── Jira Bugs mode ── */}
-        {isJiraBugsMode ? (
+        {/* ── Tab: Jira Bugs ── */}
+        {activeTab === 'jira' ? (
           <JiraBugsTab />
-        ) : isTicketMode ? (
-          <>
-            <div className="mb-5">
-              <h2 className="font-bold text-gray-800 text-lg">
-                {viewingStaff ? `Chi tiết yêu cầu — ${viewingStaff.name}` : 'Chi tiết yêu cầu'}
-              </h2>
-              <p className="text-sm text-gray-400">
-                Tháng {selectedMonth.month}/{selectedMonth.yearShort} · dữ liệu từ form nhập liệu
-              </p>
-            </div>
-            {viewingStaff ? (
-              <TicketTable
-                staffName={viewingStaff.name}
-                month={selectedMonth.month}
-                year={selectedMonth.yearShort}
-                isAdmin={isAdmin}
+
+        ) : activeTab === 'tickets' ? (
+          /* ── Tab: Yêu cầu (CRM) ── */
+          <div>
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {isAdmin && (
+                <select
+                  value={crmStaffFilter}
+                  onChange={e => { setCrmStaffFilter(e.target.value); fetchCRMTickets(1, e.target.value, crmSearch, crmPendingOnly) }}
+                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                >
+                  <option value="">Tất cả nhân viên</option>
+                  {['Kane','Stefan','Shiro','Irene','Blue'].map(n => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              )}
+              <input
+                type="text"
+                placeholder="Tìm kiếm..."
+                value={crmSearch}
+                onChange={e => setCrmSearch(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') fetchCRMTickets(1, crmStaffFilter, crmSearch, crmPendingOnly) }}
+                className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 w-48"
               />
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={crmPendingOnly}
+                  onChange={e => { setCrmPendingOnly(e.target.checked); fetchCRMTickets(1, crmStaffFilter, crmSearch, e.target.checked) }}
+                  className="rounded"
+                />
+                Cần theo dõi
+              </label>
+              <button
+                onClick={() => fetchCRMTickets(1, crmStaffFilter, crmSearch, crmPendingOnly)}
+                className="text-sm text-blue-500 hover:text-blue-700 px-3 py-2 border border-gray-200 rounded-lg hover:bg-blue-50 transition"
+              >
+                🔍 Tìm
+              </button>
+              <span className="ml-auto text-xs text-gray-400">
+                {crmTotal > 0 && `${crmTotal} yêu cầu`}
+              </span>
+            </div>
+
+            {/* Ticket list */}
+            {crmTicketsLoading ? (
+              <div className="flex justify-center py-20">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : crmTickets.length === 0 ? (
+              <div className="text-center py-20 text-gray-400">
+                <div className="text-5xl mb-4">📭</div>
+                <p className="text-lg font-medium text-gray-500">Chưa có yêu cầu nào</p>
+                <p className="text-sm mt-1">Nhấn &ldquo;Đồng bộ&rdquo; để tải dữ liệu từ CRM</p>
+              </div>
             ) : (
-              <div className="text-center py-12 text-gray-400 bg-white rounded-xl border border-gray-200">
-                <p className="text-sm">Chọn nhân viên để xem chi tiết yêu cầu</p>
+              <div className="space-y-2">
+                {crmTickets.map(t => (
+                  <div
+                    key={t.id}
+                    className={`bg-white border rounded-xl overflow-hidden transition-all ${
+                      t.has_unread_update ? 'border-orange-200 shadow-sm shadow-orange-100' : 'border-gray-200'
+                    }`}
+                  >
+                    {/* Card header — always visible */}
+                    <button
+                      className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition"
+                      onClick={() => setExpandedTicket(expandedTicket === t.id ? null : t.id)}
+                    >
+                      {t.has_unread_update && (
+                        <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" title="Có cập nhật mới" />
+                      )}
+                      <span className="font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded shrink-0">
+                        #{t.code}
+                      </span>
+                      {isAdmin && (
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium shrink-0 ${STAFF_COLORS[t.staff_name] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {t.staff_name}
+                        </span>
+                      )}
+                      {t.speed_tag && (
+                        <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${SPEED_COLORS[t.speed_tag] ?? 'bg-gray-100 text-gray-500'}`}>
+                          {SPEED_LABELS[t.speed_tag] ?? t.speed_tag}
+                        </span>
+                      )}
+                      <span className="text-sm font-medium text-gray-800 truncate flex-1">
+                        {t.company || 'KH không rõ'}
+                      </span>
+                      <span className="text-xs text-gray-400 shrink-0">
+                        {t.cs_update_time ? fmtDate(t.cs_update_time) : t.ticket_date}
+                      </span>
+                      <span className="text-gray-400 text-xs shrink-0">{expandedTicket === t.id ? '▲' : '▼'}</span>
+                    </button>
+
+                    {/* Expanded detail */}
+                    {expandedTicket === t.id && (
+                      <div className="px-4 pb-4 border-t border-gray-100 pt-3 text-sm space-y-2">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500">
+                          {t.ticket_type && <div><span className="font-medium">Loại:</span> {t.ticket_type}</div>}
+                          {t.contact     && <div><span className="font-medium">Liên hệ:</span> {t.contact}</div>}
+                          {t.direction   && <div><span className="font-medium">Chiều:</span> {t.direction}</div>}
+                          <div><span className="font-medium">Ngày tạo:</span> {t.ticket_date}</div>
+                        </div>
+                        {!!t.content && (
+                          <div>
+                            <p className="text-xs text-gray-400 mb-1 font-medium">Nội dung:</p>
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{t.content}</p>
+                          </div>
+                        )}
+                        {!!t.reply && (
+                          <div>
+                            <p className="text-xs text-gray-400 mb-1 font-medium">Memo / Reply:</p>
+                            <p className="text-sm text-gray-600 italic whitespace-pre-wrap bg-blue-50 rounded-lg p-3">{t.reply}</p>
+                          </div>
+                        )}
+                        {t.has_unread_update && (
+                          <div className="flex items-center justify-between pt-1">
+                            <span className="text-xs text-orange-500">
+                              🔔 Có cập nhật mới · {t.cs_update_time ? new Date(t.cs_update_time).toLocaleString('vi-VN') : ''}
+                            </span>
+                            <button
+                              onClick={() => markAsRead([t.id]).then(() => fetchCRMTickets(crmPage))}
+                              className="text-xs px-3 py-1 bg-orange-50 border border-orange-200 text-orange-600 rounded-lg hover:bg-orange-100 transition"
+                            >
+                              ✓ Đã đọc
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
-          </>
-        ) : isSummaryMode ? (
+
+            {/* Pagination */}
+            {crmTotal > CRM_PAGE_SIZE && (
+              <div className="flex items-center justify-center gap-2 mt-6">
+                <button
+                  onClick={() => fetchCRMTickets(crmPage - 1)}
+                  disabled={crmPage <= 1 || crmTicketsLoading}
+                  className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40 hover:bg-gray-50"
+                >‹</button>
+                <span className="text-sm text-gray-600">
+                  Trang {crmPage} / {Math.ceil(crmTotal / CRM_PAGE_SIZE)}
+                </span>
+                <button
+                  onClick={() => fetchCRMTickets(crmPage + 1)}
+                  disabled={crmPage >= Math.ceil(crmTotal / CRM_PAGE_SIZE) || crmTicketsLoading}
+                  className="px-3 py-1.5 text-sm border rounded-lg disabled:opacity-40 hover:bg-gray-50"
+                >›</button>
+              </div>
+            )}
+          </div>
+
+        ) : /* activeTab === 'stats' */ isAdmin ? (
+          /* ── Stats: Admin → SummaryView ── */
           <>
             <div className="mb-5 flex items-center justify-between">
               <div>
@@ -1133,18 +1347,17 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               loading={summaryLoading}
             />
           </>
+
         ) : (
-          /* ── Individual staff mode ── */
+          /* ── Stats: Member → individual charts ── */
           <>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <h2 className="font-bold text-gray-800 text-lg">
-                  {viewingStaff ? viewingStaff.name : 'Báo cáo của bạn'}
-                </h2>
+                <h2 className="font-bold text-gray-800 text-lg">Thống kê của bạn</h2>
                 <p className="text-sm text-gray-400">
                   {periodMode === 'tuan' && selectedWeekKey
                     ? `Tuần ${isoWeekBounds(selectedWeekKey).label} · ${totalDays} ngày`
-                    : `${sheetName || `báo cáo tháng ${selectedMonth.month}/${selectedMonth.yearShort}`}${totalDays > 0 ? ` · ${totalDays} ngày` : ''}`
+                    : `${sheetName || `tháng ${selectedMonth.month}/${selectedMonth.yearShort}`}${totalDays > 0 ? ` · ${totalDays} ngày` : ''}`
                   }
                 </p>
               </div>
@@ -1202,6 +1415,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                           <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngày</th>
                           <th className="text-right px-3 py-3 text-gray-500 font-medium">YC</th>
                           <th className="text-right px-3 py-3 text-gray-500 font-medium">TG TB</th>
+        
                           <th className="text-right px-3 py-3 text-gray-500 font-medium text-green-600">#f</th>
                           <th className="text-right px-3 py-3 text-gray-500 font-medium text-amber-600">#n</th>
                           <th className="text-right px-3 py-3 text-gray-500 font-medium text-red-500">#l</th>
@@ -1279,7 +1493,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               <div className="text-center py-20 text-gray-400">
                 <div className="text-5xl mb-4">📋</div>
                 <p className="text-lg font-medium text-gray-500">Không có dữ liệu</p>
-                <p className="text-sm mt-1">Chưa có báo cáo cho {selectedMonth.label.toLowerCase()}</p>
+                <p className="text-sm mt-1">Chưa có báo cáo cho kỳ này</p>
               </div>
             )}
 
@@ -1294,19 +1508,6 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
         )}
       </div>
 
-      {/* ── Add Ticket Modal ── */}
-      {showAddForm && (
-        <AddTicketForm
-          allStaff={allStaff}
-          onClose={() => setShowAddForm(false)}
-          onSuccess={msg => {
-            setShowAddForm(false)
-            setSuccessMsg(msg)
-            setTimeout(() => setSuccessMsg(null), 4000)
-          }}
-        />
-      )}
-
       {/* ── Success toast ── */}
       {successMsg && (
         <div className="fixed bottom-6 right-6 z-50 bg-teal-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2">
@@ -1314,13 +1515,14 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
         </div>
       )}
 
+      {/* ── Panel: Cần theo dõi ── */}
       {showStaffPending && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end" onClick={() => setShowStaffPending(false)}>
           <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between">
               <div>
-                <h2 className="font-bold text-gray-800 text-lg">Yeu cau can theo doi</h2>
-                <p className="text-xs text-gray-400">{viewingStaff?.name} - thang {selectedMonth.month}/{selectedMonth.yearShort}</p>
+                <h2 className="font-bold text-gray-800 text-lg">Yêu cầu cần theo dõi</h2>
+                <p className="text-xs text-gray-400">{viewingStaff?.name}</p>
               </div>
               <button onClick={() => setShowStaffPending(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
             </div>
@@ -1329,27 +1531,101 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 border-red-400 border-t-transparent rounded-full animate-spin" /></div>
               ) : !staffPendingTickets.length ? (
                 <div className="text-center py-12 text-gray-400">
-                  <p className="text-2xl mb-2">OK</p>
-                  <p className="text-sm">Khong co yeu cau can theo doi</p>
-                  <p className="text-xs mt-1">Bam Lam moi truoc de dong bo du lieu</p>
+                  <p className="text-2xl mb-2">✅</p>
+                  <p className="text-sm">Không có yêu cầu cần theo dõi</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <p className="text-xs text-gray-500 mb-3">{staffPendingTickets.length} yeu cau</p>
+                  <p className="text-xs text-gray-500 mb-3">{staffPendingTickets.length} yêu cầu</p>
                   {staffPendingTickets.map((t, i) => (
                     <div key={String(t.id ?? i)} className="bg-red-50 border border-red-100 rounded-xl p-4">
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">{String(t.code || '-')}</span>
                           <span className={`text-xs px-2 py-0.5 rounded font-medium ${t.speed_tag === 'mai_bao_lai' ? 'bg-pink-100 text-pink-700' : 'bg-purple-100 text-purple-700'}`}>
-                            {t.speed_tag === 'mai_bao_lai' ? 'Mai bao lai' : 'Hen'}
+                            {t.speed_tag === 'mai_bao_lai' ? 'Mai báo lại' : 'Hẹn'}
                           </span>
                         </div>
                         <span className="text-xs text-gray-400 whitespace-nowrap">{String(t.ticket_date ?? '')}</span>
                       </div>
-                      <p className="text-sm font-medium text-gray-700 mb-1">{String(t.company || 'KH khong ro')}</p>
-                      {t.content && <p className="text-xs text-gray-600 mb-1 line-clamp-2">{String(t.content)}</p>}
-                      {t.reply && <p className="text-xs text-gray-500 italic line-clamp-2">{String(t.reply)}</p>}
+                      <p className="text-sm font-medium text-gray-700 mb-1">{String(t.company || 'KH không rõ')}</p>
+                      {!!t.content && <p className="text-xs text-gray-600 mb-1 line-clamp-2">{String(t.content)}</p>}
+                      {!!t.reply   && <p className="text-xs text-gray-500 italic line-clamp-2">{String(t.reply)}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Panel: Cập nhật mới từ CRM ── */}
+      {showUnread && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end" onClick={() => setShowUnread(false)}>
+          <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-orange-50 border-b border-orange-200 px-5 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-orange-800 text-lg">🔔 Cập nhật mới từ CRM</h2>
+                <p className="text-xs text-orange-600">{unreadTickets.length} yêu cầu có thay đổi</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {unreadTickets.length > 0 && (
+                  <button
+                    onClick={() => markAsRead(unreadTickets.map(t => t.id))}
+                    className="px-3 py-1.5 text-xs bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition font-medium"
+                  >
+                    Đánh dấu tất cả đã đọc
+                  </button>
+                )}
+                <button onClick={() => setShowUnread(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
+              </div>
+            </div>
+            <div className="p-5">
+              {unreadLoading ? (
+                <div className="flex justify-center py-12">
+                  <div className="w-6 h-6 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : !unreadTickets.length ? (
+                <div className="text-center py-12 text-gray-400">
+                  <p className="text-2xl mb-2">✅</p>
+                  <p className="text-sm">Tất cả đã đọc</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {unreadTickets.map(t => (
+                    <div key={t.id} className="bg-orange-50 border border-orange-100 rounded-xl p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">{t.code}</span>
+                          <span className="text-xs text-gray-500">{t.staff_name}</span>
+                          {t.speed_tag && (
+                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                              t.speed_tag === 'mai_bao_lai' ? 'bg-pink-100 text-pink-700' :
+                              t.speed_tag === 'hen'         ? 'bg-purple-100 text-purple-700' :
+                              t.speed_tag === 'fast'        ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                            }`}>{t.speed_tag}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs text-gray-400">{t.ticket_date}</span>
+                          <button
+                            onClick={() => markAsRead([t.id])}
+                            disabled={markingIds.has(t.id)}
+                            className="px-2.5 py-1 text-xs bg-white border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-100 transition disabled:opacity-50"
+                          >
+                            {markingIds.has(t.id) ? '...' : '✓ Đã đọc'}
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-sm font-medium text-gray-700 mb-1">{t.company || 'KH không rõ'}</p>
+                      {!!t.content && <p className="text-xs text-gray-600 mb-1 line-clamp-2">{t.content}</p>}
+                      {!!t.reply   && <p className="text-xs text-gray-500 italic line-clamp-2">{t.reply}</p>}
+                      {t.cs_update_time && (
+                        <p className="text-[10px] text-orange-400 mt-1">
+                          Cập nhật lúc: {new Date(t.cs_update_time).toLocaleString('vi-VN')}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

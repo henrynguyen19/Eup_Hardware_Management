@@ -11,16 +11,18 @@ const memCache = new Map<number, { sessionId: string; expiresAt: number }>()
 
 export async function getCRMCredentials(userId: string): Promise<{
   crm_staff_id: number
+  crm_nick_name: string | null
+  crm_staff_name: string | null
   crm_account:  string
   crm_password: string
 } | null> {
   const { data } = await adminDB()
     .from('user_crm_mapping')
-    .select('crm_staff_id, crm_account, crm_password')
+    .select('crm_staff_id, crm_account, crm_password, crm_nick_name, crm_staff_name')
     .eq('user_id', userId)
     .single()
   if (!data?.crm_account || !data?.crm_password) return null
-  return data as { crm_staff_id: number; crm_account: string; crm_password: string }
+  return data as { crm_staff_id: number; crm_account: string; crm_password: string; crm_nick_name: string | null; crm_staff_name: string | null }
 }
 
 export async function crmLoginRaw(account?: string, password?: string): Promise<{
