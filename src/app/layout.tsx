@@ -1,12 +1,13 @@
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
+import { LanguageProvider } from "@/contexts/LanguageContext"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Quản lý Hardware EUP",
-  description: "bộ phậnQuản lý Hardware EUP",
+  title: "EUP Hardware Management",
+  description: "Internal management system for EUP Hardware department",
 }
 
 export default function RootLayout({
@@ -15,8 +16,5 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="zh-TW">
-      <body className={inter.className}>{children}</body>
-    </html>
-  )
-}
+    <html lang="vi">
+      <body classNa

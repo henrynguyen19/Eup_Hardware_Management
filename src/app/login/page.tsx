@@ -3,11 +3,13 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 type View = 'login' | 'forgot' | 'forgot_sent'
 
 export default function LoginPage() {
   const router = useRouter()
+  const { lang, setLang, t } = useLanguage()
   const [view, setView]         = useState<View>('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -22,23 +24,23 @@ export default function LoginPage() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
-    if (!username.trim() || !password.trim()) { setError('Vui lòng nhập đầy đủ thông tin'); return }
+    if (!username.trim() || !password.trim()) { setError(t.login.errEmpty); return }
     setLoading(true); setError('')
     const email = username.includes('@') ? username.trim() : `${username.trim()}@eup.net.vn`
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
-    if (authError) { setError('Tên đăng nhập hoặc mật khẩu không đúng'); setLoading(false); return }
+    if (authError) { setError(t.login.errWrongCredentials); setLoading(false); return }
     router.push('/'); router.refresh()
   }
 
   async function handleForgot(e: React.FormEvent) {
     e.preventDefault()
-    if (!forgotEmail.trim()) { setError('Vui lòng nhập email'); return }
+    if (!forgotEmail.trim()) { setError(t.login.errEmailEmpty); return }
     setLoading(true); setError('')
     const email = forgotEmail.includes('@') ? forgotEmail.trim() : `${forgotEmail.trim()}@eup.net.vn`
     const redirectTo = window.location.origin + '/reset-password'
     const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
     setLoading(false)
-    if (resetErr) { setError('Không thể gửi email. Kiểm tra lại địa chỉ email.'); return }
+    if (resetErr) { setError(t.login.errEmailInvalid); return }
     setView('forgot_sent')
   }
 
@@ -53,14 +55,14 @@ export default function LoginPage() {
         <div className="relative text-center">
           <div className="w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl font-black text-white text-2xl"
                style={{ background: '#A70A0A', letterSpacing: '-0.05em' }}>EUP</div>
-          <h1 className="text-3xl font-extrabold text-white tracking-wide mb-2">EUP HARDWARE</h1>
+          <h1 className="text-3xl font-extrabold text-white tracking-wide mb-2">{t.login.systemName}</h1>
           <div className="h-0.5 w-16 mx-auto mb-4 rounded" style={{ background: '#00AF50' }} />
-          <p className="text-white/60 text-sm leading-relaxed">Hệ thống quản lý nội bộ<br/>bộ phận kỹ thuật Hardware</p>
+          <p className="text-white/60 text-sm leading-relaxed whitespace-pre-line">{t.login.systemDesc}</p>
           <div className="mt-12 space-y-3">
             {[
-              { icon: '📦', text: 'Quản lý thiết bị & phụ kiện' },
-              { icon: '🛠️', text: 'Hỗ trợ kỹ thuật' },
-              { icon: '🚗', text: 'Xe & thiết bị cần lắp' },
+              { icon: '📦', text: t.login.feature1 },
+              { icon: '🛠️', text: t.login.feature2 },
+              { icon: '🚗', text: t.login.feature3 },
             ].map(f => (
               <div key={f.icon} className="flex items-center gap-3 text-white/50 text-sm">
                 <span>{f.icon}</span><span>{f.text}</span>
@@ -73,6 +75,19 @@ export default function LoginPage() {
       {/* Right panel */}
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
+          {/* Language toggle */}
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+              style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.2)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.1)' }}
+            >
+              {lang === 'vi' ? '🇬🇧 English' : '🇻🇳 Tiếng Việt'}
+            </button>
+          </div>
+
           {/* Mobile logo */}
           <div className="lg:hidden text-center mb-8">
             <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3 font-black text-white text-lg shadow-lg" style={{ background: '#A70A0A' }}>EUP</div>
@@ -85,13 +100,13 @@ export default function LoginPage() {
             {/* ── View: Đăng nhập ── */}
             {view === 'login' && (
               <div className="p-8">
-                <h2 className="text-xl font-bold mb-1" style={{ color: '#0d2a4a' }}>Đăng nhập</h2>
-                <p className="text-gray-400 text-xs mb-6">Chỉ dành cho nhân viên bộ phận Hardware</p>
+                <h2 className="text-xl font-bold mb-1" style={{ color: '#0d2a4a' }}>{t.login.loginTitle}</h2>
+                <p className="text-gray-400 text-xs mb-6">{t.login.loginSubtitle}</p>
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-semibold mb-1.5" style={{ color: '#0d2a4a' }}>Tên đăng nhập</label>
+                    <label className="block text-sm font-semibold mb-1.5" style={{ color: '#0d2a4a' }}>{t.login.username}</label>
                     <input type="text" value={username} onChange={e => setUsername(e.target.value)}
-                      placeholder="VD: henry hoặc henry@eup.net.vn"
+                      placeholder={t.login.usernamePlaceholder}
                       autoComplete="username" autoFocus
                       className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none transition"
                       onFocus={e => { e.currentTarget.style.borderColor = '#A70A0A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,10,10,0.1)' }}
@@ -99,9 +114,9 @@ export default function LoginPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold mb-1.5" style={{ color: '#0d2a4a' }}>Mật khẩu</label>
+                    <label className="block text-sm font-semibold mb-1.5" style={{ color: '#0d2a4a' }}>{t.login.password}</label>
                     <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-                      placeholder="••••••••" autoComplete="current-password"
+                      placeholder={t.login.passwordPlaceholder} autoComplete="current-password"
                       className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none transition"
                       onFocus={e => { e.currentTarget.style.borderColor = '#A70A0A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,10,10,0.1)' }}
                       onBlur={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.boxShadow = '' }}
@@ -111,7 +126,7 @@ export default function LoginPage() {
                         className="text-xs transition" style={{ color: '#A70A0A' }}
                         onMouseEnter={e => (e.currentTarget as HTMLElement).style.textDecoration = 'underline'}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.textDecoration = ''}>
-                        Quên mật khẩu?
+                        {t.login.forgotPassword}
                       </button>
                     </div>
                   </div>
@@ -134,12 +149,12 @@ export default function LoginPage() {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
                         </svg>
-                        Đang đăng nhập...
+                        {t.login.loggingIn}
                       </span>
-                    ) : 'Đăng nhập'}
+                    ) : t.login.loginBtn}
                   </button>
                 </form>
-                <p className="text-center text-xs text-gray-400 mt-5">Liên hệ IT nếu cần hỗ trợ tài khoản</p>
+                <p className="text-center text-xs text-gray-400 mt-5">{t.login.contactIT}</p>
               </div>
             )}
 
@@ -148,15 +163,15 @@ export default function LoginPage() {
               <div className="p-8">
                 <button onClick={() => { setView('login'); setError('') }} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 mb-4 transition">
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
-                  Quay lại đăng nhập
+                  {t.login.backToLogin}
                 </button>
-                <h2 className="text-xl font-bold mb-1" style={{ color: '#0d2a4a' }}>Quên mật khẩu</h2>
-                <p className="text-gray-400 text-xs mb-6">Nhập email EUP của bạn — hệ thống sẽ gửi link đặt lại mật khẩu</p>
+                <h2 className="text-xl font-bold mb-1" style={{ color: '#0d2a4a' }}>{t.login.forgotTitle}</h2>
+                <p className="text-gray-400 text-xs mb-6">{t.login.forgotSubtitle}</p>
                 <form onSubmit={handleForgot} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-semibold mb-1.5" style={{ color: '#0d2a4a' }}>Email</label>
+                    <label className="block text-sm font-semibold mb-1.5" style={{ color: '#0d2a4a' }}>{t.login.emailLabel}</label>
                     <input type="text" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
-                      placeholder="VD: henry hoặc henry@eup.net.vn"
+                      placeholder={t.login.usernamePlaceholder}
                       autoFocus
                       className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none transition"
                       onFocus={e => { e.currentTarget.style.borderColor = '#A70A0A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,10,10,0.1)' }}
@@ -176,7 +191,7 @@ export default function LoginPage() {
                     style={{ background: '#A70A0A' }}
                     onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.background = '#8b0808' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#A70A0A' }}>
-                    {loading ? 'Đang gửi...' : '📧 Gửi link đặt lại mật khẩu'}
+                    {loading ? t.login.sending : t.login.sendLink}
                   </button>
                 </form>
               </div>
@@ -188,32 +203,15 @@ export default function LoginPage() {
                 <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl" style={{ background: '#00AF5015' }}>
                   📧
                 </div>
-                <h2 className="text-lg font-bold mb-2" style={{ color: '#0d2a4a' }}>Kiểm tra email của bạn</h2>
+                <h2 className="text-lg font-bold mb-2" style={{ color: '#0d2a4a' }}>{t.login.sentTitle}</h2>
                 <p className="text-gray-500 text-sm leading-relaxed mb-1">
-                  Link đặt lại mật khẩu đã được gửi đến:
+                  {t.login.sentDesc}
                 </p>
                 <p className="font-semibold text-sm mb-4" style={{ color: '#A70A0A' }}>
                   {forgotEmail.includes('@') ? forgotEmail : `${forgotEmail}@eup.net.vn`}
                 </p>
-                <p className="text-gray-400 text-xs mb-6">
-                  Click vào link trong email để đặt mật khẩu mới.<br/>
-                  Link có hiệu lực trong 1 giờ.
-                </p>
+                <p className="text-gray-400 text-xs mb-6 whitespace-pre-line">{t.login.sentNote}</p>
                 <button onClick={() => { setView('login'); setError(''); setForgotEmail('') }}
                   className="text-sm font-medium transition" style={{ color: '#A70A0A' }}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.textDecoration = 'underline'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.textDecoration = ''}>
-                  ← Quay lại đăng nhập
-                </button>
-              </div>
-            )}
-          </div>
-
-          <p className="text-center text-xs mt-4" style={{ color: 'rgba(255,255,255,0.25)' }}>
-            © 2025 CTCP Công nghệ EUPFIN Việt Nam
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.textDecoratio

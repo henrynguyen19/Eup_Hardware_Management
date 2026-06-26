@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 interface NavItem {
   icon: string
@@ -28,6 +29,7 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
   const pathname = usePathname()
   const router = useRouter()
   const [showChangePw, setShowChangePw] = useState(false)
+  const { lang, setLang, t } = useLanguage()
 
   async function handleLogout() {
     const supabase = createSupabaseBrowserClient()
@@ -36,14 +38,14 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
   }
 
   const navItems: NavItem[] = [
-    { icon: '📦', label: 'Quản lý thiết bị',  href: '/kho',          show: canKho || isAdmin },
-    { icon: '🛠️', label: 'Hỗ trợ kỹ thuật',  href: '/ho-tro',       show: canHoTro || isAdmin },
-    { icon: '📜', label: 'Giấy chứng nhận',   href: '/chung-nhan',   show: canChungNhan || isAdmin },
-    { icon: '📊', label: 'Thống kê sửa chữa', href: '/sua-chua',     show: canSuaChua || isAdmin },
-    { icon: '✅', label: 'Quản lý chất lượng',href: '/chat-luong',   show: canChatLuong || isAdmin },
-    { icon: '🚚', label: 'Thông tin giao nhận',href: '/giao-nhan',   comingSoon: true },
-    { icon: '👥', label: 'Quản lý người dùng', href: '/admin/users',        show: isAdmin },
-    { icon: '🔐', label: 'Phân quyền',         href: '/admin/permissions',  show: isAdmin },
+    { icon: '📦', label: t.sidebar.deviceMgmt,  href: '/kho',          show: canKho || isAdmin },
+    { icon: '🛠️', label: t.sidebar.techSupport, href: '/ho-tro',       show: canHoTro || isAdmin },
+    { icon: '📜', label: t.sidebar.certificate, href: '/chung-nhan',   show: canChungNhan || isAdmin },
+    { icon: '📊', label: t.sidebar.repairStats, href: '/sua-chua',     show: canSuaChua || isAdmin },
+    { icon: '✅', label: t.sidebar.qualityMgmt, href: '/chat-luong',   show: canChatLuong || isAdmin },
+    { icon: '🚚', label: t.sidebar.delivery,    href: '/giao-nhan',    comingSoon: true },
+    { icon: '👥', label: t.sidebar.userMgmt,    href: '/admin/users',       show: isAdmin },
+    { icon: '🔐', label: t.sidebar.permissions, href: '/admin/permissions', show: isAdmin },
   ]
 
   const visibleItems = navItems.filter(item => item.show === undefined || item.show === true)
@@ -70,10 +72,21 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
                  style={{ background: '#A70A0A', letterSpacing: '-0.05em' }}>
               EUP
             </div>
-            <div className="min-w-0">
-              <p className="text-white font-bold text-sm leading-tight tracking-wide">HARDWARE</p>
-              <p className="text-xs leading-tight" style={{ color: '#00AF50' }}>Quản lý nội bộ</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-white font-bold text-sm leading-tight tracking-wide">{t.sidebar.brand}</p>
+              <p className="text-xs leading-tight" style={{ color: '#00AF50' }}>{t.sidebar.brandSub}</p>
             </div>
+            {/* Language toggle */}
+            <button
+              onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
+              title={lang === 'vi' ? 'Switch to English' : 'Chuyển sang Tiếng Việt'}
+              className="flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded transition-all"
+              style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', letterSpacing: '0.02em' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.2)'; (e.currentTarget as HTMLElement).style.color = '#fff' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.12)'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.7)' }}
+            >
+              {lang === 'vi' ? 'EN' : 'VI'}
+            </button>
           </div>
         </div>
 
@@ -111,7 +124,7 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
 
         {/* User + Logout */}
         <div className="px-2 pb-3 space-y-1">
-          {/* Đổi mật khẩu */}
+          {/* Đổi mật khẩu / Change Password */}
           <button
             onClick={() => setShowChangePw(true)}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all"
@@ -122,7 +135,7 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
             <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
             </svg>
-            Đổi mật khẩu
+            {t.sidebar.changePassword}
           </button>
 
           {/* User info */}
@@ -167,27 +180,27 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState('')
   const [success, setSuccess]     = useState(false)
+  const { t } = useLanguage()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
 
-    if (newPw.length < 6) { setError('Mật khẩu mới phải có ít nhất 6 ký tự'); return }
-    if (newPw !== confirmPw) { setError('Mật khẩu xác nhận không khớp'); return }
+    if (newPw.length < 6) { setError(t.changePw.errMinLength); return }
+    if (newPw !== confirmPw) { setError(t.changePw.errNotMatch); return }
 
     setLoading(true)
     try {
       const supabase = createSupabaseBrowserClient()
 
-      // Xác minh mật khẩu hiện tại bằng cách thử đăng nhập lại
       const { data: userData } = await supabase.auth.getUser()
-      if (!userData.user?.email) { setError('Không lấy được thông tin người dùng'); setLoading(false); return }
+      if (!userData.user?.email) { setError(t.changePw.errNoUser); setLoading(false); return }
 
       const { error: verifyErr } = await supabase.auth.signInWithPassword({
         email: userData.user.email,
         password: currentPw,
       })
-      if (verifyErr) { setError('Mật khẩu hiện tại không đúng'); setLoading(false); return }
+      if (verifyErr) { setError(t.changePw.errWrongPw); setLoading(false); return }
 
       // Đổi mật khẩu
       const { error: updateErr } = await supabase.auth.updateUser({ password: newPw })
@@ -196,7 +209,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
       setSuccess(true)
       setTimeout(() => onClose(), 2000)
     } catch {
-      setError('Có lỗi xảy ra, thử lại sau')
+      setError(t.changePw.errGeneral)
     } finally {
       setLoading(false)
     }
@@ -209,8 +222,8 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
         <div className="h-1" style={{ background: 'linear-gradient(90deg, #A70A0A, #00AF50)' }} />
         <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
           <div>
-            <h2 className="font-bold text-gray-800">Đổi mật khẩu</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Mật khẩu phải ít nhất 6 ký tự</p>
+            <h2 className="font-bold text-gray-800">{t.changePw.title}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{t.changePw.subtitle}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
         </div>
@@ -218,18 +231,18 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
         {success ? (
           <div className="px-6 py-8 text-center">
             <div className="text-4xl mb-3">✅</div>
-            <p className="font-semibold text-green-700">Đổi mật khẩu thành công!</p>
-            <p className="text-xs text-gray-400 mt-1">Đang đóng...</p>
+            <p className="font-semibold text-green-700">{t.changePw.successTitle}</p>
+            <p className="text-xs text-gray-400 mt-1">{t.changePw.successSub}</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Mật khẩu hiện tại</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">{t.changePw.currentPw}</label>
               <input
                 type="password"
                 value={currentPw}
                 onChange={e => setCurrentPw(e.target.value)}
-                placeholder="Nhập mật khẩu hiện tại"
+                placeholder={t.changePw.currentPlaceholder}
                 autoFocus
                 className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none transition"
                 onFocus={e => { e.currentTarget.style.borderColor = '#A70A0A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,10,10,0.1)' }}
@@ -237,24 +250,24 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Mật khẩu mới</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">{t.changePw.newPw}</label>
               <input
                 type="password"
                 value={newPw}
                 onChange={e => setNewPw(e.target.value)}
-                placeholder="Nhập mật khẩu mới (≥ 6 ký tự)"
+                placeholder={t.changePw.newPlaceholder}
                 className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none transition"
                 onFocus={e => { e.currentTarget.style.borderColor = '#A70A0A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,10,10,0.1)' }}
                 onBlur={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.boxShadow = '' }}
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Xác nhận mật khẩu mới</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">{t.changePw.confirmPw}</label>
               <input
                 type="password"
                 value={confirmPw}
                 onChange={e => setConfirmPw(e.target.value)}
-                placeholder="Nhập lại mật khẩu mới"
+                placeholder={t.changePw.confirmPlaceholder}
                 className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none transition"
                 onFocus={e => { e.currentTarget.style.borderColor = '#A70A0A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,10,10,0.1)' }}
                 onBlur={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.boxShadow = '' }}
@@ -268,26 +281,4 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
                 </svg>
                 {error}
               </div>
-            )}
-
-            <div className="flex gap-3 pt-1">
-              <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition">
-                Hủy
-              </button>
-              <button
-                type="submit"
-                disabled={loading || !currentPw || !newPw || !confirmPw}
-                className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold transition disabled:opacity-50"
-                style={{ background: '#A70A0A' }}
-                onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.background = '#8b0808' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#A70A0A' }}
-              >
-                {loading ? 'Đang lưu...' : 'Lưu mật khẩu'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  )
-}
+       
