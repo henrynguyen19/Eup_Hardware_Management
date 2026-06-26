@@ -1,10 +1,8 @@
 /**
- * GET /api/crm/debug?staff=Kane&limit=50
+ * GET /api/crm/debug?staff=Kane
  *
- * Trả về dữ liệu thô từ CRM để debug:
- * - Danh sách ticket raw (không filter)
- * - Breakdown: bao nhiêu có handler / không có handler
- * - Sample CS_Memo của từng ticket
+ * Trả về toàn bộ dữ liệu thô từ CRM cho 1 staff (không filter, không giới hạn số lượng).
+ * Dùng để debug — so sánh ticket gốc vs bị loại bỏ khi sync.
  *
  * Chỉ admin mới dùng được.
  */
@@ -19,23 +17,26 @@ const adminClient = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-const KNOWN_STAFF = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
+const KNOWN_STAFF       = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
 const KNOWN_STAFF_LOWER = KNOWN_STAFF.map(n => n.toLowerCase())
 
 function extractHandlerFromMemo(memo: string): string | null {
   if (!memo) return null
   const lower = memo.toLowerCase()
+  // Ưu tiên: Tên + ngày (Kane 12/6) hoặc ngày + tên (12/6 Kane)
   for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
     const n   = KNOWN_STAFF_LOWER[i]
     const re1 = new RegExp(`\\b${n}\\s+\\d{1,2}/\\d{1,2}`, 'i')
     const re2 = new RegExp(`\\d{1,2}/\\d{1,2}\\s+${n}\\b`, 'i')
     if (re1.test(lower) || re2.test(lower)) return KNOWN_STAFF[i]
   }
+  // #report Kane / #sp Kane
   const reportMatch = lower.match(/#(?:report|sp)\s+(\w+)/)
   if (reportMatch) {
     const found = KNOWN_STAFF_LOWER.indexOf(reportMatch[1].toLowerCase())
     if (found !== -1) return KNOWN_STAFF[found]
   }
+  // Tên đứng một mình
   for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
     if (new RegExp(`\\b${KNOWN_STAFF_LOWER[i]}\\b`, 'i').test(lower)) return KNOWN_STAFF[i]
   }
@@ -58,7 +59,7 @@ const FULL_STAFF = [
 ]
 
 export async function GET(req: NextRequest) {
-  // Auth check — admin only
+  // Auth — admin only
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -71,104 +72,88 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
   const sp     = req.nextUrl.searchParams
-  const filter = sp.get('staff')   // lọc 1 staff cụ thể, vd: ?staff=Kane
-  const limit  = Math.min(500, parseInt(sp.get('limit') ?? '100'))
+  const filter = sp.get('staff')   // bắt buộc: chỉ load 1 staff mỗi lần
   const url    = process.env.CRM_SOAP_URL
-  if (!url) return NextResponse.json({ error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
+  if (!url)    return NextResponse.json({ error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
+  if (!filter) return NextResponse.json({ error: 'Thiếu ?staff=Name' }, { status: 400 })
 
   // Load session mapping
   const { data: allMappings } = await db
     .from('user_crm_mapping')
     .select('user_id, crm_staff_id')
-
   const staffIdToUserId = new Map<number, string>()
   for (const m of (allMappings ?? [])) {
     if (m.crm_staff_id) staffIdToUserId.set(m.crm_staff_id, m.user_id)
   }
 
-  const staffList = filter
-    ? FULL_STAFF.filter(s => s.name.toLowerCase() === filter.toLowerCase())
-    : FULL_STAFF
+  const staff = FULL_STAFF.find(s => s.name.toLowerCase() === filter.toLowerCase())
+  if (!staff) return NextResponse.json({ error: `Không tìm thấy staff: ${filter}` }, { status: 400 })
 
-  if (staffList.length === 0)
-    return NextResponse.json({ error: `Không tìm thấy staff: ${filter}` }, { status: 400 })
+  const userId = staffIdToUserId.get(staff.id)
+  if (!userId)  return NextResponse.json({ error: `Không có user mapping cho staff_id=${staff.id}` }, { status: 400 })
 
-  // Fetch raw từ CRM
-  const results = await Promise.allSettled(staffList.map(async s => {
-    const userId = staffIdToUserId.get(s.id)
-    if (!userId) throw new Error(`Không có user mapping cho staff_id=${s.id}`)
+  // Lấy session
+  const { sessionId, identity } = await getCRMSessionForUser(userId)
 
-    const { sessionId, identity } = await getCRMSessionForUser(userId)
+  // Gọi CRM — toàn bộ dữ liệu (không date filter)
+  const form = new URLSearchParams()
+  form.append('MethodName', 'GetCustServiceByStaff')
+  form.append('Param', JSON.stringify({ NotRead: '0', Staff_ID: String(staff.id) }))
+  form.append('SESSION_ID', sessionId)
+  form.append('IDENTITY', identity)
 
-    const form = new URLSearchParams()
-    form.append('MethodName', 'GetCustServiceByStaff')
-    form.append('Param', JSON.stringify({ NotRead: '0', Staff_ID: String(s.id) }))
-    form.append('SESSION_ID', sessionId)
-    form.append('IDENTITY', identity)
+  const resp = await fetch(url, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    form.toString(),
+    signal:  AbortSignal.timeout(30_000),
+  })
+  if (!resp.ok) return NextResponse.json({ error: `CRM HTTP ${resp.status}` }, { status: 502 })
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: form.toString(),
-      signal: AbortSignal.timeout(30_000),
-    })
-    const json: CRMResponse = JSON.parse(await resp.text())
-    if (!json.status) throw new Error(json.error || 'CRM status=0')
-    return { staffName: s.name, staffId: s.id, tickets: json.result ?? [] }
-  }))
+  const json: CRMResponse = JSON.parse(await resp.text())
+  if (!json.status) return NextResponse.json({ error: json.error || 'CRM status=0' }, { status: 502 })
 
-  const output = []
+  const tickets: CRMTicket[] = json.result ?? []
 
-  for (const r of results) {
-    if (r.status === 'rejected') {
-      output.push({ staffName: '?', error: String(r.reason), tickets: [], summary: {} })
-      continue
+  // Phân loại từng ticket
+  const accepted: object[] = []
+  const rejected: object[] = []
+
+  for (const t of tickets) {
+    const handler = extractHandlerFromMemo(t.CS_Memo ?? '')
+    const base = {
+      cs_id:       t.CS_ID,
+      cs_date:     t.CS_Date,
+      update_time: t.CS_UpdateTime,
+      cust_name:   t.Cust_Name,
+      cust_id:     t.Cust_ID,
+      direction:   t.CS_IO,
+      ticket_type: t.CC_Name,
+      contact:     t.CM_Name,
+      zone:        t.Cust_SaleManAssistant_Zone,
+      handler,
+      memo:        t.CS_Memo ?? '',
     }
-
-    const { staffName, staffId, tickets } = r.value
-
-    // Phân tích handler
-    let withHandler = 0
-    let noHandler   = 0
-    const handlerBreakdown: Record<string, number> = {}
-
-    const sample = tickets.slice(0, limit).map(t => {
-      const h = extractHandlerFromMemo(t.CS_Memo ?? '')
-      if (h) { withHandler++; handlerBreakdown[h] = (handlerBreakdown[h] ?? 0) + 1 }
-      else   { noHandler++ }
-      return {
-        cs_id:      t.CS_ID,
-        cs_date:    t.CS_Date,
-        cust_name:  t.Cust_Name,
-        cust_id:    t.Cust_ID,
-        direction:  t.CS_IO,
-        handler:    h,           // null = CS_Memo không mention tên ai → sẽ bị reject
-        memo_short: (t.CS_Memo ?? '').substring(0, 200),
-        zone:       t.Cust_SaleManAssistant_Zone,
-      }
-    })
-
-    // Count toàn bộ cho summary (không chỉ sample)
-    let totalWith = 0, totalNo = 0
-    for (const t of tickets) {
-      if (extractHandlerFromMemo(t.CS_Memo ?? '')) totalWith++
-      else totalNo++
+    if (handler) {
+      accepted.push(base)
+    } else {
+      rejected.push({
+        ...base,
+        reject_reason: !t.CS_Memo
+          ? 'CS_Memo trống'
+          : 'CS_Memo không mention Kane/Stefan/Shiro/Irene/Blue',
+      })
     }
-
-    output.push({
-      staffName,
-      staffId,
-      totalRaw:    tickets.length,
-      withHandler: totalWith,
-      noHandler:   totalNo,
-      handlerBreakdown,
-      sample,      // giới hạn `limit` bản ghi
-    })
   }
 
   return NextResponse.json({
-    ok:   true,
-    note: 'noHandler = ticket fetch từ account này nhưng CS_Memo không mention tên ai → trước đây bị REJECT, nay dùng tên account làm fallback',
-    data: output,
+    ok:            true,
+    staffName:     staff.name,
+    staffId:       staff.id,
+    totalRaw:      tickets.length,
+    acceptedCount: accepted.length,
+    rejectedCount: rejected.length,
+    accepted,
+    rejected,
   })
 }

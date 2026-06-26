@@ -1,117 +1,97 @@
 'use client'
 import { useState } from 'react'
 
-interface TicketRow {
-  cs_id: number
-  cs_date: string
-  cust_name: string
-  cust_id: number
-  direction: string
-  handler: string | null   // null = không detect được tên nào từ CS_Memo
-  memo_short: string       // 200 ký tự đầu
-  zone: string
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface Ticket {
+  cs_id:       number
+  cs_date:     string
+  update_time: string
+  cust_name:   string
+  cust_id:     number
+  direction:   string
+  ticket_type: string
+  contact:     string
+  zone:        string
+  handler:     string | null
+  memo:        string
+  reject_reason?: string
 }
 
-interface StaffResult {
-  staffName: string
-  staffId: number
-  totalRaw: number
-  withHandler: number
-  noHandler: number
-  handlerBreakdown: Record<string, number>
-  sample: TicketRow[]
-  error?: string
+interface StaffCache {
+  staffName:     string
+  totalRaw:      number
+  acceptedCount: number
+  rejectedCount: number
+  // CS_ID -> ticket (để dedup khi load lại)
+  accepted: Map<number, Ticket>
+  rejected: Map<number, Ticket>
+  loadedAt: string
 }
 
-interface DebugResponse {
-  ok: boolean
-  data: StaffResult[]
+type StaffName = 'Kane' | 'Stefan' | 'Shiro' | 'Irene' | 'Blue'
+const STAFF_LIST: StaffName[] = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
+
+const STAFF_COLORS: Record<StaffName, string> = {
+  Kane:   'bg-blue-100 text-blue-700 border-blue-300',
+  Stefan: 'bg-purple-100 text-purple-700 border-purple-300',
+  Shiro:  'bg-green-100 text-green-700 border-green-300',
+  Irene:  'bg-pink-100 text-pink-700 border-pink-300',
+  Blue:   'bg-cyan-100 text-cyan-700 border-cyan-300',
 }
 
-interface SessionInfo {
-  staffId: number
-  name: string
-  status: string
-  isExpired?: boolean
-  sessionId?: string
-  expiresAt?: string
-  updatedAt?: string
-}
-
-interface SessionCheckResponse {
-  ok: boolean
-  now: string
-  sessions: SessionInfo[]
-}
-
-interface ReloginResult {
-  name: string
-  staffId: number
-  ok: boolean
-  ms?: number
-  error?: string
-  sessionPreview?: string
-}
-
-const STAFF_LIST = ['Tất cả', 'Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
-type Filter = 'rejected' | 'ok' | 'all'
-
+// ── Component ─────────────────────────────────────────────────────────────────
 export default function CRMDebugPage() {
-  const [loading, setLoading]         = useState(false)
-  const [result, setResult]           = useState<DebugResponse | null>(null)
-  const [error, setError]             = useState<string | null>(null)
-  const [staff, setStaff]             = useState('Tất cả')
-  const [filter, setFilter]           = useState<Filter>('rejected')
-  const [limit, setLimit]             = useState(300)
-  const [expandMemo, setExpandMemo]   = useState<Set<number>>(new Set())
+  const [selected, setSelected]     = useState<StaffName>('Kane')
+  const [loading, setLoading]       = useState(false)
+  const [loadError, setLoadError]   = useState<string | null>(null)
+  // Cache: staffName -> StaffCache
+  const [cache, setCache]           = useState<Map<StaffName, StaffCache>>(new Map())
+  // Mở rộng memo
+  const [expandMemo, setExpandMemo] = useState<Set<number>>(new Set())
+  // Tab trong bảng kết quả
+  const [activeTab, setActiveTab]   = useState<'accepted' | 'rejected'>('accepted')
 
-  // Session panel
-  const [sessLoading, setSessLoading] = useState(false)
-  const [sessions, setSessions]       = useState<SessionInfo[] | null>(null)
-  const [reloginLoading, setReloginLoading] = useState(false)
-  const [reloginResults, setReloginResults] = useState<ReloginResult[] | null>(null)
-  const [sessError, setSessError]     = useState<string | null>(null)
+  const current = cache.get(selected)
 
-  async function fetchDebug() {
-    setLoading(true); setError(null); setResult(null)
+  // ── Load data cho staff đang chọn ──────────────────────────────────────────
+  async function loadStaff() {
+    setLoading(true)
+    setLoadError(null)
     try {
-      const params = new URLSearchParams({ limit: String(limit) })
-      if (staff !== 'Tất cả') params.set('staff', staff)
-      const res  = await fetch(`/api/crm/debug?${params}`)
+      const res  = await fetch(`/api/crm/debug?staff=${selected}`)
       const json = await res.json()
-      if (!json.ok) throw new Error(json.error ?? 'Unknown error')
-      setResult(json)
-    } catch (e) { setError(String(e)) }
+      if (!json.ok) throw new Error(json.error ?? 'Lỗi không xác định')
+
+      // Build maps (dedup by CS_ID — lấy bản mới nhất nếu load lại)
+      const prev        = cache.get(selected)
+      const acceptedMap = prev ? new Map(prev.accepted) : new Map<number, Ticket>()
+      const rejectedMap = prev ? new Map(prev.rejected) : new Map<number, Ticket>()
+
+      for (const t of (json.accepted as Ticket[])) {
+        const ex = acceptedMap.get(t.cs_id)
+        if (!ex || t.update_time > ex.update_time) acceptedMap.set(t.cs_id, t)
+        rejectedMap.delete(t.cs_id) // nếu trước bị reject nhưng nay OK
+      }
+      for (const t of (json.rejected as Ticket[])) {
+        if (!acceptedMap.has(t.cs_id)) {
+          const ex = rejectedMap.get(t.cs_id)
+          if (!ex || t.update_time > ex.update_time) rejectedMap.set(t.cs_id, t)
+        }
+      }
+
+      const newCache: StaffCache = {
+        staffName:     json.staffName,
+        totalRaw:      json.totalRaw,
+        acceptedCount: acceptedMap.size,
+        rejectedCount: rejectedMap.size,
+        accepted:      acceptedMap,
+        rejected:      rejectedMap,
+        loadedAt:      new Date().toLocaleTimeString('vi-VN'),
+      }
+
+      setCache(prev => new Map(prev).set(selected, newCache))
+    } catch (e) { setLoadError(String(e)) }
     finally { setLoading(false) }
-  }
-
-  async function checkSessions() {
-    setSessLoading(true); setSessError(null); setSessions(null); setReloginResults(null)
-    try {
-      const res  = await fetch('/api/crm/session-check')
-      const json: SessionCheckResponse = await res.json()
-      if (!json.ok) throw new Error('Lỗi khi check session')
-      setSessions(json.sessions)
-    } catch (e) { setSessError(String(e)) }
-    finally { setSessLoading(false) }
-  }
-
-  async function forceRelogin(staffId?: number) {
-    setReloginLoading(true); setSessError(null); setReloginResults(null)
-    try {
-      const body = staffId ? { staffId } : {}
-      const res  = await fetch('/api/crm/session-check', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-      })
-      const json = await res.json()
-      if (!json.ok) throw new Error(json.error ?? 'Lỗi re-login')
-      setReloginResults(json.reloginResults)
-      // Refresh session list sau khi re-login
-      await checkSessions()
-    } catch (e) { setSessError(String(e)) }
-    finally { setReloginLoading(false) }
   }
 
   function toggleMemo(id: number) {
@@ -122,283 +102,306 @@ export default function CRMDebugPage() {
     })
   }
 
-  const totalRejected = result?.data.reduce((s, d) => s + (d.noHandler ?? 0), 0) ?? 0
-  const totalRaw      = result?.data.reduce((s, d) => s + (d.totalRaw   ?? 0), 0) ?? 0
+  const acceptedRows = current ? Array.from(current.accepted.values()) : []
+  const rejectedRows = current ? Array.from(current.rejected.values()) : []
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 py-6">
+    <div className="min-h-screen bg-gray-50 flex">
 
-        {/* Header */}
-        <div className="mb-5">
-          <a href="/ho-tro" className="text-sm text-gray-400 hover:text-blue-600">← Hỗ trợ kỹ thuật</a>
-          <h1 className="text-2xl font-bold text-gray-900 mt-1">🔍 CRM Reject Analyzer</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Debug ticket bị reject + kiểm tra session CRM. Dùng khi sync bị timeout liên tục.
-          </p>
+      {/* ── Sidebar chọn staff ───────────────────────────────────────────── */}
+      <aside className="w-48 shrink-0 bg-white border-r border-gray-200 flex flex-col">
+        <div className="px-4 py-4 border-b border-gray-100">
+          <a href="/ho-tro" className="text-xs text-gray-400 hover:text-blue-600 block mb-1">← Hỗ trợ</a>
+          <div className="font-bold text-gray-800 text-sm">CRM Debug</div>
+          <div className="text-[10px] text-gray-400 mt-0.5">Load thủ công từng người</div>
         </div>
 
-        {/* ── SESSION PANEL ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="font-semibold text-gray-800 text-sm">🔐 Trạng thái Session CRM</h2>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Nếu sync bị timeout → check session trước. Session hết hạn → Force Re-login.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={checkSessions} disabled={sessLoading}
-                className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-50 transition disabled:opacity-40">
-                {sessLoading ? '⏳ Đang check...' : '🔍 Check Sessions'}
-              </button>
-              <button onClick={() => forceRelogin()} disabled={reloginLoading || sessLoading}
-                className="px-3 py-1.5 bg-orange-500 text-white rounded-lg text-xs font-medium hover:bg-orange-600 transition disabled:opacity-40">
-                {reloginLoading ? '⏳ Đang re-login...' : '🔄 Force Re-login Tất Cả'}
-              </button>
-            </div>
-          </div>
-
-          {sessError && (
-            <div className="text-red-600 text-xs bg-red-50 rounded-lg p-2">{sessError}</div>
-          )}
-
-          {sessions && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mt-2">
-              {sessions.map(s => (
-                <div key={s.staffId}
-                  className={`rounded-lg border p-2.5 text-xs ${
-                    s.status === 'no_cache'  ? 'border-gray-200 bg-gray-50' :
-                    s.isExpired              ? 'border-red-200 bg-red-50' :
-                                               'border-green-200 bg-green-50'
-                  }`}>
-                  <div className="font-semibold text-gray-800 mb-1">{s.name}</div>
-                  <div className={`font-medium ${
-                    s.status === 'no_cache' ? 'text-gray-400' :
-                    s.isExpired             ? 'text-red-600'  : 'text-green-600'
-                  }`}>
-                    {s.status === 'no_cache' ? '⚪ Chưa có cache' :
-                     s.isExpired             ? `🔴 ${s.status}` :
-                                               `🟢 ${s.status}`}
+        <nav className="flex-1 py-3 space-y-1 px-2">
+          {STAFF_LIST.map(name => {
+            const c       = cache.get(name)
+            const isActive = name === selected
+            return (
+              <button
+                key={name}
+                onClick={() => { setSelected(name); setLoadError(null) }}
+                className={`w-full text-left rounded-lg px-3 py-2.5 transition text-sm ${
+                  isActive
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <div className="font-semibold">{name}</div>
+                {c ? (
+                  <div className={`text-[10px] mt-0.5 ${isActive ? 'text-indigo-200' : 'text-gray-400'}`}>
+                    {c.totalRaw} ticket • {c.loadedAt}
                   </div>
-                  {s.updatedAt && (
-                    <div className="text-gray-400 mt-1">
-                      Login lúc: {new Date(s.updatedAt).toLocaleString('vi-VN', { hour:'2-digit', minute:'2-digit', day:'2-digit', month:'2-digit' })}
-                    </div>
-                  )}
-                  <button onClick={() => forceRelogin(s.staffId)} disabled={reloginLoading}
-                    className="mt-1.5 text-[10px] text-orange-500 hover:text-orange-700 underline disabled:opacity-40">
-                    Re-login riêng
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+                ) : (
+                  <div className={`text-[10px] mt-0.5 ${isActive ? 'text-indigo-300' : 'text-gray-300'}`}>
+                    Chưa load
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </nav>
 
-          {/* Re-login results */}
-          {reloginResults && (
-            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-              {reloginResults.map((r, i) => (
-                <div key={i} className={`rounded-lg border p-2.5 text-xs ${r.ok ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-                  <div className="font-semibold text-gray-800">{r.name}</div>
-                  {r.ok
-                    ? <><div className="text-green-600 font-medium">✅ OK ({r.ms}ms)</div>
-                        <div className="text-gray-400 font-mono">{r.sessionPreview}</div></>
-                    : <div className="text-red-600 break-all">{r.error}</div>
-                  }
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ── TICKET DEBUG PANEL ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5 flex flex-wrap gap-3 items-end">
-          <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1">Nhân viên</label>
-            <select value={staff} onChange={e => setStaff(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-              {STAFF_LIST.map(s => <option key={s}>{s}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1">Hiển thị tối đa</label>
-            <select value={limit} onChange={e => setLimit(Number(e.target.value))}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
-              {[100, 200, 300, 500].map(n => <option key={n} value={n}>{n} ticket/người</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1">Lọc</label>
-            <div className="flex rounded-lg border border-gray-300 overflow-hidden text-sm">
-              {([['rejected','❌ Bị reject'],['ok','✅ OK'],['all','Tất cả']] as [Filter,string][]).map(([v,l]) => (
-                <button key={v} onClick={() => setFilter(v)}
-                  className={`px-3 py-2 transition ${filter===v ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button onClick={fetchDebug} disabled={loading}
-            className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-40 self-end">
-            {loading ? '⏳ Đang tải CRM...' : '🔍 Fetch & Phân tích'}
-          </button>
-          {loading && (
-            <div className="text-xs text-gray-400 self-end pb-2">
-              Đang gọi CRM SOAP... (~10-20s, nếu quá 30s là CRM timeout)
-            </div>
-          )}
-        </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-4 text-sm">
-            <strong>Lỗi:</strong> {error}
-            {error.includes('timeout') || error.includes('Timeout') ? (
-              <div className="mt-2 text-xs text-red-500">
-                💡 CRM bị timeout → Thử <strong>Force Re-login</strong> ở panel trên rồi fetch lại.
-                Nếu re-login cũng timeout thì CRM SOAP server đang có vấn đề (không phải lỗi code).
-              </div>
-            ) : null}
-          </div>
-        )}
-
-        {/* Summary */}
-        {result && (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
-              <div className="md:col-span-1 bg-white rounded-xl border border-gray-200 p-3">
-                <div className="text-xs text-gray-500 mb-1">Tổng cộng</div>
-                <div className="text-2xl font-bold text-gray-800">{totalRaw}</div>
-                <div className="text-xs text-red-500 mt-1">❌ Reject: {totalRejected}</div>
-                <div className="text-xs text-green-500">✅ OK: {totalRaw - totalRejected}</div>
-              </div>
-              {result.data.map(s => (
-                <div key={s.staffName}
-                  className={`bg-white rounded-xl border p-3 ${s.error ? 'border-red-300' : s.noHandler > 0 ? 'border-orange-200' : 'border-gray-200'}`}>
-                  <div className="font-bold text-gray-800 text-sm">{s.staffName}</div>
-                  {s.error
-                    ? <div className="text-xs text-red-500 mt-1 break-all">{s.error}</div>
-                    : <>
-                        <div className="text-xl font-bold mt-1">{s.totalRaw}</div>
-                        <div className="text-xs text-green-600">✅ {s.withHandler} có tên</div>
-                        <div className={`text-xs ${s.noHandler > 0 ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
-                          ❌ {s.noHandler} không tên
-                        </div>
-                        {Object.keys(s.handlerBreakdown).length > 0 && (
-                          <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-gray-400 space-y-0.5">
-                            {Object.entries(s.handlerBreakdown)
-                              .sort(([,a],[,b]) => b-a)
-                              .map(([name, cnt]) => (
-                                <div key={name} className={name === s.staffName ? 'text-green-600 font-medium' : 'text-orange-500'}>
-                                  {name}: {cnt}{name !== s.staffName ? ' ⚠️' : ''}
-                                </div>
-                              ))}
-                          </div>
-                        )}
-                      </>
-                  }
-                </div>
-              ))}
-            </div>
-
-            {/* Ticket tables */}
-            {result.data.map(s => {
-              if (s.error) return null
-              const rows = s.sample.filter(t =>
-                filter === 'rejected' ? t.handler === null :
-                filter === 'ok'       ? t.handler !== null :
-                true
-              )
-              if (rows.length === 0) return (
-                <div key={s.staffName} className="mb-4 bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-2">
-                  <span className="font-semibold text-gray-700">{s.staffName}</span>
-                  <span className="text-sm text-green-600">
-                    {filter === 'rejected' ? '✅ Không có ticket bị reject!' : '— không có dữ liệu'}
+        {/* Tổng hợp tất cả */}
+        {cache.size > 0 && (
+          <div className="px-3 py-3 border-t border-gray-100 text-[10px] text-gray-400 space-y-0.5">
+            <div className="font-semibold text-gray-500 text-xs mb-1">Đã load ({cache.size}/5)</div>
+            {STAFF_LIST.filter(n => cache.has(n)).map(n => {
+              const c = cache.get(n)!
+              return (
+                <div key={n} className="flex justify-between">
+                  <span>{n}</span>
+                  <span>
+                    <span className="text-green-600">{c.acceptedCount}</span>
+                    {' / '}
+                    <span className="text-red-500">{c.rejectedCount}</span>
                   </span>
                 </div>
               )
-
-              return (
-                <div key={s.staffName} className="mb-8">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h2 className="font-bold text-gray-800 text-base">{s.staffName}</h2>
-                    <span className="text-sm text-gray-400">
-                      {filter === 'rejected'
-                        ? `${s.noHandler} ticket không có tên trong CS_Memo`
-                        : filter === 'ok'
-                        ? `${s.withHandler} ticket OK`
-                        : `${s.totalRaw} ticket tổng`}
-                    </span>
-                    {filter === 'rejected' && s.noHandler > rows.length && (
-                      <span className="text-xs text-orange-500">(chỉ hiển thị {rows.length}/{s.noHandler} — tăng limit)</span>
-                    )}
-                  </div>
-
-                  <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-                    <table className="w-full text-sm min-w-[900px]">
-                      <thead>
-                        <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500">
-                          <th className="px-3 py-2 text-left w-20">CS_ID</th>
-                          <th className="px-3 py-2 text-left w-24">Ngày</th>
-                          <th className="px-3 py-2 text-left w-32">Khách hàng</th>
-                          <th className="px-3 py-2 text-left w-16">IO</th>
-                          <th className="px-3 py-2 text-left w-28">Handler detect</th>
-                          <th className="px-3 py-2 text-left">CS_Memo <span className="font-normal text-gray-400">(click để xem đầy đủ)</span></th>
-                          <th className="px-3 py-2 text-left w-40">Lý do reject</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {rows.map(t => {
-                          const rejected = t.handler === null
-                          const expanded = expandMemo.has(t.cs_id)
-                          return (
-                            <tr key={t.cs_id} className={rejected ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}>
-                              <td className="px-3 py-2 font-mono text-xs text-gray-500">{t.cs_id}</td>
-                              <td className="px-3 py-2 text-xs text-gray-600">{t.cs_date}</td>
-                              <td className="px-3 py-2 text-xs">
-                                <div className="font-medium text-gray-800 truncate max-w-[120px]">{t.cust_name || '—'}</div>
-                                <div className="text-gray-400">KH {t.cust_id || '—'}</div>
-                              </td>
-                              <td className="px-3 py-2 text-xs text-gray-500">{t.direction || '—'}</td>
-                              <td className="px-3 py-2 text-xs">
-                                {t.handler
-                                  ? <span className={`px-2 py-0.5 rounded-full font-medium text-[11px] ${t.handler === s.staffName ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                                      {t.handler}{t.handler !== s.staffName ? ' ⚠️' : ''}
-                                    </span>
-                                  : <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-600 font-medium text-[11px]">không detect</span>
-                                }
-                              </td>
-                              <td className="px-3 py-2 text-xs font-mono text-gray-700 cursor-pointer"
-                                  onClick={() => toggleMemo(t.cs_id)}>
-                                {t.memo_short
-                                  ? <span className={`break-all whitespace-pre-wrap ${!expanded ? 'line-clamp-2' : ''}`}>
-                                      {t.memo_short}
-                                      {!expanded && t.memo_short.length >= 119 && <span className="text-indigo-400"> [xem thêm]</span>}
-                                    </span>
-                                  : <span className="text-gray-300 italic">( trống )</span>
-                                }
-                              </td>
-                              <td className="px-3 py-2 text-xs">
-                                {rejected
-                                  ? <span className="text-red-600">
-                                      {!t.memo_short
-                                        ? 'CS_Memo trống'
-                                        : 'CS_Memo không mention Kane/Stefan/Shiro/Irene/Blue'}
-                                    </span>
-                                  : <span className="text-green-600">✓ OK</span>
-                                }
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )
             })}
+          </div>
+        )}
+      </aside>
+
+      {/* ── Main area ────────────────────────────────────────────────────── */}
+      <main className="flex-1 min-w-0 px-6 py-5">
+
+        {/* Header + nút Load */}
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">
+              <span className={`inline-block px-2 py-0.5 rounded-md border text-sm mr-2 ${STAFF_COLORS[selected]}`}>
+                {selected}
+              </span>
+              Dữ liệu từ CRM
+            </h1>
+            {current && (
+              <p className="text-xs text-gray-400 mt-1">
+                Tổng: <strong>{current.totalRaw}</strong> •
+                ✅ Accepted: <strong className="text-green-600">{current.acceptedCount}</strong> •
+                ❌ Rejected: <strong className="text-red-500">{current.rejectedCount}</strong> •
+                Load lúc {current.loadedAt}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={loadStaff}
+            disabled={loading}
+            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 active:scale-95 transition disabled:opacity-40 shadow-sm"
+          >
+            {loading
+              ? <><span className="animate-spin">⏳</span> Đang tải CRM...</>
+              : <>🔄 Load tất cả dữ liệu — {selected}</>
+            }
+          </button>
+        </div>
+
+        {loadError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm">
+            <strong>Lỗi:</strong> {loadError}
+            {(loadError.includes('timeout') || loadError.includes('Timeout')) && (
+              <div className="text-xs mt-1 text-red-500">
+                💡 Thử <a href="/admin/crm-debug" className="underline">Force Re-login</a> trước rồi load lại.
+              </div>
+            )}
+          </div>
+        )}
+
+        {!current && !loading && !loadError && (
+          <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+            <div className="text-4xl mb-3">📋</div>
+            <div className="text-base font-medium">Nhấn &ldquo;Load tất cả dữ liệu&rdquo; để bắt đầu</div>
+            <div className="text-sm mt-1">Dữ liệu sẽ được giữ khi bạn chuyển sang nhân viên khác</div>
+          </div>
+        )}
+
+        {current && (
+          <>
+            {/* Tabs */}
+            <div className="flex gap-1 mb-3">
+              <button
+                onClick={() => setActiveTab('accepted')}
+                className={`px-4 py-2 rounded-t-lg text-sm font-semibold border-b-2 transition ${
+                  activeTab === 'accepted'
+                    ? 'border-green-500 text-green-700 bg-green-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                ✅ Dữ liệu gốc
+                <span className="ml-1.5 bg-green-100 text-green-700 text-xs px-1.5 py-0.5 rounded-full">
+                  {current.acceptedCount}
+                </span>
+              </button>
+              <button
+                onClick={() => setActiveTab('rejected')}
+                className={`px-4 py-2 rounded-t-lg text-sm font-semibold border-b-2 transition ${
+                  activeTab === 'rejected'
+                    ? 'border-red-500 text-red-700 bg-red-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                ❌ Bị loại bỏ
+                <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
+                  current.rejectedCount > 0 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'
+                }`}>
+                  {current.rejectedCount}
+                </span>
+              </button>
+            </div>
+
+            {/* ── Bảng Dữ liệu gốc ── */}
+            {activeTab === 'accepted' && (
+              <TicketTable
+                rows={acceptedRows}
+                expandMemo={expandMemo}
+                toggleMemo={toggleMemo}
+                mode="accepted"
+                staffName={selected}
+              />
+            )}
+
+            {/* ── Bảng Bị loại bỏ ── */}
+            {activeTab === 'rejected' && (
+              rejectedRows.length === 0
+                ? <div className="bg-green-50 border border-green-200 text-green-700 rounded-xl p-6 text-center text-sm">
+                    🎉 Không có ticket nào bị loại! Tất cả CS_Memo của {selected} đều có tên nhân viên.
+                  </div>
+                : <TicketTable
+                    rows={rejectedRows}
+                    expandMemo={expandMemo}
+                    toggleMemo={toggleMemo}
+                    mode="rejected"
+                    staffName={selected}
+                  />
+            )}
           </>
         )}
+      </main>
+    </div>
+  )
+}
+
+// ── Sub-component: bảng ticket ────────────────────────────────────────────────
+function TicketTable({
+  rows, expandMemo, toggleMemo, mode, staffName,
+}: {
+  rows:       Ticket[]
+  expandMemo: Set<number>
+  toggleMemo: (id: number) => void
+  mode:       'accepted' | 'rejected'
+  staffName:  string
+}) {
+  const [search, setSearch] = useState('')
+
+  const filtered = search
+    ? rows.filter(r =>
+        String(r.cs_id).includes(search) ||
+        (r.cust_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+        (r.memo ?? '').toLowerCase().includes(search.toLowerCase()) ||
+        (r.handler ?? '').toLowerCase().includes(search.toLowerCase())
+      )
+    : rows
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Search bar */}
+      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+        <input
+          type="text"
+          placeholder="Tìm kiếm CS_ID, tên KH, CS_Memo..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        />
+        {search && (
+          <span className="text-xs text-gray-400">{filtered.length}/{rows.length}</span>
+        )}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[900px]">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              <th className="px-3 py-2.5 text-left w-20">CS_ID</th>
+              <th className="px-3 py-2.5 text-left w-24">Ngày</th>
+              <th className="px-3 py-2.5 text-left w-36">Khách hàng</th>
+              <th className="px-3 py-2.5 text-left w-14">IO</th>
+              <th className="px-3 py-2.5 text-left w-24">Loại</th>
+              <th className="px-3 py-2.5 text-left w-24">Handler</th>
+              <th className="px-3 py-2.5 text-left">
+                CS_Memo
+                <span className="ml-1 font-normal text-gray-400 normal-case">(click để mở)</span>
+              </th>
+              {mode === 'rejected' && (
+                <th className="px-3 py-2.5 text-left w-44 text-red-500">Lý do loại</th>
+              )}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {filtered.map(t => {
+              const expanded = expandMemo.has(t.cs_id)
+              const handlerBadge = t.handler
+                ? t.handler === staffName
+                  ? <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[11px] font-medium">{t.handler}</span>
+                  : <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-[11px] font-medium">{t.handler} ⚠️</span>
+                : <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-500 text-[11px]">—</span>
+
+              return (
+                <tr
+                  key={t.cs_id}
+                  className={mode === 'rejected' ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-gray-50'}
+                >
+                  <td className="px-3 py-2 font-mono text-xs text-gray-500">{t.cs_id}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{t.cs_date}</td>
+                  <td className="px-3 py-2 text-xs">
+                    <div className="font-medium text-gray-800 truncate max-w-[130px]" title={t.cust_name}>
+                      {t.cust_name || '—'}
+                    </div>
+                    <div className="text-gray-400">ID {t.cust_id || '—'}</div>
+                  </td>
+                  <td className="px-3 py-2 text-xs text-gray-500">{t.direction || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[90px]" title={t.ticket_type}>
+                    {t.ticket_type || '—'}
+                  </td>
+                  <td className="px-3 py-2 text-xs">{handlerBadge}</td>
+                  <td
+                    className="px-3 py-2 text-xs font-mono text-gray-700 cursor-pointer max-w-[340px]"
+                    onClick={() => toggleMemo(t.cs_id)}
+                  >
+                    {t.memo
+                      ? <span className={`break-all whitespace-pre-wrap leading-relaxed ${!expanded ? 'line-clamp-2' : ''}`}>
+                          {t.memo}
+                          {!expanded && t.memo.length > 120 && (
+                            <span className="text-indigo-400 not-italic"> [xem thêm]</span>
+                          )}
+                        </span>
+                      : <span className="text-gray-300 italic">( trống )</span>
+                    }
+                  </td>
+                  {mode === 'rejected' && (
+                    <td className="px-3 py-2 text-xs text-red-600">
+                      {t.reject_reason}
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={mode === 'rejected' ? 8 : 7} className="px-4 py-8 text-center text-gray-400 text-sm">
+                  Không tìm thấy kết quả
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="px-4 py-2 border-t border-gray-100 text-xs text-gray-400">
+        Hiển thị {filtered.length} / {rows.length} ticket
       </div>
     </div>
   )
