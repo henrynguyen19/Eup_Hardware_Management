@@ -1,7 +1,14 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import type { JiraBug } from '@/app/api/jira/bugs/route'
+
+// Client-side Supabase để lấy access token khi cookie không hoạt động
+const supabaseBrowser = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 const REPORTER_COLORS: Record<string, string> = {
   Shiro: '#3b82f6', Stefan: '#8b5cf6', Kane: '#22c55e',
@@ -74,6 +81,8 @@ export default function JiraBugsTab() {
   const [search, setSearch]                 = useState('')
   const [showClosed, setShowClosed]         = useState(false)
   const [expandedKey, setExpandedKey]       = useState<string | null>(null)
+  const [syncing, setSyncing]               = useState(false)
+  const [syncMsg, setSyncMsg]               = useState<string | null>(null)
 
   // Status names considered "closed"
   const CLOSED_STATUSES = ['done', 'closed', 'resolved', 'cancelled', 'canceled', 'won\'t fix', 'duplicate']
@@ -82,7 +91,12 @@ export default function JiraBugsTab() {
   async function load() {
     setLoading(true); setError(null)
     try {
-      const res  = await fetch('/api/jira/bugs')
+      // Lấy access token từ session client-side để gửi kèm (fallback nếu cookie không hoạt động)
+      const { data: { session } } = await supabaseBrowser.auth.getSession()
+      const headers: Record<string, string> = {}
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+
+      const res  = await fetch('/api/jira/bugs', { headers })
       const json = await res.json()
       if (json.error) { setError(json.error + (json.debug ? '\n' + JSON.stringify(json.debug, null, 2) : '')); return }
       setBugs(json.bugs ?? [])
@@ -91,6 +105,22 @@ export default function JiraBugsTab() {
   }
 
   useEffect(() => { load() }, [])
+
+  async function syncDuedate(overwrite = false) {
+    setSyncing(true); setSyncMsg(null)
+    try {
+      const { data: { session } } = await supabaseBrowser.auth.getSession()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res  = await fetch('/api/jira/sync-duedate', { method: 'POST', headers, body: JSON.stringify({ overwrite }) })
+      const json = await res.json()
+      if (json.error) { setSyncMsg(`❌ ${json.error}`); return }
+      setSyncMsg(`✅ Đã ghi ${json.updated} ô vào Sheet${json.skippedNoDate ? ` (${json.skippedNoDate} issue không có ngày)` : ''}`)
+      // Reload để thấy due_date_sheet mới
+      load()
+    } catch (e) { setSyncMsg(`❌ ${String(e)}`) }
+    finally { setSyncing(false) }
+  }
 
   const reporters = useMemo(() => Array.from(new Set(bugs.map(b => b.reporter).filter(Boolean))).sort(), [bugs])
   const statuses  = useMemo(() => Array.from(new Set(bugs.map(b => b.status).filter(Boolean))).sort(), [bugs])
@@ -136,10 +166,25 @@ export default function JiraBugsTab() {
               <h2 className="font-bold text-gray-800 text-lg">🐛 Jira Bug Tracker</h2>
               <p className="text-xs text-gray-400">{bugs.length} issues — duedate & assignee lấy từ parent hoặc linked work item</p>
             </div>
-            <button onClick={load} disabled={loading}
-              className="px-3 py-2 text-sm border border-gray-200 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-40">
-              🔄 Làm mới
-            </button>
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex gap-2">
+                <button onClick={load} disabled={loading || syncing}
+                  className="px-3 py-2 text-sm border border-gray-200 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-40">
+                  🔄 Làm mới
+                </button>
+                <button onClick={() => syncDuedate(false)} disabled={syncing || loading}
+                  title="Chỉ ghi vào ô đang trống (không ghi đè)"
+                  className="px-3 py-2 text-sm border border-green-200 text-green-700 hover:bg-green-50 rounded-lg transition disabled:opacity-40">
+                  {syncing ? '⏳' : '📥'} Ghi Due Date → Sheet
+                </button>
+                <button onClick={() => syncDuedate(true)} disabled={syncing || loading}
+                  title="Ghi đè tất cả, kể cả ô đã có ngày"
+                  className="px-3 py-2 text-sm border border-orange-200 text-orange-600 hover:bg-orange-50 rounded-lg transition disabled:opacity-40">
+                  {syncing ? '⏳' : '🔁'} Ghi đè tất cả
+                </button>
+              </div>
+              {syncMsg && <p className="text-xs text-gray-500">{syncMsg}</p>}
+            </div>
           </div>
 
           {/* KPIs */}
@@ -196,7 +241,7 @@ export default function JiraBugsTab() {
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    {['#','Issue','Summary','Reporter','Assignee','Loại Bug','Ngày tạo','Due Date (Sheet)','Due Date (Jira)','Done Date','Status','Links'].map(h => (
+                    {['#','Issue','Mã KH','Summary','Reporter','Assignee','Loại Bug','Ngày tạo','Due Date (Sheet)','Due Date (Jira)','Done Date','Status','Links'].map(h => (
                       <th key={h} className="text-left px-3 py-3 text-gray-500 font-medium whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -215,6 +260,11 @@ export default function JiraBugsTab() {
                               className="font-bold text-blue-600 hover:underline whitespace-nowrap">
                               {bug.issue_key}
                             </a>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            {bug.customer_code
+                              ? <span className="font-mono text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded">{bug.customer_code}</span>
+                              : <span className="text-gray-300">—</span>}
                           </td>
                           <td className="px-3 py-2.5 text-gray-700 max-w-[220px]">
                             <span className="line-clamp-2" title={bug.summary}>{bug.summary || '—'}</span>

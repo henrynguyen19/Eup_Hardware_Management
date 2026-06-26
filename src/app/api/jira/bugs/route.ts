@@ -27,6 +27,7 @@ export interface JiraBug {
   ngay_tao:       string
   link:           string
   issue_key:      string
+  customer_code:  string | null   // cột Q trong sheet — mã khách hàng
   due_date_sheet: string | null   // cột M trong sheet
   due_date_jira:  string | null   // lấy từ Jira API (parent hoặc linked)
   due_date_source:string          // 'parent' | 'linked:<key>' | 'none'
@@ -64,6 +65,7 @@ async function fetchSheetBugs(): Promise<Omit<JiraBug,
       ngay_tao:       (cols[10] ?? '').trim(),
       link,
       issue_key:      issueKey,
+      customer_code:  (cols[16] ?? '').trim() || null,   // cột Q
       due_date_sheet: (cols[12] ?? '').trim() || null,
       done_date:      (cols[13] ?? '').trim(),
       bug_type:       (cols[14] ?? '').trim(),
@@ -174,9 +176,31 @@ async function fetchJiraIssue(issueKey: string, auth: string): Promise<{
 
 // ── GET ───────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const supabase = createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Auth: thử cookie-based trước, fallback sang Authorization header
+  let authed = false
+  try {
+    const supabase = createSupabaseServerClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) authed = true
+  } catch (e) {
+    console.error('[jira/bugs] cookie auth error:', e)
+  }
+
+  // Fallback: Bearer token trong Authorization header
+  if (!authed) {
+    const authHeader = req.headers.get('authorization') ?? ''
+    if (authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7)
+      try {
+        const { createClient } = await import('@supabase/supabase-js')
+        const sb2 = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+        const { data: { user } } = await sb2.auth.getUser(token)
+        if (user) authed = true
+      } catch { /* ignore */ }
+    }
+  }
+
+  if (!authed) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const email = process.env.JIRA_EMAIL?.trim()
   const token = process.env.JIRA_API_TOKEN?.trim()
