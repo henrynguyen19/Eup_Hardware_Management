@@ -920,6 +920,23 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function handleSyncCRM(_mode: 'self' | 'full' = 'self') { /* deprecated */ }
 
+  // ── Backfill dữ liệu còn thiếu (speed_tag từ reply) ──
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillResult, setBackfillResult] = useState<string | null>(null)
+
+  async function handleBackfill() {
+    setBackfilling(true); setBackfillResult(null)
+    try {
+      const res  = await fetch('/api/crm/backfill', { method: 'POST' })
+      const json = await res.json() as { ok?: boolean; scanned?: number; speedTagFound?: number; speedTagUpdated?: number; error?: string }
+      if (!res.ok) { setBackfillResult(`❌ ${json.error ?? 'Lỗi'}`); return }
+      setBackfillResult(`✅ Quét ${json.scanned} hàng → cập nhật ${json.speedTagUpdated} speed_tag`)
+      fetchCRMTickets(crmPage)
+    } catch (err) {
+      setBackfillResult(`❌ ${err instanceof Error ? err.message : String(err)}`)
+    } finally { setBackfilling(false) }
+  }
+
   // ── Unread CRM updates ──
   interface UnreadTicket {
     id: number; code: string; ticket_date: string; company: string | null
@@ -1331,14 +1348,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
           <div>
             {/* Toolbar */}
             <div className="flex flex-wrap items-center gap-2 mb-4">
-              {/* Label kỳ hiện tại */}
-              <span className="text-xs font-medium text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-1.5 rounded-lg whitespace-nowrap">
-                {periodMode === 'tuan' && selectedWeekKey
-                  ? `📅 Tuần ${isoWeekBounds(selectedWeekKey).label}`
-                  : `📅 Tháng ${selectedMonth.month}/${selectedMonth.yearShort}`
-                }
-              </span>
-              {isAdmin && (
+                {isAdmin && (
                 <select
                   value={crmStaffFilter}
                   onChange={e => { setCrmStaffFilter(e.target.value); fetchCRMTickets(1, e.target.value, crmSearch, crmPendingOnly) }}
@@ -1373,9 +1383,28 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               >
                 🔍 Tìm
               </button>
-              <span className="ml-auto text-xs text-gray-400">
-                {crmTotal > 0 && `${crmTotal} yêu cầu`}
-              </span>
+              {isAdmin && (
+                <div className="flex items-center gap-1.5 ml-auto">
+                  {backfillResult && (
+                    <span className="text-[10px] text-gray-400 whitespace-nowrap max-w-[220px] truncate" title={backfillResult}>
+                      {backfillResult}
+                    </span>
+                  )}
+                  <button
+                    onClick={handleBackfill}
+                    disabled={backfilling}
+                    title="Cập nhật speed_tag (hẹn/mai báo lại) còn thiếu từ dữ liệu memo đã có"
+                    className="text-xs px-2.5 py-1.5 border border-gray-200 text-gray-500 hover:text-teal-600 hover:border-teal-300 hover:bg-teal-50 rounded-lg transition disabled:opacity-40 whitespace-nowrap"
+                  >
+                    {backfilling ? '⏳' : '🔧'} Bổ sung còn thiếu
+                  </button>
+                </div>
+              )}
+              {!isAdmin && (
+                <span className="ml-auto text-xs text-gray-400">
+                  {crmTotal > 0 && `${crmTotal} yêu cầu`}
+                </span>
+              )}
             </div>
 
             {/* Ticket list */}
