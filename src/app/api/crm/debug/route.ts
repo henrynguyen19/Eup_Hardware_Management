@@ -16,9 +16,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { crmLoginRaw } from '@/lib/crm-session'
+import { extractHandlerFromMemo } from '@/lib/crm-utils'
 
 export const runtime     = 'nodejs'
-export const maxDuration = 60   // 60s — đủ cho CRM trả về dataset lớn của Kane/Stefan
+export const maxDuration = 60
 
 const adminClient = () =>
   createClient(
@@ -26,7 +27,6 @@ const adminClient = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-// ── Danh sách 5 nhân viên và crm_staff_id tương ứng ─────────────────────────
 const FULL_STAFF = [
   { id: 9141, name: 'Kane'   },
   { id: 9090, name: 'Stefan' },
@@ -34,30 +34,6 @@ const FULL_STAFF = [
   { id: 9168, name: 'Irene'  },
   { id: 9268, name: 'Blue'   },
 ]
-
-// ── Detect handler từ CS_Memo ─────────────────────────────────────────────────
-const KNOWN_STAFF       = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
-const KNOWN_STAFF_LOWER = KNOWN_STAFF.map(n => n.toLowerCase())
-
-function extractHandlerFromMemo(memo: string): string | null {
-  if (!memo) return null
-  const lower = memo.toLowerCase()
-  for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
-    const n   = KNOWN_STAFF_LOWER[i]
-    const re1 = new RegExp(`\\b${n}\\s+\\d{1,2}/\\d{1,2}`, 'i')
-    const re2 = new RegExp(`\\d{1,2}/\\d{1,2}\\s+${n}\\b`, 'i')
-    if (re1.test(lower) || re2.test(lower)) return KNOWN_STAFF[i]
-  }
-  const reportMatch = lower.match(/#(?:report|sp)\s+(\w+)/)
-  if (reportMatch) {
-    const found = KNOWN_STAFF_LOWER.indexOf(reportMatch[1].toLowerCase())
-    if (found !== -1) return KNOWN_STAFF[found]
-  }
-  for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
-    if (new RegExp(`\\b${KNOWN_STAFF_LOWER[i]}\\b`, 'i').test(lower)) return KNOWN_STAFF[i]
-  }
-  return null
-}
 
 interface CRMTicket {
   CS_ID: number; CS_Date: string; CS_IO: string; CS_Context: string; CS_Memo: string
