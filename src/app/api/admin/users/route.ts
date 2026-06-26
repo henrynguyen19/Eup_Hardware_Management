@@ -63,16 +63,22 @@ export async function POST(req: NextRequest) {
   })
 
   if (!createErr) {
-    // Tạo thành công
-    try {
-      await sb.from('allowed_emails').upsert({ email }, { onConflict: 'email' })
-    } catch { /* bỏ qua nếu bảng không tồn tại */ }
-    return NextResponse.json({ ok: true, userId: created.user?.id })
+    const userId = created.user?.id
+    // Tạo thành công — đảm bảo user có row trong user_roles để xuất hiện trong permissions view
+    try { await sb.from('allowed_emails').upsert({ email }, { onConflict: 'email' }) } catch { /* ignore */ }
+    if (userId) {
+      await sb.from('user_roles').upsert(
+        { user_id: userId, user_email: email, role_id: null },
+        { onConflict: 'user_id' }
+      )
+    }
+    return NextResponse.json({ ok: true, userId })
   }
 
-  // Nếu lỗi "already exists" → tìm userId từ view để phân phòng ban
+  // Nếu lỗi "already exists" → tìm userId và đảm bảo user_roles tồn tại
   const errMsg = createErr.message?.toLowerCase() ?? ''
   if (errMsg.includes('already') || errMsg.includes('duplicate') || errMsg.includes('exists')) {
+    // Tìm userId từ view
     const { data: viewRow } = await sb
       .from('user_permissions_view')
       .select('user_id')
@@ -80,13 +86,22 @@ export async function POST(req: NextRequest) {
       .maybeSingle()
 
     if (viewRow?.user_id) {
+      // Đảm bảo user_roles tồn tại
+      await sb.from('user_roles').upsert(
+        { user_id: viewRow.user_id, user_email: email, role_id: null },
+        { onConflict: 'user_id' }
+      )
       return NextResponse.json({ ok: true, userId: viewRow.user_id, alreadyExists: true })
     }
 
-    // Có trong Auth nhưng chưa trong view — tìm qua listUsers (page nhỏ, filter by email)
+    // Tìm qua listUsers
     const { data: page } = await sb.auth.admin.listUsers({ page: 1, perPage: 1000 })
     const found = page?.users?.find((u: { email?: string }) => u.email === email)
     if (found) {
+      await sb.from('user_roles').upsert(
+        { user_id: found.id, user_email: email, role_id: null },
+        { onConflict: 'user_id' }
+      )
       return NextResponse.json({ ok: true, userId: found.id, alreadyExists: true })
     }
 
