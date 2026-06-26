@@ -22,15 +22,27 @@ async function checkAdmin() {
   return perms.includes('admin:users') ? user : null
 }
 
-/** GET: kiểm tra trạng thái session hiện tại từ DB cache */
+function maskAccount(account: string): string {
+  if (!account) return '—'
+  if (account.length <= 4) return '***'
+  return account.slice(0, 2) + '***' + account.slice(-2)
+}
+
+/**
+ * GET: kiểm tra mapping credentials + session cache của từng staff.
+ * Trả về crm_account (masked) và session ID riêng biệt của mỗi người
+ * để xác nhận mỗi staff dùng đúng tài khoản CRM của họ.
+ */
 export async function GET() {
   const user = await checkAdmin()
   if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
   const db = adminClient()
+
+  // Lấy cả crm_account để verify mỗi người có tài khoản riêng
   const { data: mappings } = await db
     .from('user_crm_mapping')
-    .select('crm_staff_id, crm_nick_name, crm_staff_name')
+    .select('crm_staff_id, crm_nick_name, crm_staff_name, crm_account, user_id')
 
   const { data: sessions } = await db
     .from('crm_session_cache')
@@ -40,17 +52,32 @@ export async function GET() {
   const now = new Date()
 
   const result = (mappings ?? []).map(m => {
-    const sess = sessionMap.get(m.crm_staff_id)
-    if (!sess) return { staffId: m.crm_staff_id, name: m.crm_staff_name ?? m.crm_nick_name, status: 'no_cache' }
+    const sess        = sessionMap.get(m.crm_staff_id)
+    const name        = m.crm_staff_name ?? m.crm_nick_name
+    const accountMask = maskAccount(m.crm_account ?? '')
+
+    if (!sess) return {
+      staffId:     m.crm_staff_id,
+      name,
+      crmAccount:  accountMask,   // masked — mỗi người có account riêng
+      identity:    String(m.crm_staff_id),
+      status:      'no_cache',
+      isExpired:   true,
+    }
+
     const expiresAt  = new Date(sess.expires_at)
     const expiredAgo = now.getTime() - expiresAt.getTime()
     return {
       staffId:    m.crm_staff_id,
-      name:       m.crm_staff_name ?? m.crm_nick_name,
-      sessionId:  sess.session_id.substring(0, 12) + '...',
+      name,
+      crmAccount: accountMask,
+      identity:   String(m.crm_staff_id),
+      sessionId:  sess.session_id.substring(0, 16) + '...',  // preview 16 ký tự đầu
       expiresAt:  sess.expires_at,
       updatedAt:  sess.updated_at,
-      status:     expiredAgo > 0 ? `expired ${Math.round(expiredAgo/60000)}m ago` : `valid (${Math.round(-expiredAgo/60000)}m left)`,
+      status:     expiredAgo > 0
+        ? `expired ${Math.round(expiredAgo / 60000)}m ago`
+        : `valid (${Math.round(-expiredAgo / 60000)}m left)`,
       isExpired:  expiredAgo > 0,
     }
   })
@@ -93,16 +120,23 @@ export async function POST(req: NextRequest) {
       return { name, staffId, ok: false, ms, error: res.error ?? 'No SESSION_ID in response' }
     }
 
-    // Lưu session mới vào DB cache
+    // IDENTITY: lấy từ login response, fallback = crm_staff_id string
+    const identity  = res.detectedIdentity ?? String(staffId)
     const expiresAt = new Date(Date.now() + 23 * 60 * 60 * 1000)
+
     await db.from('crm_session_cache').upsert({
       staff_id:   staffId,
       session_id: res.detectedSessionId,
+      identity,                           // lưu identity thực từ CRM
       expires_at: expiresAt.toISOString(),
       updated_at: new Date().toISOString(),
     })
 
-    return { name, staffId, ok: true, ms, sessionPreview: res.detectedSessionId.substring(0, 12) + '...' }
+    return {
+      name, staffId, ok: true, ms,
+      sessionPreview:  res.detectedSessionId.substring(0, 16) + '...',
+      identity,        // hiển thị để verify
+    }
   }))
 
   const output = results.map(r =>

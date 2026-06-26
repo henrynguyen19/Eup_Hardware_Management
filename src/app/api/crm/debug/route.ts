@@ -110,8 +110,28 @@ export async function GET(req: NextRequest) {
   })
   if (!resp.ok) return NextResponse.json({ error: `CRM HTTP ${resp.status}` }, { status: 502 })
 
-  const json: CRMResponse = JSON.parse(await resp.text())
-  if (!json.status) return NextResponse.json({ error: json.error || 'CRM status=0' }, { status: 502 })
+  const rawText = await resp.text()
+  if (!rawText || rawText.trim() === '') {
+    return NextResponse.json({
+      error: `CRM trả về body rỗng cho ${staff.name} (session có thể đã hết hạn). Thử Force Re-login rồi load lại.`,
+      hint:  'Vào panel Session ở đầu trang → Force Re-login → load lại.',
+    }, { status: 502 })
+  }
+
+  let json: CRMResponse
+  try {
+    json = JSON.parse(rawText) as CRMResponse
+  } catch {
+    return NextResponse.json({
+      error:   `CRM trả về response không hợp lệ (không parse được JSON) cho ${staff.name}.`,
+      rawText: rawText.substring(0, 500),   // 500 ký tự đầu để debug
+    }, { status: 502 })
+  }
+
+  if (!json.status) return NextResponse.json({
+    error:   json.error || `CRM status=0 cho ${staff.name} (session expired hoặc sai credentials).`,
+    rawText: rawText.substring(0, 200),
+  }, { status: 502 })
 
   const tickets: CRMTicket[] = json.result ?? []
 
