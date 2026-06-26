@@ -667,7 +667,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [summaryLoading, setSummaryLoading]   = useState(false)
 
   // Week mode state
-  const [periodMode, setPeriodMode]           = useState<'thang' | 'tuan' | 'ngay'>('tuan')
+  const [periodMode, setPeriodMode]           = useState<'thang' | 'tuan' | 'ngay' | 'khoang'>('tuan')
   const [selectedDay, setSelectedDay]         = useState<string>(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
@@ -682,6 +682,13 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
     return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
   }) // "YYYY-Www"
+
+  // Khoảng thời gian tùy chọn (mode 'khoang')
+  const [rangeFrom, setRangeFrom] = useState<string>(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30)
+    return d.toISOString().slice(0, 10)
+  })
+  const [rangeTo, setRangeTo] = useState<string>(() => new Date().toISOString().slice(0, 10))
 
   const selectedMonth = MONTHS[selectedMonthIdx]
 
@@ -710,7 +717,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     return { mon, sun, label: `${fmt(mon)} – ${fmt(sun)}` }
   }
 
-  /** Tính dateFrom/dateTo từ periodMode + selectedWeekKey/selectedMonth/selectedDay */
+  /** Tính dateFrom/dateTo từ periodMode + selectedWeekKey/selectedMonth/selectedDay/rangeFrom/rangeTo */
   function getTicketDateRange(): { dateFrom: string; dateTo: string } | null {
     const toISO = (d: Date) =>
       `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
@@ -728,6 +735,8 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
         dateFrom: `${y}-${mStr}-01`,
         dateTo:   `${y}-${mStr}-${String(lastDay).padStart(2, '0')}`,
       }
+    } else if (periodMode === 'khoang' && rangeFrom && rangeTo) {
+      return { dateFrom: rangeFrom, dateTo: rangeTo }
     }
     return null
   }
@@ -926,7 +935,10 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   async function fetchUnreadUpdates() {
     setUnreadLoading(true)
     try {
-      const res = await fetch('/api/ho-tro/mark-read?limit=100')
+      const params = new URLSearchParams({ limit: '100' })
+      // Lọc theo staff của user hiện tại — không hiện thông báo của người khác
+      if (staffConfig?.name) params.set('staffName', staffConfig.name)
+      const res = await fetch(`/api/ho-tro/mark-read?${params}`)
       const json = await res.json()
       setUnreadTickets(json.tickets ?? [])
     } catch (_e) { /* ignore */ }
@@ -939,13 +951,13 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Re-fetch ticket list khi thay đổi kỳ lọc (tuần/tháng) — chạy cả lần đầu
+  // Re-fetch ticket list khi thay đổi kỳ lọc — chạy cả lần đầu
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchCRMTickets(1) }, [periodMode, selectedWeekKey, selectedMonthIdx, selectedDay])
+  useEffect(() => { fetchCRMTickets(1) }, [periodMode, selectedWeekKey, selectedMonthIdx, selectedDay, rangeFrom, rangeTo])
 
   // Re-fetch stats khi tab Thống kê được mở hoặc kỳ thay đổi
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (activeTab === 'stats') fetchStatsData() }, [activeTab, periodMode, selectedWeekKey, selectedMonthIdx, selectedDay])
+  useEffect(() => { if (activeTab === 'stats') fetchStatsData() }, [activeTab, periodMode, selectedWeekKey, selectedMonthIdx, selectedDay, rangeFrom, rangeTo])
 
   // ── CRM Ticket List (Tab Yêu cầu) ────────────────────────────
   interface CRMTicketRow {
@@ -1123,18 +1135,18 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
           <div className="flex items-center gap-2 flex-wrap">
             {/* Period mode toggle */}
             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
-              <button
-                onClick={() => setPeriodMode('ngay')}
-                className={`px-3 py-2 font-medium transition ${periodMode === 'ngay' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-              >Ngày</button>
-              <button
-                onClick={() => setPeriodMode('tuan')}
-                className={`px-3 py-2 font-medium transition ${periodMode === 'tuan' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-              >Tuần</button>
-              <button
-                onClick={() => setPeriodMode('thang')}
-                className={`px-3 py-2 font-medium transition ${periodMode === 'thang' ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-              >Tháng</button>
+              {([
+                { key: 'ngay',   label: 'Ngày'   },
+                { key: 'tuan',   label: 'Tuần'   },
+                { key: 'thang',  label: 'Tháng'  },
+                { key: 'khoang', label: 'Khoảng' },
+              ] as const).map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setPeriodMode(key)}
+                  className={`px-3 py-2 font-medium transition ${periodMode === key ? 'bg-teal-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                >{label}</button>
+              ))}
             </div>
 
             {/* Day picker (ngày mode) */}
@@ -1176,6 +1188,27 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   disabled={!selectedWeekKey || allWeekKeys.indexOf(selectedWeekKey) >= allWeekKeys.length - 1}
                   className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 text-sm"
                 >›</button>
+              </div>
+            )}
+
+            {/* Custom date range (khoảng mode) */}
+            {periodMode === 'khoang' && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={rangeFrom}
+                  max={rangeTo}
+                  onChange={e => setRangeFrom(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+                <span className="text-xs text-gray-400">→</span>
+                <input
+                  type="date"
+                  value={rangeTo}
+                  min={rangeFrom}
+                  onChange={e => setRangeTo(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
               </div>
             )}
             {/* Sync buttons + notifications */}
