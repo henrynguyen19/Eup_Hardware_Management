@@ -17,6 +17,9 @@ import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { crmLoginRaw } from '@/lib/crm-session'
 
+export const runtime     = 'nodejs'
+export const maxDuration = 60   // 60s — đủ cho CRM trả về dataset lớn của Kane/Stefan
+
 const adminClient = () =>
   createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -120,27 +123,76 @@ export async function GET(req: NextRequest) {
   // IDENTITY từ login response; fallback = crm_staff_id string
   const identity  = loginRes.detectedIdentity ?? String(staff.id)
 
-  console.log(`[crm/debug] ${staff.name} login OK — SESSION_ID=${sessionId.substring(0,12)}... IDENTITY=${identity}`)
+  // Log toàn bộ login response để debug (ẩn password)
+  console.log(`[crm/debug] ${staff.name} login OK`)
+  console.log(`[crm/debug] Login rawResponse keys:`, Object.keys(loginRes.rawResponse))
+  console.log(`[crm/debug] SESSION_ID (16 ký tự đầu): ${sessionId.substring(0, 16)}...`)
+  console.log(`[crm/debug] IDENTITY từ response: ${identity}`)
+  console.log(`[crm/debug] rawResponse (không nhạy cảm):`, JSON.stringify({
+    ...loginRes.rawResponse,
+    SESSION_ID: loginRes.rawResponse.SESSION_ID ? '<hidden>' : undefined,
+  }).substring(0, 500))
 
-  // ── Bước 3: Gọi GetCustServiceByStaff với đúng session + identity ────────────
+  // ── Bước 3: Gọi GetCustServiceByStaff ────────────────────────────────────────
+  // GetCustServiceByStaff chỉ nhận NotRead + Staff_ID — không có date filter
+  const soapParam = { NotRead: '0', Staff_ID: String(staff.id) }
+
+  console.log(`[crm/debug] Gọi GetCustServiceByStaff với:`, {
+    MethodName: 'GetCustServiceByStaff',
+    Param:      JSON.stringify(soapParam),
+    SESSION_ID: sessionId.substring(0, 16) + '...',
+    IDENTITY:   identity,
+  })
+
   const form = new URLSearchParams()
   form.append('MethodName', 'GetCustServiceByStaff')
-  form.append('Param', JSON.stringify({ NotRead: '0', Staff_ID: String(staff.id) }))
+  form.append('Param', JSON.stringify(soapParam))
   form.append('SESSION_ID', sessionId)
   form.append('IDENTITY', identity)
 
-  const resp = await fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:    form.toString(),
-    signal:  AbortSignal.timeout(30_000),
-  })
-  if (!resp.ok) return NextResponse.json({ error: `CRM HTTP ${resp.status}` }, { status: 502 })
+  let rawText: string
+  const t0 = Date.now()
+  try {
+    const resp = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    form.toString(),
+      signal:  AbortSignal.timeout(55_000),
+    })
+    const elapsed = Date.now() - t0
+    console.log(`[crm/debug] CRM responded in ${elapsed}ms — HTTP ${resp.status}`)
+    if (!resp.ok) {
+      return NextResponse.json({ error: `CRM HTTP ${resp.status} cho ${staff.name}` }, { status: 502 })
+    }
+    rawText = await resp.text()
+    console.log(`[crm/debug] rawText length: ${rawText.length} — preview: ${rawText.substring(0, 200)}`)
+  } catch (fetchErr) {
+    const elapsed = Date.now() - t0
+    const msg = String(fetchErr)
+    const isTimeout = msg.includes('TimeoutError') || msg.includes('timeout') || msg.includes('aborted')
+    console.error(`[crm/debug] Fetch failed after ${elapsed}ms:`, msg)
+    return NextResponse.json({
+      error: isTimeout
+        ? `CRM không phản hồi sau ${elapsed}ms cho ${staff.name}. Có thể do SOAP params sai hoặc server quá tải.`
+        : `Lỗi kết nối CRM cho ${staff.name}: ${msg}`,
+      // Trả về thông số đã gửi để debug
+      soapRequest: {
+        MethodName: 'GetCustServiceByStaff',
+        Param:      JSON.stringify(soapParam),
+        IDENTITY:   identity,
+        SESSION_ID: sessionId.substring(0, 16) + '...',
+      },
+    }, { status: 502 })
+  }
 
-  const rawText = await resp.text()
   if (!rawText || rawText.trim() === '') {
     return NextResponse.json({
-      error: `CRM trả về body rỗng sau khi login thành công cho ${staff.name}. Thử lại sau.`,
+      error: `CRM trả về body rỗng cho ${staff.name}.`,
+      soapRequest: {
+        MethodName: 'GetCustServiceByStaff',
+        Param:      JSON.stringify(soapParam),
+        IDENTITY:   identity,
+      },
     }, { status: 502 })
   }
 
@@ -149,15 +201,17 @@ export async function GET(req: NextRequest) {
     json = JSON.parse(rawText) as CRMResponse
   } catch {
     return NextResponse.json({
-      error:   `CRM trả về response không hợp lệ cho ${staff.name}.`,
-      rawText: rawText.substring(0, 500),
+      error:       `CRM trả về dữ liệu không parse được cho ${staff.name}.`,
+      rawText:     rawText.substring(0, 500),
+      soapRequest: { MethodName: 'GetCustServiceByStaff', Param: JSON.stringify(soapParam), IDENTITY: identity },
     }, { status: 502 })
   }
 
   if (!json.status) {
     return NextResponse.json({
-      error:   json.error || `CRM status=0 cho ${staff.name}.`,
-      rawText: rawText.substring(0, 300),
+      error:       json.error || `CRM status=0 cho ${staff.name}.`,
+      rawText:     rawText.substring(0, 500),
+      soapRequest: { MethodName: 'GetCustServiceByStaff', Param: JSON.stringify(soapParam), IDENTITY: identity },
     }, { status: 502 })
   }
 

@@ -66,10 +66,14 @@ export default function CRMDebugPage() {
       let json: Record<string, unknown>
       try { json = JSON.parse(text) }
       catch { throw new Error(`Response không hợp lệ: ${text.substring(0, 200)}`) }
-      if (!json.ok) throw new Error(
-        (json.error as string) ?? 'Lỗi không xác định'
-        + (json.rawText ? `\n\nCRM raw: ${json.rawText}` : '')
-      )
+      if (!json.ok) {
+        const detail = [
+          json.error as string ?? 'Lỗi không xác định',
+          json.rawText   ? `\nCRM raw: ${json.rawText}` : '',
+          json.soapRequest ? `\nSOAP params gửi đi: ${JSON.stringify(json.soapRequest, null, 2)}` : '',
+        ].join('')
+        throw new Error(detail)
+      }
 
       // Build maps (dedup by CS_ID — lấy bản mới nhất nếu load lại)
       const prev        = cache.get(selected)
