@@ -25,6 +25,7 @@ import type { DailyRecord } from '@/types/ho-tro'
 
 const AddTicketForm  = dynamic(() => import('./AddTicketForm'),  { ssr: false })
 const JiraBugsTab    = dynamic(() => import('@/components/jira/JiraBugsTab'), { ssr: false })
+const HashtagTab     = dynamic(() => import('./HashtagTab'), { ssr: false })
 const TicketTable    = dynamic(() => import('./TicketTable'), { ssr: false })
 
 interface Props {
@@ -645,7 +646,7 @@ function SummaryView({
 // ── Main Dashboard ─────────────────────────────────────────────────
 export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
-  const [activeTab, setActiveTab] = useState<'tickets' | 'stats' | 'jira'>('tickets')
+  const [activeTab, setActiveTab] = useState<'tickets' | 'stats' | 'jira' | 'hashtag'>('tickets')
   // Legacy — kept for stats tab internals
   const [isSummaryMode, setIsSummaryMode]   = useState(false)
   const [isJiraBugsMode, setIsJiraBugsMode] = useState(false)
@@ -991,8 +992,15 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [crmStaffFilter, setCrmStaffFilter] = useState('')
   const [crmSearch, setCrmSearch]           = useState('')
   const [crmPendingOnly, setCrmPendingOnly] = useState(false)
+  const [hashtagFilter, setHashtagFilter]     = useState('')
   const [expandedTicket, setExpandedTicket] = useState<number | null>(null)
   const CRM_PAGE_SIZE = 50
+
+  function handleFilterByHashtag(tag: string) {
+    setActiveTab('tickets')
+    setCrmSearch(tag)
+    fetchCRMTickets(1, crmStaffFilter, tag, crmPendingOnly)
+  }
 
   async function fetchCRMTickets(page = 1, staffF = crmStaffFilter, searchF = crmSearch, pendingF = crmPendingOnly) {
     setCrmTicketsLoading(true)
@@ -1312,15 +1320,17 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               { key: 'tickets', label: '📋 Yêu cầu' },
               { key: 'stats',   label: '📊 Thống kê' },
               { key: 'jira',    label: '🐛 Jira Bugs' },
+              { key: 'hashtag', label: '🏷️ Hashtag' },
             ].map(({ key, label }) => (
               <button
                 key={key}
-                onClick={() => setActiveTab(key as 'tickets' | 'stats' | 'jira')}
+                onClick={() => setActiveTab(key as 'tickets' | 'stats' | 'jira' | 'hashtag')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
                   activeTab === key
                     ? key === 'tickets' ? 'bg-blue-600 text-white'
                     : key === 'stats'   ? 'bg-gray-800 text-white'
-                    :                     'bg-red-600 text-white'
+                    : key === 'jira'    ? 'bg-red-600 text-white'
+                    :                     'bg-teal-600 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
@@ -1340,7 +1350,10 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
 
         {/* ── Tab: Jira Bugs ── */}
-        {activeTab === 'jira' ? (
+        {activeTab === 'hashtag' ? (
+          <HashtagTab isAdmin={isAdmin} onFilterByHashtag={handleFilterByHashtag} />
+
+        ) : activeTab === 'jira' ? (
           <JiraBugsTab />
 
         ) : activeTab === 'tickets' ? (

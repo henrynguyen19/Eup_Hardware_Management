@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
   const dateFrom    = sp.get('dateFrom')   // YYYY-MM-DD — ưu tiên hơn month/year
   const dateTo      = sp.get('dateTo')     // YYYY-MM-DD
   const search      = sp.get('search') ?? ''
+  const hashtag     = sp.get('hashtag') ?? undefined
   const pendingOnly = sp.get('pendingOnly') === 'true'
   const crmOnly     = sp.get('crmOnly') !== 'false' // mặc định chỉ lấy CRM data
   const sortBy      = sp.get('sortBy') ?? 'cs_update_time' // cs_update_time | ticket_date
@@ -73,6 +74,8 @@ export async function GET(req: NextRequest) {
       `code.ilike.%${search}%,company.ilike.%${search}%,content.ilike.%${search}%,reply.ilike.%${search}%`
     )
   }
+
+  if (hashtag) query = query.ilike('reply', `%${hashtag}%`)
 
   if (pendingOnly) query = query.in('speed_tag', ['hen', 'mai_bao_lai'])
 
