@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { getCRMSessionForUser } from '@/lib/crm-session'
+import { extractHandlerFromMemo, parseSpeedTag, parseCRMTime } from '@/lib/crm-utils'
 
 const adminClient = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
-export const runtime    = 'nodejs'
+export const runtime     = 'nodejs'
 export const maxDuration = 300
 
 const FULL_STAFF = [
@@ -16,35 +17,6 @@ const FULL_STAFF = [
   { id: 9168, name: 'Irene'  },
   { id: 9268, name: 'Blue'   },
 ]
-
-type SpeedTag = 'fast' | 'normal' | 'low' | 'hen' | 'mai_bao_lai'
-
-function extractHandler(memo: string): string | null {
-  const STAFF = ['Kane','Stefan','Shiro','Irene','Blue']
-  const lower = (memo ?? '').toLowerCase()
-  for (const n of STAFF) {
-    if (new RegExp(`\\b${n}\\b`,'i').test(lower)) return n
-  }
-  return null
-}
-
-function parseSpeedTag(memo: string): SpeedTag | null {
-  const s = (memo ?? '').toLowerCase()
-  if (/#f\b/.test(s))                                    return 'fast'
-  if (/#n\b/.test(s))                                    return 'normal'
-  if (/#l\b/.test(s))                                    return 'low'
-  if (/hẽn/i.test(s) || /#hen\b/i.test(s))              return 'hen'
-  if (/mai báo lại/i.test(s) || /#mbl\b/i.test(s))      return 'mai_bao_lai'
-  return null
-}
-
-function parseCRMTime(raw: string | null | undefined): string | null {
-  if (!raw) return null
-  try {
-    const d = new Date(raw.replace(' ','T'))
-    return isNaN(d.getTime()) ? null : d.toISOString()
-  } catch { return null }
-}
 
 interface CRMTicket {
   CS_ID: number; CS_Date: string; CS_IO: string; CS_Context: string; CS_Memo: string
@@ -136,7 +108,9 @@ export async function POST(req: NextRequest) {
 
   // ── Hàm xử lý 1 tháng: fetch 5 staff song song → merge → return rows ──
   async function processMonth(from: string, to: string): Promise<{
-    newCount: number; updatedCount: number; skippedCount: number; rows: object[]
+    newCount: number; updatedCount: number; skippedCount: number
+    rows: object[]
+    backfillRows: { sheet_row_key: string; customer_id: string | null; zone: string | null }[]
   }> {
     let newCount = 0, updatedCount = 0, skippedCount = 0
 
@@ -180,18 +154,22 @@ export async function POST(req: NextRequest) {
     }
 
     const rows: object[] = []
+    // backfillRows tách riêng để tránh upsert mixed columns → staff_name = NULL
+    const backfillRows: { sheet_row_key: string; customer_id: string | null; zone: string | null }[] = []
+
     for (const t of allTickets) {
       const key            = `crm:${t.CS_ID}`
       const crmUpdateTime  = parseCRMTime(t.CS_UpdateTime)
       const existing       = existMap.get(key)
-      const handler        = extractHandler(t.CS_Memo ?? '')
+      const handler        = extractHandlerFromMemo(t.CS_Memo ?? '')
       if (!handler) { skippedCount++; continue }
 
       if (existing) {
         const dbMs  = existing.cs_update_time ? new Date(existing.cs_update_time).getTime() : 0
         const crmMs = crmUpdateTime ? new Date(crmUpdateTime).getTime() : 0
         if (crmMs <= dbMs) {
-          rows.push({ sheet_row_key: key,
+          backfillRows.push({
+            sheet_row_key: key,
             customer_id: t.Cust_ID ? String(t.Cust_ID) : null,
             zone: t.Cust_SaleManAssistant_Zone || null,
           })
@@ -216,7 +194,7 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    return { newCount, updatedCount, skippedCount, rows }
+    return { newCount, updatedCount, skippedCount, rows, backfillRows }
   }
 
   // ── Xử lý tất cả tháng SONG SONG theo batches (tránh quá tải CRM) ──
@@ -231,20 +209,31 @@ export async function POST(req: NextRequest) {
       batch.map(({ from, to }) => processMonth(from, to))
     )
 
-    // Gom toàn bộ rows từ batch → upsert 1 lần
+    // Gom toàn bộ rows từ batch — tách full rows và backfill rows riêng
     const allRows: object[] = []
+    const allBackfillRows: { sheet_row_key: string; customer_id: string | null; zone: string | null }[] = []
     for (const r of batchResults) {
       if (r.status === 'rejected') { errors.push(String(r.reason)); continue }
       totalNew      += r.value.newCount
       totalUpdated  += r.value.updatedCount
       totalSkipped  += r.value.skippedCount
       allRows.push(...r.value.rows)
+      allBackfillRows.push(...r.value.backfillRows)
     }
 
+    // Upsert full rows (có staff_name)
     for (let j = 0; j < allRows.length; j += 500) {
       const { error } = await db.from('ho_tro_tickets')
         .upsert(allRows.slice(j, j + 500) as Parameters<typeof db.from>[0][], { onConflict: 'sheet_row_key' })
       if (error) errors.push(`upsert batch ${i}: ${error.message}`)
+    }
+
+    // Upsert backfill rows TÁCH RIÊNG (chỉ customer_id + zone)
+    // Không mix với full rows vì Supabase sẽ set staff_name = NULL
+    for (let j = 0; j < allBackfillRows.length; j += 500) {
+      const { error } = await db.from('ho_tro_tickets')
+        .upsert(allBackfillRows.slice(j, j + 500) as Parameters<typeof db.from>[0][], { onConflict: 'sheet_row_key' })
+      if (error) errors.push(`backfill batch ${i}: ${error.message}`)
     }
   }
 

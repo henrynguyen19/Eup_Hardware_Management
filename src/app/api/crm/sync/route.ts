@@ -2,57 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { getCRMSessionForUser, getCRMCredentials, invalidateCRMSession } from '@/lib/crm-session'
-
-type SpeedTag = 'fast' | 'normal' | 'low' | 'hen' | 'mai_bao_lai'
+import { extractHandlerFromMemo, parseSpeedTag, parseCRMTime } from '@/lib/crm-utils'
 
 const adminClient = () =>
   createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
-
-const KNOWN_STAFF       = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
-const KNOWN_STAFF_LOWER = KNOWN_STAFF.map(n => n.toLowerCase())
-
-function extractHandlerFromMemo(memo: string): string | null {
-  if (!memo) return null
-  const lower = memo.toLowerCase()
-  for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
-    const n   = KNOWN_STAFF_LOWER[i]
-    const re1 = new RegExp(`\\b${n}\\s+\\d{1,2}/\\d{1,2}`, 'i')
-    const re2 = new RegExp(`\\d{1,2}/\\d{1,2}\\s+${n}\\b`, 'i')
-    if (re1.test(lower) || re2.test(lower)) return KNOWN_STAFF[i]
-  }
-  const reportMatch = lower.match(/#(?:report|sp)\s+(\w+)/)
-  if (reportMatch) {
-    const found = KNOWN_STAFF_LOWER.indexOf(reportMatch[1].toLowerCase())
-    if (found !== -1) return KNOWN_STAFF[found]
-  }
-  for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
-    if (new RegExp(`\\b${KNOWN_STAFF_LOWER[i]}\\b`, 'i').test(lower)) return KNOWN_STAFF[i]
-  }
-  return null
-}
-
-function parseSpeedTag(memo: string): SpeedTag | null {
-  const s = (memo ?? '').toLowerCase()
-  let tag: SpeedTag | null = null
-  if (/#f\b/.test(s))                                    tag = 'fast'
-  else if (/#n\b/.test(s))                               tag = 'normal'
-  else if (/#l\b/.test(s))                               tag = 'low'
-  else if (/hẽn/i.test(s) || /#hen\b/i.test(s))         tag = 'hen'
-  else if (/mai báo lại/i.test(s) || /#mbl\b/i.test(s)) tag = 'mai_bao_lai'
-  if (/#update\b/i.test(s) && (tag === 'hen' || tag === 'mai_bao_lai')) tag = null
-  return tag
-}
-
-function parseCRMTime(raw: string | null | undefined): string | null {
-  if (!raw) return null
-  try {
-    const d = new Date(raw.replace(' ', 'T'))
-    return isNaN(d.getTime()) ? null : d.toISOString()
-  } catch { return null }
-}
 
 interface CRMTicket {
   CS_ID: number; CS_Date: string; CS_IO: string; CS_Context: string; CS_Memo: string
@@ -245,6 +201,9 @@ export async function POST(req: NextRequest) {
   // ── Build rows cần upsert ──
   let newCount = 0, updatedCount = 0, skippedCount = 0, rejectedCount = 0
   const rows = []
+  // backfillRows: chỉ cập nhật customer_id/zone — PHẢI tách riêng để tránh
+  // Supabase upsert normalize NULL vào staff_name (NOT NULL constraint)
+  const backfillRows: { sheet_row_key: string; customer_id: string | null; zone: string | null }[] = []
 
   for (const t of allTickets) {
     const key           = `crm:${t.CS_ID}`
@@ -259,7 +218,7 @@ export async function POST(req: NextRequest) {
         if (crmMs <= dbMs) {
           // Không đổi — nhưng backfill customer_id/zone nếu đang null
           if (!existing.customer_id || !existing.zone) {
-            rows.push({
+            backfillRows.push({
               sheet_row_key: key,
               customer_id:   t.Cust_ID ? String(t.Cust_ID) : null,
               zone:          t.Cust_SaleManAssistant_Zone || null,
@@ -330,13 +289,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Upsert ──
+  // ── Upsert full rows (có staff_name) ──
   let saved = 0
   for (let i = 0; i < rows.length; i += 500) {
     const batch = rows.slice(i, i + 500)
     const { error } = await db.from('ho_tro_tickets').upsert(batch, { onConflict: 'sheet_row_key' })
     if (error) return NextResponse.json({ error: error.message, saved }, { status: 500 })
     saved += batch.length
+  }
+
+  // ── Upsert backfill rows TÁCH RIÊNG (chỉ customer_id + zone) ──
+  // Không được mix với full rows vì Supabase sẽ set staff_name = NULL
+  for (let i = 0; i < backfillRows.length; i += 500) {
+    const batch = backfillRows.slice(i, i + 500)
+    const { error } = await db.from('ho_tro_tickets').upsert(batch, { onConflict: 'sheet_row_key' })
+    if (error) console.error('[sync] Backfill upsert error:', error.message)
+    else saved += batch.length
   }
 
   return NextResponse.json({
