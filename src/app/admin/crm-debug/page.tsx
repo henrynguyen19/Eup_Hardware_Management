@@ -22,7 +22,8 @@ interface StaffCache {
   totalRaw:      number
   acceptedCount: number
   rejectedCount: number
-  // CS_ID -> ticket (để dedup khi load lại)
+  crmAccount:   string    // account thực sự được dùng để login CRM
+  identity:     string    // IDENTITY từ login response
   accepted: Map<number, Ticket>
   rejected: Map<number, Ticket>
   loadedAt: string
@@ -59,8 +60,16 @@ export default function CRMDebugPage() {
     setLoadError(null)
     try {
       const res  = await fetch(`/api/crm/debug?staff=${selected}`)
-      const json = await res.json()
-      if (!json.ok) throw new Error(json.error ?? 'Lỗi không xác định')
+      // Đọc text trước để tránh SyntaxError khi body rỗng
+      const text = await res.text()
+      if (!text || text.trim() === '') throw new Error('Server trả về response rỗng. Kiểm tra Vercel logs.')
+      let json: Record<string, unknown>
+      try { json = JSON.parse(text) }
+      catch { throw new Error(`Response không hợp lệ: ${text.substring(0, 200)}`) }
+      if (!json.ok) throw new Error(
+        (json.error as string) ?? 'Lỗi không xác định'
+        + (json.rawText ? `\n\nCRM raw: ${json.rawText}` : '')
+      )
 
       // Build maps (dedup by CS_ID — lấy bản mới nhất nếu load lại)
       const prev        = cache.get(selected)
@@ -80,10 +89,12 @@ export default function CRMDebugPage() {
       }
 
       const newCache: StaffCache = {
-        staffName:     json.staffName,
-        totalRaw:      json.totalRaw,
+        staffName:     json.staffName as string,
+        totalRaw:      json.totalRaw as number,
         acceptedCount: acceptedMap.size,
         rejectedCount: rejectedMap.size,
+        crmAccount:    json.crmAccount as string ?? '—',
+        identity:      json.identity as string ?? '—',
         accepted:      acceptedMap,
         rejected:      rejectedMap,
         loadedAt:      new Date().toLocaleTimeString('vi-VN'),
@@ -179,12 +190,19 @@ export default function CRMDebugPage() {
               Dữ liệu từ CRM
             </h1>
             {current && (
-              <p className="text-xs text-gray-400 mt-1">
-                Tổng: <strong>{current.totalRaw}</strong> •
-                ✅ Accepted: <strong className="text-green-600">{current.acceptedCount}</strong> •
-                ❌ Rejected: <strong className="text-red-500">{current.rejectedCount}</strong> •
-                Load lúc {current.loadedAt}
-              </p>
+              <div className="mt-1 space-y-0.5">
+                <p className="text-xs text-gray-400">
+                  Tổng: <strong>{current.totalRaw}</strong> •
+                  ✅ <strong className="text-green-600">{current.acceptedCount}</strong> •
+                  ❌ <strong className="text-red-500">{current.rejectedCount}</strong> •
+                  Load lúc {current.loadedAt}
+                </p>
+                {/* Hiển thị để verify đúng account được dùng */}
+                <p className="text-[11px] font-mono text-indigo-500">
+                  🔑 Account: <strong>{current.crmAccount}</strong>
+                  {' · '}IDENTITY: <strong>{current.identity}</strong>
+                </p>
+              </div>
             )}
           </div>
           <button

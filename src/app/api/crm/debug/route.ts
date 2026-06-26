@@ -1,15 +1,21 @@
 /**
  * GET /api/crm/debug?staff=Kane
  *
- * Trả về toàn bộ dữ liệu thô từ CRM cho 1 staff (không filter, không giới hạn số lượng).
- * Dùng để debug — so sánh ticket gốc vs bị loại bỏ khi sync.
+ * Load toàn bộ ticket raw từ CRM cho 1 staff cụ thể.
+ * Credentials (account, password, staff_id) lấy trực tiếp từ user_crm_mapping theo crm_staff_id —
+ * KHÔNG đi qua user session của người đang login.
+ *
+ * Flow đúng:
+ *   1. Tìm crm_account + crm_password + crm_staff_id của staff đó trong DB
+ *   2. Login CRM bằng credentials đó → lấy SESSION_ID + IDENTITY
+ *   3. Gọi GetCustServiceByStaff với đúng SESSION_ID + IDENTITY
  *
  * Chỉ admin mới dùng được.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
-import { getCRMSessionForUser } from '@/lib/crm-session'
+import { crmLoginRaw } from '@/lib/crm-session'
 
 const adminClient = () =>
   createClient(
@@ -17,26 +23,33 @@ const adminClient = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
+// ── Danh sách 5 nhân viên và crm_staff_id tương ứng ─────────────────────────
+const FULL_STAFF = [
+  { id: 9141, name: 'Kane'   },
+  { id: 9090, name: 'Stefan' },
+  { id: 9146, name: 'Shiro'  },
+  { id: 9168, name: 'Irene'  },
+  { id: 9268, name: 'Blue'   },
+]
+
+// ── Detect handler từ CS_Memo ─────────────────────────────────────────────────
 const KNOWN_STAFF       = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue']
 const KNOWN_STAFF_LOWER = KNOWN_STAFF.map(n => n.toLowerCase())
 
 function extractHandlerFromMemo(memo: string): string | null {
   if (!memo) return null
   const lower = memo.toLowerCase()
-  // Ưu tiên: Tên + ngày (Kane 12/6) hoặc ngày + tên (12/6 Kane)
   for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
     const n   = KNOWN_STAFF_LOWER[i]
     const re1 = new RegExp(`\\b${n}\\s+\\d{1,2}/\\d{1,2}`, 'i')
     const re2 = new RegExp(`\\d{1,2}/\\d{1,2}\\s+${n}\\b`, 'i')
     if (re1.test(lower) || re2.test(lower)) return KNOWN_STAFF[i]
   }
-  // #report Kane / #sp Kane
   const reportMatch = lower.match(/#(?:report|sp)\s+(\w+)/)
   if (reportMatch) {
     const found = KNOWN_STAFF_LOWER.indexOf(reportMatch[1].toLowerCase())
     if (found !== -1) return KNOWN_STAFF[found]
   }
-  // Tên đứng một mình
   for (let i = 0; i < KNOWN_STAFF_LOWER.length; i++) {
     if (new RegExp(`\\b${KNOWN_STAFF_LOWER[i]}\\b`, 'i').test(lower)) return KNOWN_STAFF[i]
   }
@@ -50,14 +63,7 @@ interface CRMTicket {
 }
 interface CRMResponse { status: number; error: string; result: CRMTicket[] }
 
-const FULL_STAFF = [
-  { id: 9141, name: 'Kane'   },
-  { id: 9090, name: 'Stefan' },
-  { id: 9146, name: 'Shiro'  },
-  { id: 9168, name: 'Irene'  },
-  { id: 9268, name: 'Blue'   },
-]
-
+// ── GET handler ───────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   // Auth — admin only
   const supabase = createSupabaseServerClient()
@@ -72,30 +78,51 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
   const sp     = req.nextUrl.searchParams
-  const filter = sp.get('staff')   // bắt buộc: chỉ load 1 staff mỗi lần
+  const filter = sp.get('staff')
   const url    = process.env.CRM_SOAP_URL
   if (!url)    return NextResponse.json({ error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
   if (!filter) return NextResponse.json({ error: 'Thiếu ?staff=Name' }, { status: 400 })
 
-  // Load session mapping
-  const { data: allMappings } = await db
-    .from('user_crm_mapping')
-    .select('user_id, crm_staff_id')
-  const staffIdToUserId = new Map<number, string>()
-  for (const m of (allMappings ?? [])) {
-    if (m.crm_staff_id) staffIdToUserId.set(m.crm_staff_id, m.user_id)
-  }
-
   const staff = FULL_STAFF.find(s => s.name.toLowerCase() === filter.toLowerCase())
   if (!staff) return NextResponse.json({ error: `Không tìm thấy staff: ${filter}` }, { status: 400 })
 
-  const userId = staffIdToUserId.get(staff.id)
-  if (!userId)  return NextResponse.json({ error: `Không có user mapping cho staff_id=${staff.id}` }, { status: 400 })
+  // ── Bước 1: Lấy credentials của ĐÚNG staff từ DB theo crm_staff_id ──────────
+  // KHÔNG dùng session của người đang đăng nhập — phải lấy account/password của staff đó
+  const { data: mapping, error: mapErr } = await db
+    .from('user_crm_mapping')
+    .select('crm_staff_id, crm_account, crm_password, crm_nick_name, crm_staff_name')
+    .eq('crm_staff_id', staff.id)
+    .single()
 
-  // Lấy session
-  const { sessionId, identity } = await getCRMSessionForUser(userId)
+  if (mapErr || !mapping) {
+    return NextResponse.json({
+      error: `Không tìm thấy mapping cho ${staff.name} (crm_staff_id=${staff.id}). Kiểm tra bảng user_crm_mapping.`,
+    }, { status: 400 })
+  }
+  if (!mapping.crm_account || !mapping.crm_password) {
+    return NextResponse.json({
+      error: `${staff.name} chưa có crm_account hoặc crm_password trong DB.`,
+    }, { status: 400 })
+  }
 
-  // Gọi CRM — toàn bộ dữ liệu (không date filter)
+  // ── Bước 2: Login CRM bằng credentials của chính staff đó ───────────────────
+  console.log(`[crm/debug] Đang login CRM cho ${staff.name} (account=${mapping.crm_account}, staff_id=${staff.id})`)
+
+  const loginRes = await crmLoginRaw(mapping.crm_account, mapping.crm_password)
+  if (!loginRes.ok || !loginRes.detectedSessionId) {
+    return NextResponse.json({
+      error:      `Login CRM thất bại cho ${staff.name}: ${loginRes.error ?? 'Không có SESSION_ID trong response'}`,
+      rawResponse: loginRes.rawResponse,
+    }, { status: 502 })
+  }
+
+  const sessionId = loginRes.detectedSessionId
+  // IDENTITY từ login response; fallback = crm_staff_id string
+  const identity  = loginRes.detectedIdentity ?? String(staff.id)
+
+  console.log(`[crm/debug] ${staff.name} login OK — SESSION_ID=${sessionId.substring(0,12)}... IDENTITY=${identity}`)
+
+  // ── Bước 3: Gọi GetCustServiceByStaff với đúng session + identity ────────────
   const form = new URLSearchParams()
   form.append('MethodName', 'GetCustServiceByStaff')
   form.append('Param', JSON.stringify({ NotRead: '0', Staff_ID: String(staff.id) }))
@@ -113,8 +140,7 @@ export async function GET(req: NextRequest) {
   const rawText = await resp.text()
   if (!rawText || rawText.trim() === '') {
     return NextResponse.json({
-      error: `CRM trả về body rỗng cho ${staff.name} (session có thể đã hết hạn). Thử Force Re-login rồi load lại.`,
-      hint:  'Vào panel Session ở đầu trang → Force Re-login → load lại.',
+      error: `CRM trả về body rỗng sau khi login thành công cho ${staff.name}. Thử lại sau.`,
     }, { status: 502 })
   }
 
@@ -123,19 +149,21 @@ export async function GET(req: NextRequest) {
     json = JSON.parse(rawText) as CRMResponse
   } catch {
     return NextResponse.json({
-      error:   `CRM trả về response không hợp lệ (không parse được JSON) cho ${staff.name}.`,
-      rawText: rawText.substring(0, 500),   // 500 ký tự đầu để debug
+      error:   `CRM trả về response không hợp lệ cho ${staff.name}.`,
+      rawText: rawText.substring(0, 500),
     }, { status: 502 })
   }
 
-  if (!json.status) return NextResponse.json({
-    error:   json.error || `CRM status=0 cho ${staff.name} (session expired hoặc sai credentials).`,
-    rawText: rawText.substring(0, 200),
-  }, { status: 502 })
+  if (!json.status) {
+    return NextResponse.json({
+      error:   json.error || `CRM status=0 cho ${staff.name}.`,
+      rawText: rawText.substring(0, 300),
+    }, { status: 502 })
+  }
 
   const tickets: CRMTicket[] = json.result ?? []
 
-  // Phân loại từng ticket
+  // ── Bước 4: Phân loại accepted / rejected ────────────────────────────────────
   const accepted: object[] = []
   const rejected: object[] = []
 
@@ -170,6 +198,8 @@ export async function GET(req: NextRequest) {
     ok:            true,
     staffName:     staff.name,
     staffId:       staff.id,
+    crmAccount:    mapping.crm_account,  // để verify đúng account được dùng
+    identity,                             // IDENTITY từ login response
     totalRaw:      tickets.length,
     acceptedCount: accepted.length,
     rejectedCount: rejected.length,
