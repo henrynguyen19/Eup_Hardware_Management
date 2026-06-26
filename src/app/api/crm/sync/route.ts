@@ -71,15 +71,16 @@ export async function POST(req: NextRequest) {
   if (!url) return NextResponse.json({ error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
 
   const body = await req.json().catch(() => ({})) as {
-    mode?: 'full' | 'self'
+    mode?: 'full' | 'self' | 'one'
+    staffName?: string   // dùng khi mode='one'
     fromDate?: string
     toDate?: string
   }
   const mode = body.mode ?? 'self'
 
-  // Full mode chỉ dành cho admin
-  if (mode === 'full' && !isAdmin)
-    return NextResponse.json({ error: 'Full sync chỉ dành cho admin' }, { status: 403 })
+  // Full/one mode chỉ dành cho admin
+  if ((mode === 'full' || mode === 'one') && !isAdmin)
+    return NextResponse.json({ error: 'Chỉ admin mới dùng được' }, { status: 403 })
 
   // ── Xác định danh sách staff cần fetch ──
   const FULL_STAFF = [
@@ -94,8 +95,12 @@ export async function POST(req: NextRequest) {
   let myNickName: string | null = null
 
   if (mode === 'full') {
-    // Full sync: tất cả nhân viên (cron hoặc admin)
     staffToFetch = FULL_STAFF
+  } else if (mode === 'one') {
+    // Sync đúng 1 nhân viên theo tên
+    const target = FULL_STAFF.find(s => s.name.toLowerCase() === (body.staffName ?? '').toLowerCase())
+    if (!target) return NextResponse.json({ error: `Không tìm thấy staff: ${body.staffName}` }, { status: 400 })
+    staffToFetch = [target]
   } else {
     // Self sync: chỉ user đang đăng nhập
     if (!user) return NextResponse.json({ error: 'user required for self sync' }, { status: 400 })

@@ -859,11 +859,39 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   }
 
   // ── Sync from CRM ──
-  const [crmSyncing, setCrmSyncing] = useState(false)
+  // Mỗi staff có loading state riêng — tránh block toàn bộ UI khi sync 1 người
+  const [crmSyncingStaff, setCrmSyncingStaff] = useState<Set<string>>(new Set())
   const [crmResult, setCrmResult] = useState<string | null>(null)
+  const crmSyncing = crmSyncingStaff.size > 0
+  const isSyncingStaff = (name: string) => crmSyncingStaff.has(name)
+
+  function setSyncLoading(name: string, loading: boolean) {
+    setCrmSyncingStaff(prev => { const n = new Set(prev); if (loading) n.add(name); else n.delete(name); return n })
+  }
+
+  // Sync đúng 1 nhân viên theo tên (admin: mode='one', non-admin: mode='self')
+  async function handleSyncStaff(staffName: string) {
+    setSyncLoading(staffName, true)
+    setCrmResult(null)
+    try {
+      const mode = isAdmin ? 'one' : 'self'
+      const res = await fetch('/api/crm/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isAdmin ? { mode, staffName } : { mode }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Lỗi sync CRM')
+      setCrmResult(`✅ ${staffName}: +${json.newCount ?? 0} mới, ↑${json.updatedCount ?? 0} cập nhật`)
+      fetchCRMTickets(1)
+      fetchUnreadUpdates()
+    } catch (err) {
+      setCrmResult(`❌ ${staffName}: ${err instanceof Error ? err.message : String(err)}`)
+    } finally { setSyncLoading(staffName, false) }
+  }
 
   async function handleSyncAll() {
-    setCrmSyncing(true); setCrmResult('')
+    setSyncLoading('__all__', true); setCrmResult('')
     try {
       const r = await fetch('/api/crm/sync-all', {
         method: 'POST',
@@ -876,36 +904,12 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       fetchCRMTickets(1)
     } catch (err) {
       setCrmResult(`❌ ${err instanceof Error ? err.message : String(err)}`)
-    } finally { setCrmSyncing(false) }
+    } finally { setSyncLoading('__all__', false) }
   }
 
-  async function handleSyncCRM(mode: 'self' | 'full' = 'self') {
-    setCrmSyncing(true)
-    setCrmResult(null)
-    try {
-      const res = await fetch('/api/crm/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'Lỗi sync CRM')
-      const parts = [
-        mode === 'full' ? `🏢 Full sync` : `🔄 Sync`,
-        `+${json.newCount} mới`,
-        `↑${json.updatedCount} cập nhật`,
-        json.skippedCount > 0 ? `=${json.skippedCount} giữ nguyên` : null,
-      ].filter(Boolean).join(' · ')
-      setCrmResult(`✅ ${parts}`)
-      // Refresh ticket list + unread
-      fetchCRMTickets(1)
-      fetchUnreadUpdates()
-    } catch (err) {
-      setCrmResult(`❌ ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setCrmSyncing(false)
-    }
-  }
+  // Giữ lại để tương thích (không dùng trong UI mới)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function handleSyncCRM(_mode: 'self' | 'full' = 'self') { /* deprecated */ }
 
   // ── Unread CRM updates ──
   interface UnreadTicket {
@@ -929,11 +933,9 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     finally { setUnreadLoading(false) }
   }
 
-  // Load unread + auto-sync khi mở trang
+  // Chỉ load unread khi mở trang — KHÔNG auto-sync CRM nữa (manual per-staff)
   useEffect(() => {
     fetchUnreadUpdates()
-    // Tự động đồng bộ dữ liệu CRM khi mở trang (silent)
-    handleSyncCRM(isAdmin ? 'full' : 'self')
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1177,9 +1179,9 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               </div>
             )}
             {/* Sync buttons + notifications */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               {crmResult && (
-                <span className="text-[10px] text-gray-500 whitespace-nowrap max-w-[200px] truncate" title={crmResult}>
+                <span className="text-[10px] text-gray-500 whitespace-nowrap max-w-[180px] truncate" title={crmResult}>
                   {crmResult}
                 </span>
               )}
@@ -1192,34 +1194,47 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   🔔 {unreadTickets.length}
                 </button>
               )}
-              {isAdmin && (
+
+              {/* Per-staff sync buttons */}
+              {isAdmin ? (
+                <>
+                  {([
+                    { name: 'Kane',   cls: 'border-blue-200   text-blue-600   hover:bg-blue-50'   },
+                    { name: 'Stefan', cls: 'border-purple-200 text-purple-600 hover:bg-purple-50' },
+                    { name: 'Shiro',  cls: 'border-teal-200   text-teal-600   hover:bg-teal-50'   },
+                    { name: 'Irene',  cls: 'border-pink-200   text-pink-600   hover:bg-pink-50'   },
+                    { name: 'Blue',   cls: 'border-orange-200 text-orange-600 hover:bg-orange-50' },
+                  ] as const).map(({ name, cls }) => (
+                    <button
+                      key={name}
+                      onClick={() => handleSyncStaff(name)}
+                      disabled={isSyncingStaff(name)}
+                      title={`Sync dữ liệu CRM của ${name}`}
+                      className={`px-2.5 py-2 text-xs font-medium rounded-lg border transition disabled:opacity-40 whitespace-nowrap ${cls}`}
+                    >
+                      {isSyncingStaff(name) ? '⏳' : '🔄'} {name}
+                    </button>
+                  ))}
+                  <button
+                    onClick={handleSyncAll}
+                    disabled={crmSyncing}
+                    title="Sync toàn bộ lịch sử CRM từ 2024 (chạy lâu ~3-5 phút)"
+                    className="px-2.5 py-2 text-xs font-medium rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 transition disabled:opacity-40 whitespace-nowrap"
+                  >
+                    {isSyncingStaff('__all__') ? '⏳' : '📦'} All
+                  </button>
+                </>
+              ) : (
+                // Non-admin: chỉ 1 nút sync của chính mình
                 <button
-                  onClick={() => handleSyncCRM('full')}
+                  onClick={() => handleSyncStaff(staffConfig?.name ?? 'Self')}
                   disabled={crmSyncing}
-                  title="Full Sync: đồng bộ tất cả 5 nhân viên từ CRM"
-                  className="px-2.5 py-2 text-sm text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded-lg border border-purple-200 transition disabled:opacity-40 whitespace-nowrap"
+                  title="Đồng bộ dữ liệu của bạn từ CRM"
+                  className="px-2.5 py-2 text-sm text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-gray-200 transition disabled:opacity-40 whitespace-nowrap"
                 >
-                  {crmSyncing ? '⏳' : '🏢'} Full Sync
+                  {crmSyncing ? '⏳' : '🔄'} Đồng bộ
                 </button>
               )}
-              {isAdmin && (
-                <button
-                  onClick={handleSyncAll}
-                  disabled={crmSyncing}
-                  title="Sync toàn bộ lịch sử CRM từ 2024 đến nay (chạy lâu ~3-5 phút)"
-                  className="px-2.5 py-2 text-sm text-orange-600 hover:text-orange-800 hover:bg-orange-50 rounded-lg border border-orange-200 transition disabled:opacity-40 whitespace-nowrap"
-                >
-                  {crmSyncing ? '⏳' : '📦'} Sync All
-                </button>
-              )}
-              <button
-                onClick={() => handleSyncCRM('self')}
-                disabled={crmSyncing}
-                title="Đồng bộ dữ liệu của bạn từ CRM"
-                className="px-2.5 py-2 text-sm text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-gray-200 transition disabled:opacity-40 whitespace-nowrap"
-              >
-                {crmSyncing ? '⏳' : '🔄'} Đồng bộ
-              </button>
             </div>
 
             {/* Nhập liệu thủ công đã bỏ — dữ liệu lấy từ CRM */}
