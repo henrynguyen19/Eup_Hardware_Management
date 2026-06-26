@@ -19,9 +19,12 @@ interface Props {
   isAdmin: boolean
   canHoTro: boolean
   canChatLuong?: boolean
+  canSuaChua?: boolean
+  canKho?: boolean
+  canChungNhan?: boolean
 }
 
-export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong = false }: Props) {
+export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong = false, canSuaChua = false, canKho = false, canChungNhan = false }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const [showChangePw, setShowChangePw] = useState(false)
@@ -33,10 +36,10 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
   }
 
   const navItems: NavItem[] = [
-    { icon: '📦', label: 'Quản lý thiết bị',  href: '/kho' },
+    { icon: '📦', label: 'Quản lý thiết bị',  href: '/kho',          show: canKho || isAdmin },
     { icon: '🛠️', label: 'Hỗ trợ kỹ thuật',  href: '/ho-tro',       show: canHoTro || isAdmin },
-    { icon: '📜', label: 'Giấy chứng nhận',   href: '/chung-nhan' },
-    { icon: '📊', label: 'Thống kê sửa chữa', href: '/sua-chua' },
+    { icon: '📜', label: 'Giấy chứng nhận',   href: '/chung-nhan',   show: canChungNhan || isAdmin },
+    { icon: '📊', label: 'Thống kê sửa chữa', href: '/sua-chua',     show: canSuaChua || isAdmin },
     { icon: '✅', label: 'Quản lý chất lượng',href: '/chat-luong',   show: canChatLuong || isAdmin },
     { icon: '🚚', label: 'Thông tin giao nhận',href: '/giao-nhan',   comingSoon: true },
     { icon: '👥', label: 'Quản lý người dùng', href: '/admin/users',        show: isAdmin },

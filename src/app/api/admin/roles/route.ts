@@ -25,6 +25,20 @@ async function requireAdminPermission(): Promise<{ ok: boolean; error?: NextResp
   return { ok: true }
 }
 
+// GET: lấy danh sách tất cả roles
+export async function GET() {
+  const supabase = createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
+
+  const { data: roles } = await supabaseAdmin()
+    .from('roles')
+    .select('id, name')
+    .order('name')
+
+  return NextResponse.json({ roles: roles ?? [] })
+}
+
 // PUT: cập nhật permissions cho một role
 export async function PUT(req: NextRequest) {
   const auth = await requireAdminPermission()

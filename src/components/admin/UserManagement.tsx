@@ -4,11 +4,24 @@ import { useState, useEffect, useCallback } from 'react'
 
 interface UserRecord { user_id: string; user_email: string }
 interface Department  { id: string; name: string; code: string; color: string }
+interface Role        { id: string; name: string }
+interface UserRole    { user_id: string; role_id: string | null; role_name: string | null }
 interface Props        { currentUserEmail: string }
+
+const ROLE_LABELS: Record<string, string> = {
+  admin:        '🔴 Admin',
+  ky_thuat:     '🔧 Kỹ thuật',
+  kho:          '📦 Kho',
+  van_phong:    '🏢 Văn phòng',
+  viewer:       '👁️ Viewer',
+  kinh_doanh:   '💼 Kinh doanh',
+}
 
 export default function UserManagement({ currentUserEmail }: Props) {
   const [depts, setDepts]         = useState<Department[]>([])
   const [allUsers, setAllUsers]   = useState<UserRecord[]>([])
+  const [roles, setRoles]         = useState<Role[]>([])
+  const [userRoleMap, setUserRoleMap] = useState<Record<string, UserRole>>({})
   const [memberMap, setMemberMap] = useState<Record<string, UserRecord[]>>({})
   const [selectedDept, setSelectedDept] = useState<string | null>(null)
   const [loading, setLoading]     = useState(true)
@@ -18,8 +31,12 @@ export default function UserManagement({ currentUserEmail }: Props) {
   const [showAddUser, setShowAddUser] = useState(false)
   const [addEmail, setAddEmail]   = useState('')
   const [addDeptId, setAddDeptId] = useState('')
+  const [addRoleId, setAddRoleId] = useState('')
   const [addSaving, setAddSaving] = useState(false)
   const [addError, setAddError]   = useState('')
+
+  // Change role inline
+  const [changingRoleFor, setChangingRoleFor] = useState<string | null>(null)
 
   // Add EXISTING user to dept modal
   const [showAddMember, setShowAddMember] = useState(false)
@@ -32,15 +49,26 @@ export default function UserManagement({ currentUserEmail }: Props) {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [deptsRes, usersRes] = await Promise.all([
+    const [deptsRes, usersRes, rolesRes] = await Promise.all([
       fetch('/api/admin/departments').then(r => r.json()),
       fetch('/api/admin/users').then(r => r.json()),
+      fetch('/api/admin/roles').then(r => r.json()),
     ])
     const deptList: Department[] = deptsRes.departments ?? []
     const userList: UserRecord[] = usersRes.users ?? []
+    const roleList: Role[]       = rolesRes.roles ?? []
     setDepts(deptList)
     setAllUsers(userList)
+    setRoles(roleList)
     if (deptList.length > 0) setSelectedDept(prev => prev ?? deptList[0].id)
+
+    // Fetch user_roles info for all users via permissions view
+    const permRes = await fetch('/api/admin/permissions/user-roles').then(r => r.json()).catch(() => ({}))
+    const roleMap: Record<string, UserRole> = {}
+    for (const ur of (permRes.userRoles ?? [])) {
+      roleMap[ur.user_id] = ur
+    }
+    setUserRoleMap(roleMap)
 
     const map: Record<string, UserRecord[]> = {}
     await Promise.all(deptList.map(async d => {
@@ -84,28 +112,25 @@ export default function UserManagement({ currentUserEmail }: Props) {
     setAddSaving(true); setAddError('')
     const res = await fetch('/api/admin/users', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: addEmail }),
+      body: JSON.stringify({
+        email: addEmail,
+        roleId: addRoleId || null,
+        departmentId: addDeptId || null,
+      }),
     })
     const data = await res.json()
     if (data.error) { setAddError(data.error); setAddSaving(false); return }
+    setShowAddUser(false); setAddEmail(''); setAddDeptId(''); setAddRoleId(''); setAddSaving(false)
+    fetchAll()
+  }
 
-    if (addDeptId && data.userId) {
-      await fetch(`/api/admin/departments/${addDeptId}/members`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: data.userId }),
-      })
-    } else if (addDeptId) {
-      await new Promise(r => setTimeout(r, 500))
-      const usersRes = await fetch('/api/admin/users').then(r => r.json())
-      const newUser = (usersRes.users ?? []).find((u: UserRecord) => u.user_email === addEmail)
-      if (newUser) {
-        await fetch(`/api/admin/departments/${addDeptId}/members`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: newUser.user_id }),
-        })
-      }
-    }
-    setShowAddUser(false); setAddEmail(''); setAddDeptId(''); setAddSaving(false)
+  async function changeUserRole(userId: string, newRoleId: string) {
+    setChangingRoleFor(userId)
+    await fetch('/api/admin/users', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, roleId: newRoleId || null }),
+    })
+    setChangingRoleFor(null)
     fetchAll()
   }
 
@@ -280,11 +305,14 @@ export default function UserManagement({ currentUserEmail }: Props) {
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
                         <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">Email</th>
+                        <th className="text-left px-4 py-3 text-xs text-gray-500 font-medium">Nhóm quyền</th>
                         <th className="px-4 py-3 text-xs text-gray-500 font-medium text-right">Thao tác</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((m, i) => (
+                      {filtered.map((m, i) => {
+                        const ur = userRoleMap[m.user_id]
+                        return (
                         <tr key={m.user_id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 ${i % 2 === 1 ? 'bg-gray-50/30' : ''}`}>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
@@ -297,6 +325,21 @@ export default function UserManagement({ currentUserEmail }: Props) {
                                 <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-medium">Bạn</span>
                               )}
                             </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <select
+                              value={ur?.role_id ?? ''}
+                              disabled={changingRoleFor === m.user_id}
+                              onChange={e => changeUserRole(m.user_id, e.target.value)}
+                              className="text-xs border border-gray-200 rounded px-2 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
+                            >
+                              <option value="">— Chưa có role —</option>
+                              {roles.map(r => (
+                                <option key={r.id} value={r.id}>
+                                  {ROLE_LABELS[r.name] ?? r.name}
+                                </option>
+                              ))}
+                            </select>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex gap-1 justify-end">
@@ -338,7 +381,8 @@ export default function UserManagement({ currentUserEmail }: Props) {
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -361,6 +405,14 @@ export default function UserManagement({ currentUserEmail }: Props) {
                   className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
+                <label className="text-xs text-gray-500 font-medium">Nhóm quyền <span className="text-red-500">*</span></label>
+                <select value={addRoleId} onChange={e => setAddRoleId(e.target.value)}
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">— Chọn nhóm quyền —</option>
+                  {roles.map(r => <option key={r.id} value={r.id}>{ROLE_LABELS[r.name] ?? r.name}</option>)}
+                </select>
+              </div>
+              <div>
                 <label className="text-xs text-gray-500 font-medium">Phòng ban</label>
                 <select value={addDeptId} onChange={e => setAddDeptId(e.target.value)}
                   className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -372,7 +424,7 @@ export default function UserManagement({ currentUserEmail }: Props) {
               <p className="text-xs text-gray-400">Mật khẩu mặc định: <strong>eupvn123</strong></p>
             </div>
             <div className="mt-5 flex gap-2">
-              <button onClick={addUserToSystem} disabled={addSaving || !addEmail}
+              <button onClick={addUserToSystem} disabled={addSaving || !addEmail || !addRoleId}
                 className="flex-1 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-60">
                 {addSaving ? 'Đang thêm...' : 'Thêm'}
               </button>

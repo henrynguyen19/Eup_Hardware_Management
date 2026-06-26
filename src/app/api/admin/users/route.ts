@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   const auth = await requireAdminPermission()
   if (!auth.ok) return auth.error!
 
-  const { email } = await req.json()
+  const { email, roleId, departmentId } = await req.json()
   if (!email) {
     return NextResponse.json({ error: 'Thiếu email' }, { status: 400 })
   }
@@ -64,13 +64,15 @@ export async function POST(req: NextRequest) {
 
   if (!createErr) {
     const userId = created.user?.id
-    // Tạo thành công — đảm bảo user có row trong user_roles để xuất hiện trong permissions view
     try { await sb.from('allowed_emails').upsert({ email }, { onConflict: 'email' }) } catch { /* ignore */ }
     if (userId) {
       await sb.from('user_roles').upsert(
-        { user_id: userId, user_email: email, role_id: null },
+        { user_id: userId, user_email: email, role_id: roleId ?? null },
         { onConflict: 'user_id' }
       )
+      if (departmentId) {
+        await sb.from('user_departments').insert({ user_id: userId, department_id: departmentId }).catch(() => {})
+      }
     }
     return NextResponse.json({ ok: true, userId })
   }
