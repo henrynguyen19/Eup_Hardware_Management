@@ -32,7 +32,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   if (!data || data.length === 0) return NextResponse.json({ users: [] })
 
-  // Enrich with emails
+  // Enrich with emails — thử view trước, fallback auth.admin nếu không có
   const userIds = data.map(r => r.user_id)
   const { data: userRows } = await sb()
     .from('user_permissions_view')
@@ -40,6 +40,15 @@ export async function GET(_req: NextRequest, { params }: Params) {
     .in('user_id', userIds)
 
   const emailMap = Object.fromEntries((userRows ?? []).map(u => [u.user_id, u.user_email]))
+
+  // Tìm những user_id còn thiếu email (không có trong view)
+  const missing = userIds.filter(id => !emailMap[id])
+  if (missing.length > 0) {
+    const { data: authList } = await sb().auth.admin.listUsers({ page: 1, perPage: 1000 })
+    for (const u of authList?.users ?? []) {
+      if (missing.includes(u.id) && u.email) emailMap[u.id] = u.email
+    }
+  }
 
   return NextResponse.json({
     users: data.map(r => ({
