@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
-import { getCRMSessionForUser, getCRMCredentials, invalidateCRMSession } from '@/lib/crm-session'
+import { getCRMSessionForUser, getCRMCredentials, invalidateCRMSession, crmLoginRaw } from '@/lib/crm-session'
 import { extractHandlerFromMemo, parseSpeedTag, parseCRMTime } from '@/lib/crm-utils'
 
 const adminClient = () =>
@@ -30,10 +30,13 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form.toString(),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(50_000),   // 50s — đủ cho CRM phản hồi
   })
   if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
-  const json: CRMResponse = JSON.parse(await resp.text())
+  const rawText = await resp.text()
+  if (!rawText || rawText.trim() === '') throw new Error('CRM trả về body rỗng')
+  let json: CRMResponse
+  try { json = JSON.parse(rawText) } catch { throw new Error(`CRM response không parse được: ${rawText.substring(0, 100)}`) }
   if (!json.status) throw new Error(json.error || 'CRM returned status=0')
   return json.result ?? []
 }
@@ -112,54 +115,65 @@ export async function POST(req: NextRequest) {
 
   const db = adminClient()
 
-  // ── Build session map: crm_staff_id -> { sessionId, identity } ──
-  // Load ALL mappings từ DB một lần, lookup bằng crm_staff_id (chính xác hơn crm_nick_name)
+  // ── Load credentials map: crm_staff_id -> { crm_account, crm_password, user_id } ──
+  // Lấy cả crm_account + crm_password để login fresh (giống debug route)
   const { data: allMappings } = await db
     .from('user_crm_mapping')
-    .select('user_id, crm_staff_id, crm_nick_name')
+    .select('user_id, crm_staff_id, crm_nick_name, crm_account, crm_password')
 
-  const staffIdToUserId = new Map<number, string>()
-  for (const m of (allMappings ?? [])) {
-    if (m.crm_staff_id) staffIdToUserId.set(m.crm_staff_id, m.user_id)
+  type MappingRow = { user_id: string; crm_staff_id: number; crm_nick_name: string | null; crm_account: string | null; crm_password: string | null }
+  const credMap = new Map<number, MappingRow>()
+  for (const m of ((allMappings ?? []) as MappingRow[])) {
+    if (m.crm_staff_id) credMap.set(m.crm_staff_id, m)
   }
 
-  // Với self mode, chắc chắn có session từ user đang đăng nhập
+  // Self mode: lấy session từ user đang đăng nhập (đã login)
   let selfSession: { sessionId: string; crm_staff_id: number; identity: string } | null = null
   if (mode === 'self' && user) {
     try { selfSession = await getCRMSessionForUser(user.id) }
     catch (err) { return NextResponse.json({ error: String(err) }, { status: 400 }) }
   }
 
-  // ── Fetch từ CRM song song, mỗi staff dùng session riêng ──
-  const fetchResults = await Promise.allSettled(
-    staffToFetch.map(async s => {
-      try {
-        let sessionId: string
-        let identity: string
+  // ── Fetch từ CRM tuần tự (tránh login đồng thời gây conflict session) ──
+  // mode 'one'/'full': login fresh bằng credentials riêng — giống debug route
+  // mode 'self': dùng session đã có của user
+  const fetchResults: PromiseSettledResult<{ name: string; tickets: CRMTicket[]; error?: string }>[] = []
 
-        if (selfSession && mode === 'self') {
-          // Self mode: dùng session của chính user đang đăng nhập
-          sessionId = selfSession.sessionId
-          identity  = selfSession.identity
-        } else {
-          // Full mode: tìm session của staff này bằng crm_staff_id (chắc chắn hơn crm_nick_name)
-          const userId = staffIdToUserId.get(s.id)
-          if (!userId) throw new Error(`Không tìm thấy user_crm_mapping cho staff_id=${s.id}`)
-          const sess = await getCRMSessionForUser(userId)
-          sessionId = sess.sessionId
-          identity  = sess.identity
+  for (const s of staffToFetch) {
+    try {
+      let sessionId: string
+      let identity: string
+
+      if (mode === 'self' && selfSession) {
+        // Self: dùng session sẵn có của user đang đăng nhập
+        sessionId = selfSession.sessionId
+        identity  = selfSession.identity
+      } else {
+        // One/Full: login fresh bằng crm_account + crm_password của chính staff đó
+        // (giống debug route — không dùng cached session vì có thể stale/sai)
+        const cred = credMap.get(s.id)
+        if (!cred?.crm_account || !cred?.crm_password) {
+          throw new Error(`Không tìm thấy crm_account/crm_password cho ${s.name} (id=${s.id})`)
         }
-
-        const tickets = await callCRMSoap(s.id, sessionId, identity, url)
-        console.log(`[sync] ${s.name}(${s.id}): ${tickets.length} tickets`)
-        return { name: s.name, tickets }
-      } catch (err) {
-        const msg = String(err)
-        console.error(`[sync] FAILED ${s.name}(${s.id}):`, msg)
-        return { name: s.name, tickets: [] as CRMTicket[], error: msg }
+        console.log(`[sync] Login CRM cho ${s.name} (account=${cred.crm_account})`)
+        const loginRes = await crmLoginRaw(cred.crm_account, cred.crm_password)
+        if (!loginRes.ok || !loginRes.detectedSessionId) {
+          throw new Error(`Login CRM thất bại cho ${s.name}: ${loginRes.error ?? 'No SESSION_ID'}`)
+        }
+        sessionId = loginRes.detectedSessionId
+        identity  = loginRes.detectedIdentity ?? String(s.id)
+        console.log(`[sync] ${s.name} login OK — SESSION=${sessionId.substring(0, 16)}... IDENTITY=${identity}`)
       }
-    })
-  )
+
+      const tickets = await callCRMSoap(s.id, sessionId, identity, url)
+      console.log(`[sync] ${s.name}(${s.id}): ${tickets.length} tickets`)
+      fetchResults.push({ status: 'fulfilled', value: { name: s.name, tickets } })
+    } catch (err) {
+      const msg = String(err)
+      console.error(`[sync] FAILED ${s.name}(${s.id}):`, msg)
+      fetchResults.push({ status: 'fulfilled', value: { name: s.name, tickets: [] as CRMTicket[], error: msg } })
+    }
+  }
 
   // ── Merge & dedup by CS_ID ──
   const ticketMap = new Map<number, CRMTicket>()
