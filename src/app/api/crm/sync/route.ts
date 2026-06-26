@@ -317,13 +317,16 @@ export async function POST(req: NextRequest) {
     saved += batch.length
   }
 
-  // ── Upsert backfill rows TÁCH RIÊNG (chỉ customer_id + zone) ──
-  // Không được mix với full rows vì Supabase sẽ set staff_name = NULL
-  for (let i = 0; i < backfillRows.length; i += 500) {
-    const batch = backfillRows.slice(i, i + 500)
-    const { error } = await db.from('ho_tro_tickets').upsert(batch, { onConflict: 'sheet_row_key' })
-    if (error) console.error('[sync] Backfill upsert error:', error.message)
-    else saved += batch.length
+  // ── Backfill rows: dùng UPDATE (không INSERT) để tránh NOT NULL trên staff_name ──
+  // upsert sẽ INSERT nếu row chưa tồn tại → vi phạm NOT NULL; update thì bỏ qua nếu không tìm thấy
+  for (let i = 0; i < backfillRows.length; i += 50) {
+    const batch = backfillRows.slice(i, i + 50)
+    await Promise.all(batch.map(bRow =>
+      db.from('ho_tro_tickets')
+        .update({ customer_id: bRow.customer_id, zone: bRow.zone })
+        .eq('sheet_row_key', bRow.sheet_row_key)
+    ))
+    saved += batch.length
   }
 
   return NextResponse.json({

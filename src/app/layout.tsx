@@ -17,4 +17,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="vi">
-      <body classNa
+      <body className={inter.className}>
+        <LanguageProvider>
+          {children}
+        </LanguageProvider>
+      </body>
+    </html>
+  )
+}

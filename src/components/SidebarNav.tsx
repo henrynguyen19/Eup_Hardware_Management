@@ -281,4 +281,26 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
                 </svg>
                 {error}
               </div>
-       
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition">
+                {t.common.cancel}
+              </button>
+              <button
+                type="submit"
+                disabled={loading || !currentPw || !newPw || !confirmPw}
+                className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold transition disabled:opacity-50"
+                style={{ background: '#A70A0A' }}
+                onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.background = '#8b0808' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#A70A0A' }}
+              >
+                {loading ? t.changePw.saving : t.changePw.savePw}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
