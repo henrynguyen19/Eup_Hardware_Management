@@ -51,12 +51,21 @@ export function extractHandlerFromMemo(memo: string): string | null {
 export function parseSpeedTag(memo: string): SpeedTag | null {
   const s = (memo ?? '').toLowerCase()
   let tag: SpeedTag | null = null
-  if (/#f\b/.test(s))                                    tag = 'fast'
-  else if (/#n\b/.test(s))                               tag = 'normal'
-  else if (/#l\b/.test(s))                               tag = 'low'
-  else if (/hẽn/i.test(s) || /#hen\b/i.test(s))         tag = 'hen'
-  else if (/mai báo lại/i.test(s) || /#mbl\b/i.test(s)) tag = 'mai_bao_lai'
-  // #update reset hen/mbl về null
+
+  // "Cần theo dõi" có ưu tiên cao nhất — ghi đè #f/#n/#l
+  if (/mai báo lại/i.test(s) || /mai bao lai/i.test(s) || /#mbl\b/i.test(s)) {
+    tag = 'mai_bao_lai'
+  } else if (/\bhẹn\b/i.test(s) || /#hen\b/i.test(s)) {
+    tag = 'hen'
+  } else if (/#f\b/.test(s)) {
+    tag = 'fast'
+  } else if (/#n\b/.test(s)) {
+    tag = 'normal'
+  } else if (/#l\b/.test(s)) {
+    tag = 'low'
+  }
+
+  // #update reset hen/mbl về null (đã xử lý xong)
   if (/#update\b/i.test(s) && (tag === 'hen' || tag === 'mai_bao_lai')) tag = null
   return tag
 }

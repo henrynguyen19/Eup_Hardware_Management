@@ -45,19 +45,16 @@ export async function POST() {
 
     scanned += rows.length
 
-    // Chỉ update những hàng speed_tag còn null
+    // Re-parse tất cả — update nếu giá trị mới khác cũ (bắt cả trường hợp sai ký tự hẽn→hẹn)
     const toUpdate = rows
-      .filter(r => r.speed_tag === null || r.speed_tag === undefined)
-      .map(r => ({ id: r.id, tag: parseSpeedTag(r.reply ?? '') }))
-      .filter(r => r.tag !== null)
+      .map(r => ({ id: r.id, old: r.speed_tag as string | null, tag: parseSpeedTag(r.reply ?? '') }))
+      .filter(r => r.tag !== r.old)
 
-    // Batch update 100 cùng lúc
     const results = await Promise.allSettled(
       toUpdate.map(u =>
         db.from('ho_tro_tickets')
           .update({ speed_tag: u.tag })
           .eq('id', u.id)
-          .is('speed_tag', null)
       )
     )
     for (const r of results) {
