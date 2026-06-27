@@ -1706,4 +1706,10 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
           <FaultConfigPanel
             faultConfigs={faultConfigs}
             onAdd={handleAddFault}
-            onDele
+            onDelete={handleDeleteFault}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
