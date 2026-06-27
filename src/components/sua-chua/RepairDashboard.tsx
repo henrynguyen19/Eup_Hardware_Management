@@ -31,6 +31,18 @@ const STATUS_TYPES = [
   { key: 'cho_sua',      label: 'Chờ sửa',       color: '#8b5cf6' },
 ]
 
+// Helper to get translated status label
+function getStatusLabel(key: string, t: { suaChua: { statusDaSua: string; statusGuiBaoHanh: string; statusKhongLoi: string; statusHongHan: string; statusChoSua: string } }): string {
+  const map: Record<string, string> = {
+    da_sua: t.suaChua.statusDaSua,
+    gui_bao_hanh: t.suaChua.statusGuiBaoHanh,
+    khong_loi: t.suaChua.statusKhongLoi,
+    hong_han: t.suaChua.statusHongHan,
+    cho_sua: t.suaChua.statusChoSua,
+  }
+  return map[key] ?? key
+}
+
 // Per-status fault types — canonical defaults matching Google Sheets
 const DEFAULT_FAULT_TYPES_BY_STATUS: Record<string, string[]> = {
   da_sua: [
@@ -156,6 +168,7 @@ function SingleWeekView({
   stats: RepairStat[]
   deviceFilter?: string
 }) {
+  const { t } = useLanguage()
   const devStats = deviceFilter === 'all' ? stats : stats.filter(s => s.device_type === deviceFilter)
   const banGiao = calcBanGiao(devStats, week.id)
   return (
@@ -163,15 +176,15 @@ function SingleWeekView({
       {/* KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-500 mb-1">Bàn giao</p>
+          <p className="text-xs text-gray-500 mb-1">{t.suaChua.kpiBanGiao}</p>
           <p className="text-2xl font-bold text-gray-900">{banGiao || '—'}</p>
-          <p className="text-[10px] text-gray-400 mt-1">thiết bị</p>
+          <p className="text-[10px] text-gray-400 mt-1">{t.suaChua.kpiDevices}</p>
         </div>
         {STATUS_TYPES.map(st => {
           const total = devStats.filter(s => s.week_id === week.id && s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
           return (
             <div key={st.key} className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-xs text-gray-500 mb-1">{st.label}</p>
+              <p className="text-xs text-gray-500 mb-1">{getStatusLabel(st.key, t)}</p>
               <p className="text-2xl font-bold" style={{ color: st.color }}>{total || '—'}</p>
               {banGiao > 0 && total > 0 && (
                 <p className="text-[10px] text-gray-400 mt-1">{Math.round(total / banGiao * 100)}%</p>
@@ -185,7 +198,7 @@ function SingleWeekView({
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-gray-700">Kết quả theo thiết bị</h3>
+            <h3 className="text-sm font-semibold text-gray-700">{t.suaChua.resultByDevice}</h3>
             {week.date_start && (
               <p className="text-xs text-gray-400 mt-0.5">
                 {fmtDateStr(week.date_start)}{week.date_end ? ` – ${fmtDateStr(week.date_end)}` : ''}
@@ -200,7 +213,7 @@ function SingleWeekView({
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[110px]">Trạng thái</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[110px]">{t.suaChua.colStatus}</th>
                 {DEVICE_TYPES.map(dt => {
                   const active = deviceFilter === 'all' || deviceFilter === dt
                   return (
@@ -209,7 +222,7 @@ function SingleWeekView({
                     >{dt}</th>
                   )
                 })}
-                <th className="px-3 py-2 text-right font-semibold text-gray-700 border-l border-gray-200">Tổng</th>
+                <th className="px-3 py-2 text-right font-semibold text-gray-700 border-l border-gray-200">{t.suaChua.colTotal}</th>
               </tr>
             </thead>
             <tbody>
@@ -219,7 +232,7 @@ function SingleWeekView({
                 const stTotal = stDevStats.reduce((a, s) => a + s.quantity, 0)
                 return (
                   <tr key={st.key} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
-                    <td className="px-3 py-2 font-medium sticky left-0 bg-inherit z-10" style={{ color: st.color }}>{st.label}</td>
+                    <td className="px-3 py-2 font-medium sticky left-0 bg-inherit z-10" style={{ color: st.color }}>{getStatusLabel(st.key, t)}</td>
                     {DEVICE_TYPES.map(dt => {
                       const qty = stStats.filter(s => s.device_type === dt).reduce((a, s) => a + s.quantity, 0)
                       const dimmed = deviceFilter !== 'all' && deviceFilter !== dt
@@ -240,7 +253,7 @@ function SingleWeekView({
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-gray-200 bg-gray-50">
-                <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50 z-10">Bàn giao</td>
+                <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50 z-10">{t.suaChua.kpiBanGiao}</td>
                 {DEVICE_TYPES.map(dt => {
                   const qty = calcBanGiao(stats, week.id, dt)
                   const dimmed = deviceFilter !== 'all' && deviceFilter !== dt
@@ -260,7 +273,7 @@ function SingleWeekView({
       {/* Status bar chart */}
       {banGiao > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Biểu đồ kết quả sửa chữa</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.suaChua.repairChartTitle}</h3>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart
               data={STATUS_TYPES.map(st => ({
@@ -292,6 +305,7 @@ function AnalyticsSection({
   stats: RepairStat[]
   selectedDevice: string
 }) {
+  const { t } = useLanguage()
   const [tab, setTab] = useState('da_sua')
 
   // Apply device filter
@@ -332,7 +346,7 @@ function AnalyticsSection({
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
-        <h3 className="text-sm font-semibold text-gray-700">Phân tích chi tiết</h3>
+        <h3 className="text-sm font-semibold text-gray-700">{t.suaChua.detailAnalysis}</h3>
         {selectedDevice !== 'all' && (
           <span className="text-xs font-medium px-2 py-0.5 rounded-full text-white"
             style={{ background: DEVICE_COLORS[selectedDevice] ?? '#6b7280' }}>
@@ -350,7 +364,7 @@ function AnalyticsSection({
               className={`px-4 py-2.5 text-xs whitespace-nowrap transition border-b-2 shrink-0 ${tab === st.key ? '' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
               style={tab === st.key ? { borderColor: st.color, color: st.color, background: st.color + '12' } : {}}
             >
-              <span className="font-medium">{st.label}</span>
+              <span className="font-medium">{getStatusLabel(st.key, t)}</span>
               <span className="ml-1.5 font-normal opacity-70">{cnt > 0 ? `${cnt} · ${pct(cnt)}` : '0'}</span>
             </button>
           )
@@ -362,14 +376,14 @@ function AnalyticsSection({
         {tab !== 'hong_han' && (
           <>
             {tabTotal === 0 ? (
-              <p className="text-sm text-gray-400 py-4 text-center">Không có dữ liệu</p>
+              <p className="text-sm text-gray-400 py-4 text-center">{t.suaChua.noData}</p>
             ) : (
               <div className={`grid gap-6 ${selectedDevice === 'all' && byDevice.length > 0 ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
                 {/* By device (only when viewing all) */}
                 {selectedDevice === 'all' && byDevice.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">
-                      Theo loại thiết bị <span className="font-normal normal-case text-gray-400">({tabTotal} thiết bị)</span>
+                      {t.suaChua.byDeviceType} <span className="font-normal normal-case text-gray-400">({tabTotal} {t.suaChua.kpiDevices})</span>
                     </p>
                     <ResponsiveContainer width="100%" height={Math.max(160, byDevice.length * 28)}>
                       <BarChart data={byDevice} layout="vertical" margin={{ top: 0, right: 50, bottom: 0, left: 52 }}>
@@ -393,7 +407,7 @@ function AnalyticsSection({
                 {byFault.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">
-                      Theo loại lỗi <span className="font-normal normal-case text-gray-400">({tabTotal} trường hợp)</span>
+                      {t.suaChua.byFaultType} <span className="font-normal normal-case text-gray-400">({tabTotal} {t.suaChua.cases})</span>
                     </p>
                     <ResponsiveContainer width="100%" height={Math.max(160, byFault.length * 28)}>
                       <BarChart data={byFault} layout="vertical" margin={{ top: 0, right: 50, bottom: 0, left: 62 }}>
@@ -420,18 +434,18 @@ function AnalyticsSection({
         {/* Hỏng hẳn → fault × device matrix */}
         {tab === 'hong_han' && (
           hhTotal === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">Không có thiết bị hỏng hẳn</p>
+            <p className="text-sm text-gray-400 py-4 text-center">{t.suaChua.noBrokenDevices}</p>
           ) : (
             <div className="overflow-x-auto">
               <p className="text-xs text-gray-500 mb-3">Tổng <strong className="text-red-600">{hhTotal}</strong> thiết bị hỏng hẳn</p>
               <table className="text-xs border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 min-w-[110px]">Loại lỗi</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 min-w-[110px]">{t.suaChua.colFaultType}</th>
                     {hhDevices.map(dt => (
                       <th key={dt} className="px-2 py-2 text-right font-medium min-w-[44px]" style={{ color: DEVICE_COLORS[dt] }}>{dt}</th>
                     ))}
-                    <th className="px-3 py-2 text-right font-semibold text-red-600 border-l border-gray-200">Tổng</th>
+                    <th className="px-3 py-2 text-right font-semibold text-red-600 border-l border-gray-200">{t.suaChua.colTotal}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -455,7 +469,7 @@ function AnalyticsSection({
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-gray-200 bg-gray-50">
-                    <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50">Tổng</td>
+                    <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50">{t.suaChua.colTotal}</td>
                     {hhDevices.map(dt => {
                       const dtTotal = hhStats.filter(s => s.device_type === dt).reduce((a, s) => a + s.quantity, 0)
                       return (
@@ -478,6 +492,7 @@ function AnalyticsSection({
 
 // ── Tab: Dashboard ────────────────────────────────────────────
 function DashboardTab() {
+  const { t } = useLanguage()
   const now = new Date()
   const todayISO = getISOWeekYear(now)
 
@@ -713,11 +728,11 @@ function DashboardTab() {
           {/* Mode tabs */}
           <div className="flex gap-1 bg-gray-100 p-1 rounded-xl shrink-0">
             {([
-              { key: 'tuan',  label: 'Tuần'        },
-              { key: 'thang', label: 'Tháng'       },
-              { key: 'range', label: 'Khoảng ngày' },
-              { key: 'nam',   label: 'Năm'         },
-            ] as const).map(m => (
+              { key: 'tuan',  label: t.suaChua.periodWeek  },
+              { key: 'thang', label: t.suaChua.periodMonth },
+              { key: 'range', label: t.suaChua.periodRange },
+              { key: 'nam',   label: t.suaChua.periodYear  },
+            ] as { key: PeriodMode; label: string }[]).map(m => (
               <button key={m.key} onClick={() => setPeriodMode(m.key)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${periodMode === m.key ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
               >{m.label}</button>
@@ -734,7 +749,7 @@ function DashboardTab() {
                 <button className={navBtn} onClick={() => navToStoredWeek(1)}
                   disabled={allKnownWeeks.length === 0}>›</button>
                 <button onClick={goToLatestWeek}
-                  className="text-xs text-[#164d81] hover:underline ml-1">Mới nhất</button>
+                  className="text-xs text-[#164d81] hover:underline ml-1">{t.suaChua.goLatest}</button>
               </>
             )}
             {periodMode === 'thang' && (
@@ -767,11 +782,11 @@ function DashboardTab() {
 
         {/* Device filter pills */}
         <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-100">
-          <span className="text-xs text-gray-500 shrink-0">Thiết bị:</span>
+          <span className="text-xs text-gray-500 shrink-0">{t.suaChua.deviceLabel}</span>
           <button
             onClick={() => setSelectedDevice('all')}
             className={`px-3 py-1 text-xs rounded-full border transition ${selectedDevice === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}
-          >Tất cả</button>
+          >{t.suaChua.deviceAll}</button>
           {DEVICE_TYPES.map(dt => (
             <button key={dt}
               onClick={() => setSelectedDevice(selectedDevice === dt ? 'all' : dt)}
@@ -787,7 +802,7 @@ function DashboardTab() {
 
       {/* ── Empty ── */}
       {!loading && dataReady && filteredWeeks.length === 0 && (
-        <EmptyState msg={`Không có dữ liệu cho ${periodLabel}`} />
+        <EmptyState msg={`${t.suaChua.noDataFor} ${periodLabel}`} />
       )}
 
       {/* ── Single-week view ── */}
@@ -801,10 +816,10 @@ function DashboardTab() {
           {/* Mode toggle */}
           <div className="flex gap-2 flex-wrap">
             {([
-              { key: 'table', label: '📋 Bảng thiết bị'    },
-              { key: 'line',  label: '📈 Biểu đồ đường'   },
-              { key: 'bar',   label: '📊 Kết quả sửa chữa' },
-            ] as const).map(m => (
+              { key: 'table', label: t.suaChua.chartModeTable },
+              { key: 'line',  label: t.suaChua.chartModeLine  },
+              { key: 'bar',   label: t.suaChua.chartModeBar   },
+            ] as { key: 'table' | 'line' | 'bar'; label: string }[]).map(m => (
               <button key={m.key} onClick={() => setChartMode(m.key)}
                 className={`px-4 py-1.5 text-xs font-medium rounded-lg transition ${chartMode === m.key ? 'bg-[#A70A0A] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >{m.label}</button>
@@ -815,15 +830,15 @@ function DashboardTab() {
           {chartMode === 'table' && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-700">Thiết bị bàn giao theo tuần × loại</h3>
+                <h3 className="text-sm font-semibold text-gray-700">{t.suaChua.deviceByWeekTitle}</h3>
                 <span className="text-xs text-gray-400">{filteredWeeks.length} tuần</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[120px]">Tuần</th>
-                      <th className="px-3 py-2 text-right font-semibold text-gray-800 border-r border-gray-200">Tổng</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[120px]">{t.suaChua.colWeek}</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-800 border-r border-gray-200">{t.suaChua.colTotal}</th>
                       {DEVICE_TYPES.map(dt => (
                         <th key={dt} className="px-2 py-2 text-right font-medium text-gray-500 min-w-[52px]"
                           style={{ borderBottom: `2px solid ${DEVICE_COLORS[dt]}22` }}
@@ -853,7 +868,7 @@ function DashboardTab() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-gray-200 bg-gray-50">
-                      <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50 z-10">Tổng</td>
+                      <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50 z-10">{t.suaChua.colTotal}</td>
                       <td className="px-3 py-2 text-right font-bold text-gray-900 border-r border-gray-100">
                         {weekDeviceTotals.reduce((a, r) => a + (r.total as number), 0)}
                       </td>
@@ -885,7 +900,7 @@ function DashboardTab() {
                 ))}
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Thiết bị bàn giao mỗi tuần</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.suaChua.lineChartTitle}</h3>
                 <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={lineChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -905,7 +920,7 @@ function DashboardTab() {
           {/* BAR CHART */}
           {chartMode === 'bar' && (
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Kết quả sửa chữa theo tuần</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.suaChua.barChartTitle}</h3>
               <ResponsiveContainer width="100%" height={320}>
                 <BarChart data={barChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -928,7 +943,7 @@ function DashboardTab() {
             return (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
-                  <p className="text-xs text-gray-500 mb-1">Bàn giao</p>
+                  <p className="text-xs text-gray-500 mb-1">{t.suaChua.kpiBanGiao}</p>
                   <p className="text-2xl font-bold text-gray-900">{totalBanGiao.toLocaleString() || '—'}</p>
                   <p className="text-[10px] text-gray-400 mt-1">{periodLabel}</p>
                 </div>
@@ -937,7 +952,7 @@ function DashboardTab() {
                   const pct = totalBanGiao > 0 ? Math.round(total / totalBanGiao * 100) : 0
                   return (
                     <div key={st.key} className="bg-white rounded-xl border border-gray-200 p-4">
-                      <p className="text-xs text-gray-500 mb-1">{st.label}</p>
+                      <p className="text-xs text-gray-500 mb-1">{getStatusLabel(st.key, t)}</p>
                       <p className="text-2xl font-bold" style={{ color: st.color }}>{total.toLocaleString() || '—'}</p>
                       {totalBanGiao > 0 && total > 0 && <p className="text-[10px] text-gray-400 mt-1">{pct}%</p>}
                     </div>
@@ -967,6 +982,7 @@ function FaultConfigPanel({
   onAdd: (status: string, fault: string) => Promise<void>
   onDelete: (status: string, fault: string) => Promise<void>
 }) {
+  const { t } = useLanguage()
   const [activeStatus, setActiveStatus] = useState('da_sua')
   const [newFault, setNewFault] = useState('')
   const [saving, setSaving] = useState(false)
@@ -999,8 +1015,8 @@ function FaultConfigPanel({
     <div className="space-y-4">
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-700">Cấu hình loại lỗi</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Danh sách loại lỗi xuất hiện trong form nhập liệu — chọn trạng thái để chỉnh sửa</p>
+          <h3 className="text-sm font-semibold text-gray-700">{t.suaChua.faultConfigTitle}</h3>
+          <p className="text-xs text-gray-400 mt-0.5">{t.suaChua.faultConfigDesc}</p>
         </div>
 
         {/* Status tabs */}
@@ -1010,7 +1026,7 @@ function FaultConfigPanel({
               className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap transition ${activeStatus === st.key ? 'border-b-2' : 'text-gray-500 hover:text-gray-700'}`}
               style={activeStatus === st.key ? { borderColor: st.color, background: st.color + '15', color: st.color } : {}}
             >
-              {st.label}
+              {getStatusLabel(st.key, t)}
               <span className="ml-1 font-normal opacity-60">({(faultConfigs[st.key] ?? []).length})</span>
             </button>
           ))}
@@ -1020,7 +1036,7 @@ function FaultConfigPanel({
           {/* Fault list */}
           <div className="space-y-1 mb-4 max-h-96 overflow-y-auto">
             {faults.length === 0 && (
-              <p className="text-xs text-gray-400 text-center py-6">Chưa có loại lỗi nào</p>
+              <p className="text-xs text-gray-400 text-center py-6">{t.suaChua.noFaultTypes}</p>
             )}
             {faults.map((fault, i) => (
               <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50 hover:bg-gray-100 group">
@@ -1040,13 +1056,13 @@ function FaultConfigPanel({
               value={newFault}
               onChange={e => setNewFault(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !saving && handleAdd()}
-              placeholder="Tên loại lỗi mới..."
+              placeholder={t.suaChua.newFaultPlaceholder}
               className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-400"
             />
             <button onClick={handleAdd} disabled={saving || !newFault.trim()}
               className="px-4 py-1.5 text-xs font-semibold text-white rounded-lg transition disabled:opacity-50"
               style={{ background: '#164d81' }}
-            >{saving ? '...' : '+ Thêm'}</button>
+            >{saving ? '...' : t.suaChua.addFaultBtn}</button>
             {msg && <span className="text-xs text-green-600 shrink-0">{msg}</span>}
           </div>
         </div>
@@ -1057,6 +1073,7 @@ function FaultConfigPanel({
 
 // ── Tab: Nhập liệu ─────────────────────────────────────────────
 function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs: Record<string, string[]> }) {
+  const { t } = useLanguage()
   const now = new Date()
   // Default date_start = thứ Hai của tuần hiện tại, date_end = thứ Sáu
   function getMondayOfWeek(d: Date) {
@@ -1226,21 +1243,21 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
     <div className="space-y-5">
       {/* Week date range */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Thời gian tuần</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.suaChua.weekPeriod}</h3>
         <div className="grid grid-cols-2 gap-4 max-w-sm">
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Từ ngày</label>
+            <label className="text-xs text-gray-500 mb-1 block">{t.suaChua.fromDate}</label>
             <input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Đến ngày</label>
+            <label className="text-xs text-gray-500 mb-1 block">{t.suaChua.toDate}</label>
             <input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
           </div>
         </div>
         <p className="text-xs text-gray-400 mt-2">
-          Tuần: <strong className="text-gray-700">
+          {t.suaChua.weekPrefix} <strong className="text-gray-700">
             {derivedInfo.week_label} {displayLabel !== derivedInfo.week_label ? `(${displayLabel})` : ''}
           </strong>
         </p>
@@ -1255,7 +1272,7 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
                 <button key={st.key} onClick={() => setActiveStatus(st.key)}
                   className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap transition ${activeStatus === st.key ? 'border-b-2' : 'text-gray-500 hover:text-gray-700'}`}
                   style={activeStatus === st.key ? { borderColor: st.color, background: st.color + '15', color: st.color } : {}}
-                >{st.label}</button>
+                >{getStatusLabel(st.key, t)}</button>
               ))}
               {loadingExisting && (
                 <span className="ml-auto px-3 text-xs text-blue-400 animate-pulse">Đang tải dữ liệu tuần...</span>
@@ -1270,7 +1287,7 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
               <table className="text-xs border-collapse">
                 <thead>
                   <tr>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600 bg-gray-50 sticky left-0 z-10 min-w-[120px]">Loại lỗi</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600 bg-gray-50 sticky left-0 z-10 min-w-[120px]">{t.suaChua.colFaultType}</th>
                     {DEVICE_TYPES.map(dt => <th key={dt} className="px-2 py-2 text-center font-medium text-gray-500 bg-gray-50 min-w-[55px]">{dt}</th>)}
                   </tr>
                 </thead>
@@ -1315,7 +1332,7 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
             <button onClick={() => setMode('preview')}
               className="px-6 py-2 text-sm font-semibold text-white rounded-xl transition"
               style={{ background: '#164d81' }}
-            >📊 Xem thống kê</button>
+            >{t.suaChua.viewStats}</button>
             {msg && <p className="text-sm">{msg}</p>}
           </div>
         </>
@@ -1327,28 +1344,28 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-gray-700">Xem lại thống kê trước khi lưu</h3>
+                <h3 className="text-sm font-semibold text-gray-700">{t.suaChua.reviewTitle}</h3>
                 <p className="text-xs text-gray-400 mt-0.5">{derivedInfo.week_label} — {displayLabel}</p>
               </div>
               <span className="text-xs font-bold text-gray-800 bg-gray-100 px-3 py-1 rounded-full">
-                Tổng bàn giao: {getGrandTotal()}
+                {t.suaChua.banGiaoTotal} {getGrandTotal()}
               </span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[110px]">Trạng thái</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[110px]">{t.suaChua.colStatus}</th>
                     {DEVICE_TYPES.map(dt => (
                       <th key={dt} className="px-2 py-2 text-right font-medium text-gray-500 min-w-[48px]">{dt}</th>
                     ))}
-                    <th className="px-3 py-2 text-right font-semibold text-gray-700 border-l border-gray-200">Tổng</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-700 border-l border-gray-200">{t.suaChua.colTotal}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {STATUS_TYPES.map((st, i) => (
                     <tr key={st.key} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
-                      <td className="px-3 py-2 font-medium sticky left-0 bg-inherit" style={{ color: st.color }}>{st.label}</td>
+                      <td className="px-3 py-2 font-medium sticky left-0 bg-inherit" style={{ color: st.color }}>{getStatusLabel(st.key, t)}</td>
                       {DEVICE_TYPES.map(dt => {
                         const qty = getStatusDeviceTotal(st.key, dt)
                         return (
@@ -1365,7 +1382,7 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-gray-200 bg-gray-50">
-                    <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50">Bàn giao</td>
+                    <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50">{t.suaChua.kpiBanGiao}</td>
                     {DEVICE_TYPES.map(dt => {
                       const qty = getDeviceTotal(dt)
                       return (
@@ -1384,11 +1401,11 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
           <div className="flex items-center gap-3">
             <button onClick={() => { setMode('entry'); setMsg('') }}
               className="px-5 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition"
-            >← Quay lại chỉnh sửa</button>
+            >{t.suaChua.backToEdit}</button>
             <button onClick={handleSave} disabled={saving}
               className="px-6 py-2 text-sm font-semibold text-white rounded-xl transition disabled:opacity-50"
               style={{ background: '#A70A0A' }}
-            >{saving ? 'Đang lưu...' : '💾 Xác nhận & Lưu'}</button>
+            >{saving ? (t.common.saving ?? 'Đang lưu...') : t.suaChua.confirmSave}</button>
             {msg && <p className="text-sm">{msg}</p>}
           </div>
         </>
@@ -1399,6 +1416,7 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
 
 // ── Tab: Lịch sử + Import ──────────────────────────────────────
 function HistoryTab({ refreshKey }: { refreshKey: number }) {
+  const { t } = useLanguage()
   const [weeks, setWeeks] = useState<RepairWeek[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedWeek, setSelectedWeek] = useState<RepairWeek | null>(null)
@@ -1476,25 +1494,25 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
     <div className="space-y-4">
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <p className="text-sm font-semibold text-amber-800">Import lịch sử từ Google Sheets</p>
-          <p className="text-xs text-amber-600 mt-0.5">Import từ tuần 40/2025 trở đi. Sẽ xóa và ghi đè toàn bộ data cũ.</p>
+          <p className="text-sm font-semibold text-amber-800">{t.suaChua.historyImportTitle}</p>
+          <p className="text-xs text-amber-600 mt-0.5">{t.suaChua.historyImportDesc}</p>
         </div>
         <div className="flex items-center gap-3">
           {importResult && <p className="text-xs">{importResult}</p>}
           <button onClick={handleImport} disabled={importing}
             className="px-4 py-2 text-xs font-semibold text-white rounded-lg transition disabled:opacity-50"
             style={{ background: '#164d81' }}
-          >{importing ? 'Đang import...' : '⬇ Import từ Sheets'}</button>
+          >{importing ? (t.common.loading ?? 'Đang import...') : t.suaChua.importFromSheets}</button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-sm font-semibold text-gray-700">Danh sách tuần ({weeks.length})</p>
+            <p className="text-sm font-semibold text-gray-700">{t.suaChua.weekList} ({weeks.length})</p>
           </div>
           <div className="divide-y divide-gray-50 max-h-[500px] overflow-y-auto">
-            {weeks.length === 0 && <p className="text-xs text-gray-400 text-center py-8">Chưa có dữ liệu</p>}
+            {weeks.length === 0 && <p className="text-xs text-gray-400 text-center py-8">{t.suaChua.noData}</p>}
             {weeks.map(week => (
               <button key={week.id} onClick={() => loadWeekDetail(week)}
                 className={`w-full px-4 py-3 text-left hover:bg-gray-50 transition ${selectedWeek?.id === week.id ? 'bg-red-50' : ''}`}
@@ -1508,7 +1526,7 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
 
         <div className="md:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
           {!selectedWeek ? (
-            <div className="flex items-center justify-center h-full min-h-[200px] text-gray-400 text-sm">Chọn một tuần để xem chi tiết</div>
+            <div className="flex items-center justify-center h-full min-h-[200px] text-gray-400 text-sm">{t.suaChua.chooseWeek}</div>
           ) : !weekData ? (
             <LoadingSpinner />
           ) : (
@@ -1518,7 +1536,7 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
                   <div>
                     <p className="text-sm font-semibold text-gray-700">{selectedWeek.week_label}</p>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Bàn giao: <strong className="text-gray-700">{calcBanGiao(weekData.stats, selectedWeek.id)}</strong> thiết bị
+                      {t.suaChua.kpiBanGiao}: <strong className="text-gray-700">{calcBanGiao(weekData.stats, selectedWeek.id)}</strong> {t.suaChua.kpiDevices}
                     </p>
                   </div>
                   <div className="flex gap-2 items-center">
@@ -1530,12 +1548,12 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
                 {editingDates && (
                   <div className="mt-3 flex gap-2 items-end flex-wrap">
                     <div>
-                      <label className="text-[10px] text-gray-500 block mb-1">Từ ngày</label>
+                      <label className="text-[10px] text-gray-500 block mb-1">{t.suaChua.fromDate}</label>
                       <input type="date" value={editDateStart} onChange={e => setEditDateStart(e.target.value)}
                         className="border border-gray-200 rounded px-2 py-1 text-xs" />
                     </div>
                     <div>
-                      <label className="text-[10px] text-gray-500 block mb-1">Đến ngày</label>
+                      <label className="text-[10px] text-gray-500 block mb-1">{t.suaChua.toDate}</label>
                       <input type="date" value={editDateEnd} onChange={e => setEditDateEnd(e.target.value)}
                         className="border border-gray-200 rounded px-2 py-1 text-xs" />
                     </div>
@@ -1555,7 +1573,7 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
 
               {/* Breakdown by device */}
               <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2">Theo loại thiết bị</p>
+                <p className="text-xs font-semibold text-gray-500 mb-2">{t.suaChua.byDeviceType}</p>
                 <div className="flex flex-wrap gap-2">
                   {DEVICE_TYPES.map(dt => {
                     const qty = calcBanGiao(weekData.stats, selectedWeek.id, dt)
@@ -1571,13 +1589,13 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
 
               {/* Breakdown by status */}
               <div className="px-4 py-3">
-                <p className="text-xs font-semibold text-gray-500 mb-2">Kết quả sửa chữa</p>
+                <p className="text-xs font-semibold text-gray-500 mb-2">{t.suaChua.repairResults}</p>
                 <div className="grid grid-cols-2 gap-2">
                   {STATUS_TYPES.map(st => {
                     const sum = weekData.stats.filter(s => s.week_id === selectedWeek.id && s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
                     return (
                       <div key={st.key} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: st.color + '12' }}>
-                        <span className="text-xs font-medium" style={{ color: st.color }}>{st.label}</span>
+                        <span className="text-xs font-medium" style={{ color: st.color }}>{getStatusLabel(st.key, t)}</span>
                         <span className="text-sm font-bold text-gray-800">{sum || '—'}</span>
                       </div>
                     )
@@ -1593,10 +1611,11 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
 }
 
 function LoadingSpinner() {
+  const { t } = useLanguage()
   return (
     <div className="flex items-center justify-center h-48 gap-2 text-gray-400">
       <div className="w-5 h-5 border-2 border-gray-300 border-t-red-600 rounded-full animate-spin" />
-      <span className="text-sm">Đang tải...</span>
+      <span className="text-sm">{t.common.loading}</span>
     </div>
   )
 }
@@ -1687,10 +1706,4 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
           <FaultConfigPanel
             faultConfigs={faultConfigs}
             onAdd={handleAddFault}
-            onDelete={handleDeleteFault}
-          />
-        )}
-      </div>
-    </div>
-  )
-}
+            onDele
