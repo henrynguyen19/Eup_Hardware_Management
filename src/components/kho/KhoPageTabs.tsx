@@ -6,6 +6,7 @@ import FeatureMatrixView from './FeatureMatrixView'
 import VehicleCompatMatrix from './VehicleCompatMatrix'
 import type { EquipmentCard } from '@/types/equipment'
 import type { FirmwareVersion } from '@/types/kho'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 type PageTab = 'devices' | 'features' | 'vehicles'
 
@@ -13,33 +14,6 @@ type PageTab = 'devices' | 'features' | 'vehicles'
 const EUP_RED   = '#A70A0A'
 const EUP_GREEN = '#00AF50'
 const EUP_NAVY  = '#164d81'
-
-const PAGE_TABS = [
-  {
-    id: 'devices'  as PageTab,
-    icon: '📦',
-    label: 'Thiết bị',
-    desc: 'Danh sách thiết bị & phụ kiện',
-    activeStyle: { background: EUP_RED, color: '#fff', boxShadow: '0 2px 8px rgba(167,10,10,0.25)', borderColor: EUP_RED },
-    indicatorColor: EUP_RED,
-  },
-  {
-    id: 'features' as PageTab,
-    icon: '⚙️',
-    label: 'Bảng tính năng',
-    desc: 'So sánh tính năng các thiết bị',
-    activeStyle: { background: EUP_NAVY, color: '#fff', boxShadow: '0 2px 8px rgba(22,77,129,0.25)', borderColor: EUP_NAVY },
-    indicatorColor: EUP_NAVY,
-  },
-  {
-    id: 'vehicles' as PageTab,
-    icon: '🚗',
-    label: 'Xe & Thiết bị',
-    desc: 'Loại xe và thiết bị cần lắp',
-    activeStyle: { background: EUP_GREEN, color: '#fff', boxShadow: '0 2px 8px rgba(0,175,80,0.25)', borderColor: EUP_GREEN },
-    indicatorColor: EUP_GREEN,
-  },
-]
 
 interface Props {
   initialCards: EquipmentCard[]
@@ -52,8 +26,36 @@ interface Props {
 
 export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, canWrite, isAdmin, canHoTro }: Props) {
   const [activeTab, setActiveTab] = useState<PageTab>('devices')
+  const { t } = useLanguage()
 
-  const activeTabDef = PAGE_TABS.find(t => t.id === activeTab)!
+  const PAGE_TABS = [
+    {
+      id: 'devices'  as PageTab,
+      icon: '📦',
+      label: t.kho.tabDevices,
+      desc: t.kho.tabDescDevices,
+      activeStyle: { background: EUP_RED, color: '#fff', boxShadow: '0 2px 8px rgba(167,10,10,0.25)', borderColor: EUP_RED },
+      indicatorColor: EUP_RED,
+    },
+    {
+      id: 'features' as PageTab,
+      icon: '⚙️',
+      label: t.kho.tabFeatures,
+      desc: t.kho.tabDescFeatures,
+      activeStyle: { background: EUP_NAVY, color: '#fff', boxShadow: '0 2px 8px rgba(22,77,129,0.25)', borderColor: EUP_NAVY },
+      indicatorColor: EUP_NAVY,
+    },
+    {
+      id: 'vehicles' as PageTab,
+      icon: '🚗',
+      label: t.kho.tabVehicle,
+      desc: t.kho.tabDescVehicles,
+      activeStyle: { background: EUP_GREEN, color: '#fff', boxShadow: '0 2px 8px rgba(0,175,80,0.25)', borderColor: EUP_GREEN },
+      indicatorColor: EUP_GREEN,
+    },
+  ]
+
+  const activeTabDef = PAGE_TABS.find(tab => tab.id === activeTab)!
 
   return (
     <div className="min-h-screen" style={{ background: '#f5f6f8' }}>
@@ -69,7 +71,7 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
             <div className="flex items-center gap-2 text-sm">
               <span className="font-bold" style={{ color: EUP_RED }}>EUP</span>
               <span className="text-gray-300">/</span>
-              <span className="text-gray-600 font-medium">Quản lý thiết bị</span>
+              <span className="text-gray-600 font-medium">{t.kho.title}</span>
               <span className="text-gray-300">/</span>
               <span className="font-semibold text-gray-800">{activeTabDef.label}</span>
             </div>
@@ -140,13 +142,13 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
                   ⚙️
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-gray-800">Bảng so sánh tính năng</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">Tổng hợp tính năng kỹ thuật của từng thiết bị</p>
+                  <h2 className="text-base font-bold text-gray-800">{t.kho.featureMatrixTitle}</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">{t.kho.featureMatrixDesc}</p>
                 </div>
                 {isAdmin && (
                   <span className="ml-auto text-xs px-2.5 py-1 rounded-full font-medium"
                         style={{ background: `${EUP_NAVY}15`, color: EUP_NAVY, border: `1px solid ${EUP_NAVY}25` }}>
-                    ✏️ Kéo thả để sắp xếp · Click để sửa tên
+                    ✏️ {t.kho.featureMatrixHint}
                   </span>
                 )}
               </div>
@@ -165,8 +167,8 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
                   🚗
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-gray-800">Xe & Thiết bị cần lắp</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">Tổng quan thiết bị bắt buộc và tuỳ chọn theo từng loại xe</p>
+                  <h2 className="text-base font-bold text-gray-800">{t.kho.vehicleTitle}</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">{t.kho.vehicleDesc}</p>
                 </div>
               </div>
               <VehicleCompatMatrix isAdmin={isAdmin} />

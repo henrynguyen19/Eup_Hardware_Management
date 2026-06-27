@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 interface DriveItem {
   id: string
@@ -45,6 +46,7 @@ function formatDate(iso: string | null) {
 
 // ── File Preview Modal ────────────────────────────────────────
 function FilePreviewModal({ file, onClose }: { file: DriveItem; onClose: () => void }) {
+  const { t } = useLanguage()
   const src = `/api/certificates/file?id=${file.id}`
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
@@ -58,7 +60,7 @@ function FilePreviewModal({ file, onClose }: { file: DriveItem; onClose: () => v
           <div className="flex items-center gap-2 ml-3 flex-shrink-0">
             <a href={src} target="_blank" rel="noopener noreferrer"
               className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition"
-            >⬇ Tải về</a>
+            >{t.chungNhan.download}</a>
             <button onClick={onClose}
               className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition text-lg"
             >✕</button>
@@ -72,11 +74,11 @@ function FilePreviewModal({ file, onClose }: { file: DriveItem; onClose: () => v
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
               <span className="text-5xl">{fileIcon(file.mimeType)}</span>
-              <p className="text-sm">Không thể xem trước loại file này</p>
+              <p className="text-sm">{t.chungNhan.noPreview}</p>
               <a href={src} target="_blank" rel="noopener noreferrer"
                 className="px-4 py-2 text-sm font-medium text-white rounded-lg transition"
                 style={{ background: '#A70A0A' }}
-              >⬇ Tải về để xem</a>
+              >{t.chungNhan.downloadToView}</a>
             </div>
           )}
         </div>
@@ -87,11 +89,12 @@ function FilePreviewModal({ file, onClose }: { file: DriveItem; onClose: () => v
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function CertificatesPage() {
+  const { t } = useLanguage()
   const [result, setResult]         = useState<BrowseResult | null>(null)
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState<string | null>(null)
   const [breadcrumb, setBreadcrumb] = useState<BreadcrumbEntry[]>([
-    { id: ROOT_FOLDER_ID, name: 'Giấy chứng nhận' }
+    { id: ROOT_FOLDER_ID, name: t.chungNhan.title }
   ])
   const [preview, setPreview]       = useState<DriveItem | null>(null)
 
@@ -145,8 +148,8 @@ export default function CertificatesPage() {
 
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">📜 Giấy chứng nhận</h1>
-            <p className="text-xs text-gray-400 mt-0.5">Chứng nhận & giấy phép của công ty EUP</p>
+            <h1 className="text-xl font-bold text-gray-900">📜 {t.chungNhan.title}</h1>
+            <p className="text-xs text-gray-400 mt-0.5">{t.chungNhan.subtitle}</p>
           </div>
           {!loading && result && (
             <span className="text-xs text-gray-400">
@@ -163,7 +166,7 @@ export default function CertificatesPage() {
             onClick={() => navigateTo(breadcrumb.length - 2)}
             className="mt-3 flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 transition"
           >
-            ← Quay lại
+            {t.chungNhan.back}
           </button>
         )}
       </div>
@@ -173,7 +176,7 @@ export default function CertificatesPage() {
         {loading && (
           <div className="flex items-center justify-center h-48 text-gray-400 gap-2">
             <div className="w-5 h-5 border-2 border-gray-300 border-t-red-600 rounded-full animate-spin" />
-            <span className="text-sm">Đang tải...</span>
+            <span className="text-sm">{t.common.loading}</span>
           </div>
         )}
 
@@ -186,7 +189,7 @@ export default function CertificatesPage() {
             {/* Folders */}
             {folders.length > 0 && (
               <div>
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Thư mục</p>
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">{t.chungNhan.folders}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                   {folders.map(folder => (
                     <button
@@ -211,7 +214,7 @@ export default function CertificatesPage() {
             {files.length > 0 && (
               <div>
                 {folders.length > 0 && (
-                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">File</p>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">{t.chungNhan.files}</p>
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                   {files.map(file => (
@@ -253,7 +256,7 @@ export default function CertificatesPage() {
             {folders.length === 0 && files.length === 0 && (
               <div className="flex flex-col items-center justify-center h-48 text-gray-400">
                 <span className="text-4xl mb-3">📂</span>
-                <p className="text-sm">Thư mục trống</p>
+                <p className="text-sm">{t.chungNhan.emptyFolder}</p>
               </div>
             )}
           </div>

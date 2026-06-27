@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useLanguage } from '@/contexts/LanguageContext'
 import {
   LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
@@ -1611,6 +1612,7 @@ function EmptyState({ msg }: { msg: string }) {
 
 // ── Main ───────────────────────────────────────────────────────
 export default function RepairDashboard({ userEmail = '', permissions = [] }: { userEmail?: string; permissions?: string[] }) {
+  const { t } = useLanguage()
   const canWrite = permissions.includes('sua_chua:write') || permissions.includes('admin:users')
   const [tab, setTab] = useState<'dashboard' | 'entry' | 'history' | 'config'>('dashboard')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -1650,10 +1652,10 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
   }
 
   const tabs: Array<{ key: 'dashboard' | 'entry' | 'history' | 'config'; label: string }> = [
-    { key: 'dashboard', label: '📊 Biểu đồ' },
-    ...(canWrite ? [{ key: 'entry' as const, label: '✏️ Nhập liệu' }] : []),
-    { key: 'history',   label: '🗂 Lịch sử' },
-    ...(canWrite ? [{ key: 'config' as const, label: '⚙️ Cấu hình' }] : []),
+    { key: 'dashboard', label: `📊 ${t.suaChua.tabDashboard}` },
+    ...(canWrite ? [{ key: 'entry' as const, label: `✏️ ${t.suaChua.tabEntry}` }] : []),
+    { key: 'history',   label: `🗂 ${t.suaChua.tabHistory}` },
+    ...(canWrite ? [{ key: 'config' as const, label: `⚙️ ${t.common.update}` }] : []),
   ]
 
   return (
@@ -1661,8 +1663,8 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">🔧 Thống kê Sửa chữa</h1>
-            <p className="text-xs text-gray-400 mt-0.5">Theo dõi tình trạng sửa chữa thiết bị hàng tuần</p>
+            <h1 className="text-xl font-bold text-gray-900">🔧 {t.suaChua.title}</h1>
+            <p className="text-xs text-gray-400 mt-0.5">{t.suaChua.tabDashboard}</p>
           </div>
           {userEmail && (
             <span className="text-xs text-gray-400">{userEmail}</span>

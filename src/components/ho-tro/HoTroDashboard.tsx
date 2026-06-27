@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useLanguage } from '@/contexts/LanguageContext'
 import dynamic from 'next/dynamic'
 import {
   ResponsiveContainer,
@@ -645,6 +646,7 @@ function SummaryView({
 
 // ── Main Dashboard ─────────────────────────────────────────────────
 export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
+  const { t } = useLanguage()
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
   const [activeTab, setActiveTab] = useState<'tickets' | 'stats' | 'jira' | 'hashtag'>('tickets')
   // Legacy — kept for stats tab internals
@@ -1152,7 +1154,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 bg-teal-600 rounded-xl flex items-center justify-center text-lg">📋</div>
               <div>
-                <h1 className="text-lg font-bold text-gray-900 leading-none">Hỗ trợ kỹ thuật</h1>
+                <h1 className="text-lg font-bold text-gray-900 leading-none">{t.hoTro.title}</h1>
                 <p className="text-xs text-gray-400">{userEmail}</p>
               </div>
             </div>
@@ -1161,10 +1163,10 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             {/* Period mode toggle */}
             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
               {([
-                { key: 'ngay',   label: 'Ngày'   },
-                { key: 'tuan',   label: 'Tuần'   },
-                { key: 'thang',  label: 'Tháng'  },
-                { key: 'khoang', label: 'Khoảng' },
+                { key: 'ngay',   label: t.common.day    },
+                { key: 'tuan',   label: t.common.week   },
+                { key: 'thang',  label: t.common.month  },
+                { key: 'khoang', label: t.common.range  },
               ] as const).map(({ key, label }) => (
                 <button
                   key={key}
@@ -1317,10 +1319,10 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex gap-1 py-2">
             {[
-              { key: 'tickets', label: '📋 Yêu cầu' },
-              { key: 'stats',   label: '📊 Thống kê' },
-              { key: 'jira',    label: '🐛 Jira Bugs' },
-              { key: 'hashtag', label: '🏷️ Hashtag' },
+              { key: 'tickets', label: `📋 ${t.hoTro.tabRequests}` },
+              { key: 'stats',   label: `📊 ${t.hoTro.tabStats}` },
+              { key: 'jira',    label: `🐛 ${t.jira.title}` },
+              { key: 'hashtag', label: `🏷️ ${t.hoTro.tabHashtag}` },
             ].map(({ key, label }) => (
               <button
                 key={key}
