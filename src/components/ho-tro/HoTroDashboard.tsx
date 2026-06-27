@@ -1671,14 +1671,14 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             if (statsLoading) return (
               <div className="flex items-center justify-center py-20 gap-2 text-teal-600">
                 <div className="w-5 h-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm">Đang tải thống kê...</span>
+                <span className="text-sm">{t.hoTro.loadingStats}</span>
               </div>
             )
             if (!totalReq) return (
               <div className="text-center py-20 text-gray-400">
                 <div className="text-5xl mb-4">📊</div>
-                <p className="text-lg font-medium text-gray-500">Không có dữ liệu</p>
-                <p className="text-sm mt-1">Chưa có yêu cầu nào trong {periodLabel}. Hãy đồng bộ CRM trước.</p>
+                <p className="text-lg font-medium text-gray-500">{t.common.noData}</p>
+                <p className="text-sm mt-1">{t.hoTro.noDataPeriod} {periodLabel}. {t.hoTro.syncFirst}</p>
               </div>
             )
 
@@ -1738,25 +1738,25 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <h2 className="font-bold text-gray-800 text-lg">
-                      {isAdmin ? 'Tổng quan nhóm' : 'Thống kê của bạn'}
+                      {isAdmin ? t.hoTro.statsGroupTitle : t.hoTro.statsMyTitle}
                     </h2>
-                    <p className="text-sm text-gray-400">{periodLabel} · {totalReq} yêu cầu từ CRM</p>
+                    <p className="text-sm text-gray-400">{periodLabel} · {totalReq} {t.hoTro.statsFromCRM}</p>
                   </div>
                 </div>
 
                 {/* KPI row */}
                 <div className={`grid gap-3 mb-5 ${isAdmin ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
-                  <StatCard icon="📞" label="Tổng yêu cầu"    value={totalReq.toLocaleString()} sub={`${days.length} ngày`} color="blue" />
-                  <StatCard icon="⚡" label="Xử lý nhanh (#f)" value={`${fastPct}%`} sub={`${totalFastC} yêu cầu`} color="green" />
-                  <StatCard icon="📅" label="Cần theo dõi"    value={totalPendC} sub="Hẹn + Mai báo lại" color="red" />
-                  {isAdmin && <StatCard icon="👥" label="Nhân viên" value={activeStaffCount} color="teal" />}
+                  <StatCard icon="📞" label={t.hoTro.kpiTotal}   value={totalReq.toLocaleString()} sub={`${days.length} ${t.hoTro.kpiDays}`} color="blue" />
+                  <StatCard icon="⚡" label={t.hoTro.kpiFast}    value={`${fastPct}%`} sub={`${totalFastC} ${t.hoTro.kpiRequests}`} color="green" />
+                  <StatCard icon="📅" label={t.hoTro.kpiPending} value={totalPendC} sub={t.hoTro.kpiPendingSub} color="red" />
+                  {isAdmin && <StatCard icon="👥" label={t.hoTro.kpiStaff} value={activeStaffCount} color="teal" />}
                 </div>
 
                 {/* Row 1 — 4 charts */}
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
                   {/* Chart 1: Total number of request */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">Total number of request</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartTotalTitle}</p>
                     <ResponsiveContainer width="100%" height={160}>
                       <ComposedChart data={chartTotal} margin={{top:4,right:4,bottom:0,left:-20}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -1773,7 +1773,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
 
                   {/* Chart 2: Response time breakdown */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">Response time for processing</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartResponseTitle}</p>
                     <ResponsiveContainer width="100%" height={160}>
                       <BarChart data={chartResolution} margin={{top:4,right:4,bottom:0,left:-20}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -1790,7 +1790,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
 
                   {/* Chart 3: Pending % */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">Percentage of pending requests</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartPendingTitle}</p>
                     <ResponsiveContainer width="100%" height={160}>
                       <LineChart data={chartPendPct} margin={{top:4,right:4,bottom:0,left:-20}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -1804,7 +1804,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
 
                   {/* Chart 4: Staff weekly progress */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">Weekly chart of department's work progress</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartStaffTitle}</p>
                     <ResponsiveContainer width="100%" height={160}>
                       <LineChart data={chartStaff} margin={{top:4,right:4,bottom:0,left:-20}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -1825,7 +1825,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
                   {/* Chart 5: Device pie — Rate devices getting errors */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">Rate devices getting errors by week</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartDeviceTitle}</p>
                     {Object.keys(byDeviceTotal).length ? (
                       <ResponsiveContainer width="100%" height={170}>
                         <PieChart>
@@ -1838,12 +1838,12 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                           <Legend wrapperStyle={{fontSize:8}} layout="vertical" align="right" verticalAlign="middle" />
                         </PieChart>
                       </ResponsiveContainer>
-                    ) : <p className="text-xs text-gray-400 mt-8 text-center">Chưa có hashtag thiết bị<br/>(#vn88, #c43, #dvr…)</p>}
+                    ) : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagDevice}</p>}
                   </div>
 
                   {/* Chart 6: Office bar — number of requests by location */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">The number of requests is divided by office</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartOfficeTitle}</p>
                     {Object.keys(byLocTotal).length ? (
                       <ResponsiveContainer width="100%" height={170}>
                         <BarChart data={Object.entries(byLocTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))}
@@ -1857,12 +1857,12 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
-                    ) : <p className="text-xs text-gray-400 mt-8 text-center">Chưa có hashtag văn phòng<br/>(#hn, #hp, #dn, #hcm, #bd)</p>}
+                    ) : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagOffice}</p>}
                   </div>
 
                   {/* Chart 7: Channel % — Zalo / Hotline / Ngày nghỉ */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">The percentage of requirement received</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartChannelTitle}</p>
                     {Object.keys(byChTotal).length ? (
                       <ResponsiveContainer width="100%" height={170}>
                         <LineChart data={days.map(d => {
@@ -1883,12 +1883,12 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                           ))}
                         </LineChart>
                       </ResponsiveContainer>
-                    ) : <p className="text-xs text-gray-400 mt-8 text-center">Chưa có dữ liệu kênh<br/>(zalo / hotline trong memo)</p>}
+                    ) : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagChannel}</p>}
                   </div>
 
                   {/* Chart 8: Error rate pie */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">Error rate chart encountered during the week</p>
+                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartErrorTitle}</p>
                     {Object.keys(byErrorTotal).length ? (
                       <ResponsiveContainer width="100%" height={170}>
                         <PieChart>
@@ -1901,27 +1901,27 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                           <Legend wrapperStyle={{fontSize:8}} layout="vertical" align="right" verticalAlign="middle" />
                         </PieChart>
                       </ResponsiveContainer>
-                    ) : <p className="text-xs text-gray-400 mt-8 text-center">Chưa có hashtag lỗi<br/>(#nc, #gsm, #gps, #acc…)</p>}
+                    ) : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagError}</p>}
                   </div>
                 </div>
 
                 {/* Daily table */}
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                   <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                    <h3 className="font-semibold text-gray-700">Chi tiết theo ngày</h3>
+                    <h3 className="font-semibold text-gray-700">{t.hoTro.dailyDetail}</h3>
                     <span className="text-xs text-gray-400">{days.length} ngày</span>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
-                          <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Ngày</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium">YC</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-green-600">#f</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-amber-600">#n</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-red-500">#l</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-purple-600">Hẹn</th>
-                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-pink-500">MBL</th>
+                          <th className="text-left px-4 py-3 text-gray-500 font-medium whitespace-nowrap">{t.hoTro.colDate}</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium">{t.hoTro.colTotal}</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-green-600" title="Fast">{t.hoTro.colFast}</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-amber-600" title="Normal">{t.hoTro.colNormal}</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-red-500" title="Low">{t.hoTro.colSlow}</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-purple-600">{t.hoTro.colScheduled}</th>
+                          <th className="text-right px-3 py-3 text-gray-500 font-medium text-pink-500">{t.hoTro.colTomorrow}</th>
                           {isAdmin && Object.keys(byStaffTotal).sort().map(n => (
                             <th key={n} className="text-right px-3 py-3 text-gray-500 font-medium">{n}</th>
                           ))}
@@ -1952,7 +1952,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                       <tfoot className="border-t-2 border-gray-300 bg-blue-50">
                         <tr>
                           <td className="px-4 py-3 font-bold text-gray-800">
-                            {periodMode === 'tuan' ? 'Tổng tuần' : 'Tổng tháng'}
+                            {periodMode === 'tuan' ? t.hoTro.totalWeek : t.hoTro.totalMonth}
                           </td>
                           <td className="px-3 py-3 text-right font-bold text-blue-800">{totalReq}</td>
                           <td className="px-3 py-3 text-right font-bold text-green-700">{totalFastC || '-'}</td>
@@ -1990,7 +1990,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
           <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between">
               <div>
-                <h2 className="font-bold text-gray-800 text-lg">Yêu cầu cần theo dõi</h2>
+                <h2 className="font-bold text-gray-800 text-lg">{t.hoTro.pendingPanelTitle}</h2>
                 <p className="text-xs text-gray-400">{viewingStaff?.name}</p>
               </div>
               <button onClick={() => setShowStaffPending(false)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
@@ -2001,7 +2001,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               ) : !staffPendingTickets.length ? (
                 <div className="text-center py-12 text-gray-400">
                   <p className="text-2xl mb-2">✅</p>
-                  <p className="text-sm">Không có yêu cầu cần theo dõi</p>
+                  <p className="text-sm">{t.hoTro.noPendingTickets}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
