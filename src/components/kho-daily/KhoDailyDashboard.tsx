@@ -30,6 +30,21 @@ type DateRange = '7d' | '30d' | 'month' | 'custom'
 const PERSONS = ['Kai', 'Thor', 'Nick', 'Bop', 'Peter']
 const DEVICES  = ['VN88-4G', 'Go Track', 'DVR-88', 'C43', 'H5', 'Bewin', 'MT99']
 const THU_HOI_LOAI = ['Dùng được', 'Không dùng được', 'Đang kiểm tra']
+const OTHER_TASKS_LIST = [
+  'Nhập hàng mới (Kiểm-nhập CRM)',
+  'Bàn giao (với team sửa chữa)',
+  'Nghiệm thu (với team sửa chữa)',
+  'Bàn giao (với nhà cung cấp)',
+  'Nghiệm thu (với nhà cung cấp)',
+  'Cắt sim',
+  'Tổng hợp dữ liệu báo cáo',
+  'Sàng lọc thiết bị phế (Phân loại-đóng thùng-chuyển kho CRM-lưu hàng vào kho phế)',
+  'Test thiết bị dự phòng sau thu hồi',
+  'Format thẻ nhớ',
+  'Tạo-Dán mã thiết bị',
+  'Ghi chép xuất-nhập kho',
+  'Bàn giao thiết bị lỗi (Nhận từ KT-Kiểm-gửi về kho tổng)',
+]
 const CATEGORY_COLORS = {
   'UP Thành Phẩm': '#3b82f6',
   'Hàng Gửi VP':   '#10b981',
@@ -166,29 +181,53 @@ function OtherRow({
   item, onChange, onRemove,
 }: { item: OtherTask; onChange: (v: OtherTask) => void; onRemove: () => void }) {
   const adj = (delta: number) => onChange({ ...item, qty: Math.max(0, (item.qty || 0) + delta) })
+  const isCustom = item.task !== '' && !OTHER_TASKS_LIST.includes(item.task)
+  const [showCustom, setShowCustom] = useState(isCustom)
+  const [customTask, setCustomTask] = useState(isCustom ? item.task : '')
+
+  const handleTaskSelect = (v: string) => {
+    if (v === '__custom__') { setShowCustom(true); onChange({ ...item, task: customTask }) }
+    else { setShowCustom(false); onChange({ ...item, task: v }) }
+  }
+
   return (
-    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm hover:border-gray-300 transition flex-wrap">
-      <input
-        type="text" placeholder="Tên công việc..."
-        value={item.task}
-        onChange={e => onChange({ ...item, task: e.target.value })}
-        className="border border-gray-200 rounded-lg px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-amber-300"
-      />
-      <DeviceSelect value={item.device} onChange={d => onChange({ ...item, device: d })} />
-      <div className="flex items-center gap-1 ml-auto">
-        <button onClick={() => adj(-1)}
-          className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">−</button>
-        <input
-          type="number" min="0"
-          value={item.qty || ''}
-          onChange={e => onChange({ ...item, qty: parseInt(e.target.value) || 0 })}
-          className="w-14 text-center border border-gray-200 rounded-lg py-1 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-300"
-        />
-        <button onClick={() => adj(1)}
-          className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">+</button>
+    <div className="bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm hover:border-gray-300 transition space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex-1 min-w-0 flex gap-1">
+          <select
+            value={showCustom ? '__custom__' : (item.task || '')}
+            onChange={e => handleTaskSelect(e.target.value)}
+            className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-300 min-w-0"
+          >
+            <option value="">-- Chọn công việc --</option>
+            {OTHER_TASKS_LIST.map(t => <option key={t} value={t}>{t}</option>)}
+            <option value="__custom__">Khác...</option>
+          </select>
+          {showCustom && (
+            <input
+              type="text" placeholder="Nhập tên công việc..."
+              value={customTask}
+              onChange={e => { setCustomTask(e.target.value); onChange({ ...item, task: e.target.value }) }}
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-amber-300"
+            />
+          )}
+        </div>
+        <DeviceSelect value={item.device} onChange={d => onChange({ ...item, device: d })} />
+        <div className="flex items-center gap-1 ml-auto">
+          <button onClick={() => adj(-1)}
+            className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">−</button>
+          <input
+            type="number" min="0"
+            value={item.qty || ''}
+            onChange={e => onChange({ ...item, qty: parseInt(e.target.value) || 0 })}
+            className="w-14 text-center border border-gray-200 rounded-lg py-1 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-300"
+          />
+          <button onClick={() => adj(1)}
+            className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">+</button>
+        </div>
+        <button onClick={onRemove}
+          className="w-7 h-7 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-lg leading-none transition">×</button>
       </div>
-      <button onClick={onRemove}
-        className="w-7 h-7 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-lg leading-none transition">×</button>
     </div>
   )
 }
@@ -453,7 +492,10 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Lỗi không xác định')
-      setEntrySuccess(`Đã lưu dữ liệu cho ${entryPerson} ngày ${entryDate}`)
+      const sheetInfo = data.sheet?.ok
+        ? ` · GG Sheet: dòng ${data.sheet.row} (${data.sheet.action === 'updated' ? 'cập nhật' : 'thêm mới'})`
+        : data.sheet?.error ? ` · GG Sheet lỗi: ${data.sheet.error}` : ''
+      setEntrySuccess(`Đã lưu dữ liệu cho ${entryPerson} ngày ${entryDate}${sheetInfo}`)
       // Reset form items
       setEntryThanhPham([])
       setEntryHangGui([])
