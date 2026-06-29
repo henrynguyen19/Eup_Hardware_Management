@@ -29,10 +29,10 @@ export async function GET(req: NextRequest) {
 
     const values = resp.data.values ?? []
 
-    function normalize(s: string): string {
+    const normalize = (s: string): string => {
       return s.trim().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'd').toLowerCase().replace(/\s+/g, '')
     }
-    function firstNonEmpty(row: string[], maxCols = 3) {
+    const firstNonEmpty = (row: string[], maxCols = 3) => {
       for (let i = 0; i < maxCols && i < row.length; i++) {
         const v = (row[i] || '').trim()
         if (v) return { label: v, col: i, norm: normalize(v) }

@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Self mode: lấy session từ user đang đăng nhập (đã login)
-  let selfSession: { sessionId: string; crm_staff_id: number; identity: string } | null = null
+  let selfSession: { sessionId: string; staffId: number; identity: string; fromCache: boolean } | null = null
   if (mode === 'self' && user) {
     try { selfSession = await getCRMSessionForUser(user.id) }
     catch (err) { return NextResponse.json({ error: String(err) }, { status: 400 }) }
@@ -331,16 +331,12 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok:               true,
-    mode,
-    myNickName,
-    totalFetched,
-    perStaffRaw,
-    uniqueAfterMerge: allTickets.length,
-    newCount,
-    updatedCount,
-    skippedCount,
-    rejectedCount,
+    mode:              body.mode ?? 'incremental',
     saved,
-    fetchErrors:      Object.keys(fetchErrors).length ? fetchErrors : undefined,
+    newCount:     0,
+    updatedCount: saved,
+    skippedCount: 0,
+    rows:         [],
+    backfillRows: [],
   })
 }

@@ -124,90 +124,78 @@ async function loadCachedSession(staffId: number): Promise<{
     if (!data) return null
     return {
       sessionId: data.session_id,
-      identity:  data.identity ?? '',   // cột identity có thể chưa có → fallback ''
+      identity:  data.identity,
       expiresAt: new Date(data.expires_at),
     }
-  } catch { return null }
-}
-
-async function saveSession(staffId: number, sessionId: string, identity: string, expiresAt: Date) {
-  try {
-    await adminDB().from('crm_session_cache').upsert({
-      staff_id:   staffId,
-      session_id: sessionId,
-      identity,                          // lưu đúng identity từ login response
-      expires_at: expiresAt.toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-  } catch (e) {
-    console.warn('[crm-session] Khong luu duoc cache:', e)
+  } catch {
+    return null
   }
 }
 
-// ── Lấy session + identity cho 1 staff (dùng credentials riêng của họ) ───────
-export async function getCRMSessionByStaff(
-  staffId:  number,
-  account:  string,
-  password: string,
-  fallbackIdentity: string,   // fallback khi CRM không trả về IDENTITY (= crm_staff_id.toString())
-): Promise<{ sessionId: string; identity: string }> {
-  const now = Date.now()
-
-  // 1. Kiểm tra in-memory cache trước
-  const mem = memCache.get(staffId)
-  if (mem && mem.expiresAt > now + 60_000) {
-    return { sessionId: mem.sessionId, identity: mem.identity }
-  }
-
-  // 2. Kiểm tra DB cache
-  const cached = await loadCachedSession(staffId)
-  if (cached && cached.expiresAt.getTime() > now + 60_000) {
-    const identity = cached.identity || fallbackIdentity
-    memCache.set(staffId, { sessionId: cached.sessionId, identity, expiresAt: cached.expiresAt.getTime() })
-    return { sessionId: cached.sessionId, identity }
-  }
-
-  // 3. Login mới bằng tài khoản của staff này
-  console.log(`[crm-session] staffId=${staffId} account=${account} — đang login CRM...`)
-  const { ok, detectedSessionId, detectedIdentity, error } = await crmLoginRaw(account, password)
-
-  if (ok && detectedSessionId) {
-    // IDENTITY: dùng giá trị từ login response, fallback là crm_staff_id string
-    const identity  = detectedIdentity ?? fallbackIdentity
-    const expiresAt = new Date(now + 23 * 60 * 60 * 1000)
-
-    console.log(`[crm-session] staffId=${staffId} — login OK. SESSION_ID=${detectedSessionId.substring(0,12)}... IDENTITY=${identity}`)
-    memCache.set(staffId, { sessionId: detectedSessionId, identity, expiresAt: expiresAt.getTime() })
-    await saveSession(staffId, detectedSessionId, identity, expiresAt)
-
-    return { sessionId: detectedSessionId, identity }
-  }
-
-  throw new Error(
-    `Không lấy được CRM session cho staffId=${staffId} (account=${account}): ${error ?? 'SESSION_ID không tìm thấy trong response'}`
-  )
+async function saveCachedSession(staffId: number, sessionId: string, identity: string) {
+  const expiresAt = new Date(Date.now() + 55 * 60 * 1000) // 55 min
+  await adminDB()
+    .from('crm_session_cache')
+    .upsert({ staff_id: staffId, session_id: sessionId, identity, expires_at: expiresAt.toISOString() },
+      { onConflict: 'staff_id' })
 }
 
-// ── Public: lấy session theo user_id (dùng trong API routes) ─────────────────
+export async function getCRMSession(staff: { id: number; username: string; password: string; name: string }) {
+  const cached = await loadCachedSession(staff.id)
+  if (cached && cached.expiresAt > new Date()) {
+    return { sessionId: cached.sessionId, identity: cached.identity, fromCache: true }
+  }
+  const login = await crmLoginRaw(staff.username, staff.password)
+  if (!login.ok || !login.detectedSessionId) {
+    throw new Error(`CRM login thất bại cho ${staff.name}: ${login.error}`)
+  }
+  await saveCachedSession(staff.id, login.detectedSessionId, login.detectedIdentity ?? '')
+  return { sessionId: login.detectedSessionId, identity: login.detectedIdentity ?? '', fromCache: false }
+}
+
+// ── getCRMSessionForUser: resolve by Supabase user_id via crm_mapping ─────────
 export async function getCRMSessionForUser(userId: string): Promise<{
-  sessionId:    string
-  crm_staff_id: number
-  identity:     string
+  sessionId: string; identity: string; staffId: number; fromCache: boolean
 }> {
   const creds = await getCRMCredentials(userId)
-  if (!creds) throw new Error('User chưa có CRM credentials. Vào Admin → CRM Mapping để cấu hình.')
+  if (!creds) throw new Error(`Không tìm thấy CRM credentials cho user ${userId}`)
 
-  const { sessionId, identity } = await getCRMSessionByStaff(
-    creds.crm_staff_id,
-    creds.crm_account,
-    creds.crm_password,
-    String(creds.crm_staff_id),   // fallback identity nếu CRM không trả về
-  )
+  const staffId = creds.crm_staff_id
 
-  return { sessionId, crm_staff_id: creds.crm_staff_id, identity }
+  // Check in-memory cache first
+  const mem = memCache.get(staffId)
+  if (mem && mem.expiresAt > Date.now()) {
+    return { sessionId: mem.sessionId, identity: mem.identity, staffId, fromCache: true }
+  }
+
+  // Check DB cache
+  const dbCache = await loadCachedSession(staffId)
+  if (dbCache && dbCache.expiresAt > new Date()) {
+    memCache.set(staffId, { sessionId: dbCache.sessionId, identity: dbCache.identity, expiresAt: dbCache.expiresAt.getTime() })
+    return { sessionId: dbCache.sessionId, identity: dbCache.identity, staffId, fromCache: true }
+  }
+
+  // Fresh login
+  const login = await crmLoginRaw(creds.crm_account, creds.crm_password)
+  if (!login.ok || !login.detectedSessionId) {
+    throw new Error(`CRM login thất bại cho user ${userId}: ${login.error}`)
+  }
+
+  const sessionId = login.detectedSessionId
+  const identity  = login.detectedIdentity ?? String(staffId)
+  const expiresAt = Date.now() + 55 * 60 * 1000
+
+  memCache.set(staffId, { sessionId, identity, expiresAt })
+  await saveCachedSession(staffId, sessionId, identity)
+
+  return { sessionId, identity, staffId, fromCache: false }
 }
 
-// ── Xóa cache (khi cần force re-login) ───────────────────────────────────────
-export function invalidateCRMSession(staffId: number) {
+// ── invalidateCRMSession: clear both caches for a user ───────────────────────
+export async function invalidateCRMSession(userId: string): Promise<void> {
+  const creds = await getCRMCredentials(userId)
+  if (!creds) return
+  const staffId = creds.crm_staff_id
   memCache.delete(staffId)
+  await adminDB().from('crm_session_cache').delete().eq('staff_id', staffId)
 }

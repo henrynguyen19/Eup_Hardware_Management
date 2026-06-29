@@ -281,25 +281,18 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
                 <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
-                {error}
+                <span>{error}</span>
               </div>
             )}
 
-            <div className="flex gap-3 pt-1">
-              <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition">
-                {t.common.cancel}
-              </button>
-              <button
-                type="submit"
-                disabled={loading || !currentPw || !newPw || !confirmPw}
-                className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold transition disabled:opacity-50"
-                style={{ background: '#A70A0A' }}
-                onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.background = '#8b0808' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#A70A0A' }}
-              >
-                {loading ? t.changePw.saving : t.changePw.savePw}
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl text-white font-semibold text-sm transition-all disabled:opacity-60"
+              style={{ background: '#A70A0A' }}
+            >
+              {loading ? t.changePw.saving : t.changePw.savePw}
+            </button>
           </form>
         )}
       </div>

@@ -287,42 +287,23 @@ export default function JiraBugsTab() {
                           <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{bug.done_date || <span className="text-gray-300">—</span>}</td>
                           <td className="px-3 py-2.5"><StatusBadge status={bug.status} color={bug.status_color} /></td>
                           <td className="px-3 py-2.5">
-                            {bug.linked_issues.length > 0 && (
-                              <button onClick={() => setExpandedKey(isExpanded ? null : bug.issue_key)}
-                                className="text-blue-500 hover:text-blue-700 text-[10px] whitespace-nowrap">
-                                {isExpanded ? '▲' : '▼'} {bug.linked_issues.length} links
-                              </button>
+                            {bug.linked_issues && bug.linked_issues.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {bug.linked_issues.map((li_item, li: number) => (
+                                  <a key={li} href={`https://jira.atlassian.net/browse/${li_item.key}`} target="_blank" rel="noopener noreferrer"
+                                    className="text-blue-500 hover:underline text-[10px]">🔗{li_item.key}</a>
+                                ))}
+                              </div>
                             )}
                           </td>
                         </tr>
-                        {isExpanded && bug.linked_issues.map(li => (
-                          <tr key={li.key} className="bg-blue-50/40 border-b border-blue-100">
-                            <td className="px-3 py-2 pl-8 text-blue-300">↗</td>
-                            <td className="px-3 py-2">
-                              <a href={`https://euptw.atlassian.net/browse/${li.key}`} target="_blank" rel="noopener noreferrer"
-                                className="text-blue-500 hover:underline font-mono text-[11px]">{li.key}</a>
-                            </td>
-                            <td className="px-3 py-2 text-gray-600 max-w-[220px]" colSpan={2}>
-                              <span className="line-clamp-1" title={li.summary}>{li.summary}</span>
-                            </td>
-                            <td className="px-3 py-2">
-                              {li.assignee
-                                ? <span className="text-xs text-gray-700">{li.assignee}</span>
-                                : <span className="text-gray-300 text-xs">—</span>}
-                            </td>
-                            <td colSpan={3} />
-                            <td className="px-3 py-2">
-                              <DueDateBadge dateStr={li.duedate} />
-                            </td>
-                            <td colSpan={2} />
-                            <td className="px-3 py-2">
-                              <StatusBadge status={li.status} color={
-                                li.status.toLowerCase().includes('done') || li.status.toLowerCase().includes('closed') ? 'green'
-                                : li.status.toLowerCase().includes('progress') ? 'blue' : 'gray'
-                              } />
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={13} className="bg-blue-50/30 px-6 py-3 text-xs text-gray-600 border-b border-blue-100">
+                              <strong>Description:</strong> {bug.summary || '—'}
                             </td>
                           </tr>
-                        ))}
+                        )}
                       </>
                     )
                   })}
@@ -330,18 +311,8 @@ export default function JiraBugsTab() {
               </table>
             </div>
           </div>
-        </>
-      )}
-
-      {!loading && !error && bugs.length === 0 && (
-        <div className="text-center py-20 text-gray-400">
-          <div className="text-5xl mb-4">🐛</div>
-          <p>Không có dữ liệu — bấm Làm mới để tải</p>
-          <button onClick={load} className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">
-            Tải dữ liệu
-          </button>
-        </div>
-      )}
+          </>
+        )}
     </div>
   )
 }

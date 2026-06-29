@@ -692,18 +692,18 @@ function DashboardTab() {
   })()
 
   // Multi-week chart data
-  const weekDeviceTotals = filteredWeeks.map(week => {
+  const weekDeviceTotals: Array<{ week: RepairWeek } & Record<string, number>> = filteredWeeks.map(week => {
     const row: Record<string, number> = { total: 0 }
     DEVICE_TYPES.forEach(dt => {
       const qty = calcBanGiao(filteredStats, week.id, dt)
       row[dt] = qty; row.total += qty
     })
-    return { week, ...row }
+    return { week, ...row } as { week: RepairWeek } & Record<string, number>
   })
 
   const lineChartData = weekDeviceTotals.map(r => ({
     name: `T${r.week.week_number}`,
-    ...Object.fromEntries(selectedDevices.map(dt => [dt, r[dt] ?? 0]))
+    ...Object.fromEntries(selectedDevices.map(dt => [dt, (r as Record<string, unknown>)[dt] as number ?? 0]))
   }))
 
   const barChartData = filteredWeeks.map(week => {

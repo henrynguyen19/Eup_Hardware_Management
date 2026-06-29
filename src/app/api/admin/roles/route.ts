@@ -46,20 +46,17 @@ export async function PUT(req: NextRequest) {
 
   const { roleId, permissions } = await req.json() as { roleId: string; permissions: string[] }
   if (!roleId || !Array.isArray(permissions)) {
-    return NextResponse.json({ error: 'Dữ liệu không hợp lệ' }, { status: 400 })
+    return NextResponse.json({      error: 'Thiếu roleId hoặc permissions' }, { status: 400 })
   }
 
   const sb = supabaseAdmin()
-
-  // Xóa permissions cũ của role này
+  // Xóa permissions cũ
   await sb.from('role_permissions').delete().eq('role_id', roleId)
-
-  // Thêm permissions mới
+  // Chèn permissions mới
   if (permissions.length > 0) {
-    await sb.from('role_permissions').insert(
-      permissions.map(p => ({ role_id: roleId, permission: p }))
-    )
+    const rows = permissions.map((p: string) => ({ role_id: roleId, permission_key: p }))
+    const { error } = await sb.from('role_permissions').insert(rows)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
-
   return NextResponse.json({ ok: true })
 }

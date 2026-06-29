@@ -78,5 +78,7 @@ export function parseCRMTime(raw: string | null | undefined): string | null {
   try {
     const d = new Date(raw.replace(' ', 'T'))
     return isNaN(d.getTime()) ? null : d.toISOString()
-  } catch { return null }
+  } catch {
+    return null
+  }
 }

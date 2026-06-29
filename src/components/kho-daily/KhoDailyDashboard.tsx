@@ -247,7 +247,8 @@ function DetailPanel({ record }: { record: KhoRecord }) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function KhoDailyDashboard() {
+interface KhoDailyProps { userEmail?: string; permissions?: string[] }
+export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
   const [activeTab, setActiveTab] = useState<'overview' | 'entry' | 'sync'>('overview')
 
   // Overview state

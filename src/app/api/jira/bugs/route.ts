@@ -223,10 +223,12 @@ export async function GET(req: NextRequest) {
   try {
     const bugs = await fetchSheetBugs()
 
-    const results: JiraBug[] = []
-    // Batch 3 at a time (each issue now spawns sub-fetches for linked issues)
-    for (let i = 0; i < bugs.length; i += 3) {
-      const batch = bugs.slice(i, i + 3)
+       return NextResponse.json({ bugs, auth: auth.substring(0, 8) + '...' })
+  } catch (e: unknown) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
+}
+ = bugs.slice(i, i + 3)
       const jiraData = await Promise.all(batch.map(b => fetchJiraIssue(b.issue_key, auth)))
       batch.forEach((bug, idx) => {
         const d = jiraData[idx]

@@ -124,7 +124,6 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
         {activeTab === 'devices' && (
           <KhoPhotoWall
             initialCards={initialCards}
-            latestFirmware={latestFirmware}
             userEmail={userEmail}
             canWrite={canWrite}
             isAdmin={isAdmin}

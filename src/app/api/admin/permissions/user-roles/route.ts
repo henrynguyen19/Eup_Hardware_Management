@@ -24,12 +24,12 @@ export async function GET() {
     user_id: string
     user_email: string
     role_id: string | null
-    roles: { name: string } | null
+    roles: { name: string } | { name: string }[] | null
   }) => ({
     user_id:   r.user_id,
     user_email: r.user_email,
     role_id:   r.role_id,
-    role_name: r.roles?.name ?? null,
+    role_name: Array.isArray(r.roles) ? (r.roles[0]?.name ?? null) : (r.roles?.name ?? null),
   }))
 
   return NextResponse.json({ userRoles })

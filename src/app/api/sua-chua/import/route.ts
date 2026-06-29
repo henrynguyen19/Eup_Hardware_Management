@@ -254,7 +254,7 @@ export async function GET(req: NextRequest) {
     let dataStartCol = 1
     const statsRows: Array<{ status_type: string; fault_type: string; device_type: string; quantity: number }> = []
 
-    function firstNonEmpty(row: string[], maxCols = 3) {
+    const firstNonEmpty = (row: string[], maxCols = 3) => {
       for (let i = 0; i < maxCols && i < row.length; i++) {
         const v = (row[i] || '').trim()
         if (v) return { label: v, col: i }

@@ -23,7 +23,7 @@ export default async function JiraBugsPage() {
   const isAdmin = perms.includes('admin:users')
 
   return (
-    <AppShell userEmail={user.email ?? ''} isAdmin={isAdmin}>
+    <AppShell userEmail={user.email ?? ''} permissions={perms}>
       <JiraBugsDashboard userEmail={user.email ?? ''} isAdmin={isAdmin} />
     </AppShell>
   )

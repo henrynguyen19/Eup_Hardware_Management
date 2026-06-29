@@ -109,7 +109,7 @@ async function writeToTab(
   // Build one batchUpdate with all value writes
   const valueRanges: { range: string; values: string[][] }[] = []
 
-  for (const [dateFmt, dateRows] of rowsByDate) {
+  for (const [dateFmt, dateRows] of Array.from(rowsByDate)) {
     // Find the date-header row
     let dateRowIdx = -1
     for (let i = 0; i < grid.length; i++) {
@@ -299,7 +299,7 @@ export async function POST(req: NextRequest) {
   const results: string[] = []
   const errors:  string[] = []
 
-  for (const [staffName, tabMap] of byStaff) {
+  for (const [staffName, tabMap] of Array.from(byStaff)) {
     const staff = STAFF_SHEETS.find(s => s.name === staffName)!
     for (const [tab, dateMap] of tabMap) {
       try {

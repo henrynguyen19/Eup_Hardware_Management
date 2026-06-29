@@ -26,7 +26,8 @@ export default async function HoTroPage() {
   if (!user) redirect('/login')
 
   const permissions = await getUserPermissions(user.id)
-  const isAdmin = permissions.includes('admin:users')
+  // admin:users = full system admin; ho_tro:admin = trưởng nhóm hỗ trợ (xem thống kê tổng)
+  const isAdmin = permissions.includes('admin:users') || permissions.includes('ho_tro:admin')
   const canRead = permissions.includes('ho_tro:read') || isAdmin
 
   if (!canRead) redirect('/kho')

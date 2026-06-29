@@ -95,11 +95,13 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (!auth.ok) return auth.error!
 
   const { userId } = await req.json()
+  if (!userId) return NextResponse.json({ error: 'Thiếu userId' }, { status: 400 })
+
   const { error } = await sb()
     .from('user_sub_page_permissions')
     .delete()
-    .eq('sub_page_id', params.id)
     .eq('user_id', userId)
+    .eq('sub_page_id', params.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })

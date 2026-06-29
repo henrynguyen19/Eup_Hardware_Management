@@ -264,7 +264,23 @@ export default function CertificatesPage() {
       </div>
 
       {/* Preview modal */}
-      {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
+      {preview && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setPreview(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+              <p className="font-medium text-gray-800 truncate">{preview.name}</p>
+              <button onClick={() => setPreview(null)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none ml-4">×</button>
+            </div>
+            <div className="flex-1 overflow-auto flex items-center justify-center p-4 bg-gray-50">
+              <iframe
+                src={`https://drive.google.com/file/d/${preview.id}/preview`}
+                className="w-full h-full min-h-[60vh] rounded border border-gray-200"
+                title={preview.name}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

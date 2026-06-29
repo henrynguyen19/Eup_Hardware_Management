@@ -467,55 +467,21 @@ export default function UserManagement({ currentUserEmail }: Props) {
                     const userDepts = depts.filter(d => (memberMap[d.id] ?? []).some(m => m.user_id === u.user_id))
                     return (
                       <div key={u.user_id}
-                        className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200">
-                        <div>
-                          <p className="text-sm text-gray-700">{u.user_email}</p>
+                        className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-200 cursor-pointer transition-all"
+                        onClick={() => addExistingMember(u.user_id)}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm text-gray-800 truncate">{u.user_email}</p>
                           {userDepts.length > 0 && (
-                            <p className="text-xs text-gray-400">{userDepts.map(d => d.name).join(', ')}</p>
+                            <p className="text-xs text-gray-400 truncate">Đang ở: {userDepts.map(d => d.name).join(', ')}</p>
                           )}
                         </div>
-                        <button
-                          onClick={() => addExistingMember(u.user_id)}
-                          disabled={addingMember === u.user_id}
-                          className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 flex-shrink-0 ml-3">
-                          {addingMember === u.user_id ? '...' : 'Thêm'}
-                        </button>
+                        <span className="text-xs text-green-600 font-medium ml-2 shrink-0">+ Thêm</span>
                       </div>
                     )
                   })}
                 </div>
               )}
-            </div>
-            <button onClick={() => setShowAddMember(false)}
-              className="mt-4 w-full py-2 border border-gray-200 text-gray-500 text-sm rounded-lg hover:bg-gray-50 transition">
-              Đóng
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Modal: Move user ── */}
-      {movingUser && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-80 p-6">
-            <h3 className="font-bold text-gray-800 mb-1">Chuyển phòng ban</h3>
-            <p className="text-sm text-gray-500 mb-4">{movingUser.user_email}</p>
-            <select value={moveToDept} onChange={e => setMoveToDept(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Chọn phòng ban mới...</option>
-              {depts.filter(d => d.id !== selectedDept).map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-            <div className="mt-4 flex gap-2">
-              <button onClick={moveUser} disabled={!moveToDept}
-                className="flex-1 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition disabled:opacity-60">
-                Chuyển
-              </button>
-              <button onClick={() => setMovingUser(null)}
-                className="flex-1 py-2 border border-gray-200 text-gray-500 text-sm rounded-lg hover:bg-gray-50 transition">
-                Hủy
-              </button>
             </div>
           </div>
         </div>

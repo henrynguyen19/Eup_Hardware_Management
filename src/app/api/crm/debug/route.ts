@@ -136,104 +136,16 @@ export async function GET(req: NextRequest) {
       signal:  AbortSignal.timeout(55_000),
     })
     const elapsed = Date.now() - t0
-    console.log(`[crm/debug] CRM responded in ${elapsed}ms — HTTP ${resp.status}`)
-    if (!resp.ok) {
-      return NextResponse.json({ error: `CRM HTTP ${resp.status} cho ${staff.name}` }, { status: 502 })
-    }
+    console.log(`[crm/debug] CRM responded in ${elapsed} ms`)
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     rawText = await resp.text()
-    console.log(`[crm/debug] rawText length: ${rawText.length} — preview: ${rawText.substring(0, 200)}`)
-  } catch (fetchErr) {
-    const elapsed = Date.now() - t0
-    const msg = String(fetchErr)
-    const isTimeout = msg.includes('TimeoutError') || msg.includes('timeout') || msg.includes('aborted')
-    console.error(`[crm/debug] Fetch failed after ${elapsed}ms:`, msg)
-    return NextResponse.json({
-      error: isTimeout
-        ? `CRM không phản hồi sau ${elapsed}ms cho ${staff.name}. Có thể do SOAP params sai hoặc server quá tải.`
-        : `Lỗi kết nối CRM cho ${staff.name}: ${msg}`,
-      // Trả về thông số đã gửi để debug
-      soapRequest: {
-        MethodName: 'GetCustServiceByStaff',
-        Param:      JSON.stringify(soapParam),
-        IDENTITY:   identity,
-        SESSION_ID: sessionId.substring(0, 16) + '...',
-      },
-    }, { status: 502 })
-  }
-
-  if (!rawText || rawText.trim() === '') {
-    return NextResponse.json({
-      error: `CRM trả về body rỗng cho ${staff.name}.`,
-      soapRequest: {
-        MethodName: 'GetCustServiceByStaff',
-        Param:      JSON.stringify(soapParam),
-        IDENTITY:   identity,
-      },
-    }, { status: 502 })
-  }
-
-  let json: CRMResponse
-  try {
-    json = JSON.parse(rawText) as CRMResponse
-  } catch {
-    return NextResponse.json({
-      error:       `CRM trả về dữ liệu không parse được cho ${staff.name}.`,
-      rawText:     rawText.substring(0, 500),
-      soapRequest: { MethodName: 'GetCustServiceByStaff', Param: JSON.stringify(soapParam), IDENTITY: identity },
-    }, { status: 502 })
-  }
-
-  if (!json.status) {
-    return NextResponse.json({
-      error:       json.error || `CRM status=0 cho ${staff.name}.`,
-      rawText:     rawText.substring(0, 500),
-      soapRequest: { MethodName: 'GetCustServiceByStaff', Param: JSON.stringify(soapParam), IDENTITY: identity },
-    }, { status: 502 })
-  }
-
-  const tickets: CRMTicket[] = json.result ?? []
-
-  // ── Bước 4: Phân loại accepted / rejected ────────────────────────────────────
-  const accepted: object[] = []
-  const rejected: object[] = []
-
-  for (const t of tickets) {
-    const handler = extractHandlerFromMemo(t.CS_Memo ?? '')
-    const base = {
-      cs_id:       t.CS_ID,
-      cs_date:     t.CS_Date,
-      update_time: t.CS_UpdateTime,
-      cust_name:   t.Cust_Name,
-      cust_id:     t.Cust_ID,
-      direction:   t.CS_IO,
-      ticket_type: t.CC_Name,
-      contact:     t.CM_Name,
-      zone:        t.Cust_SaleManAssistant_Zone,
-      handler,
-      memo:        t.CS_Memo ?? '',
-    }
-    if (handler) {
-      accepted.push(base)
-    } else {
-      rejected.push({
-        ...base,
-        reject_reason: !t.CS_Memo
-          ? 'CS_Memo trống'
-          : 'CS_Memo không mention Kane/Stefan/Shiro/Irene/Blue',
-      })
-    }
+  } catch (e: unknown) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
   }
 
   return NextResponse.json({
-    ok:            true,
-    staffName:     staff.name,
-    staffId:       staff.id,
-    crmAccount:    mapping.crm_account,  // để verify đúng account được dùng
-    identity,                             // IDENTITY từ login response
-    totalRaw:      tickets.length,
-    acceptedCount: accepted.length,
-    rejectedCount: rejected.length,
-    accepted,
-    rejected,
+    ok: true,
+    staff: staff.name,
+    rawText: rawText!.substring(0, 5000),
   })
 }

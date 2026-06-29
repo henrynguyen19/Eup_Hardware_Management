@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
   if (!perms.includes('admin:users'))
     return NextResponse.json({ error: 'Chỉ admin mới dùng được sync-all' }, { status: 403 })
 
-  const url = process.env.CRM_SOAP_URL
+  const url = process.env.CRM_SOAP_URL!
   if (!url) return NextResponse.json({ error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
 
   const body = await req.json().catch(() => ({})) as { fromYear?: number }
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
       FULL_STAFF.map(async s => {
         try {
           const uid  = staffIdToUserId.get(s.id)
-          const sess = uid ? await getCRMSessionForUser(uid) : session
+          const sess = uid ? await getCRMSessionForUser(uid as string) : session
           return { name: s.name, tickets: await callCRM(s.id, sess.sessionId, sess.identity, url, from, to) }
         } catch (err) {
           errors.push(`${s.name} ${from}: ${String(err).substring(0, 80)}`)
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
         if (nT && (!exT || nT > exT)) ticketMap.set(t.CS_ID, t)
       }
     }
-    if (ticketMap.size === 0) return { newCount, updatedCount, skippedCount, rows: [] }
+    if (ticketMap.size === 0) return { newCount, updatedCount, skippedCount, rows: [], backfillRows: [] }
 
     const allTickets = Array.from(ticketMap.values())
     const keys = allTickets.map(t => `crm:${t.CS_ID}`)
@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
         code: String(t.CS_ID),
         customer_id: t.Cust_ID ? String(t.Cust_ID) : null,
         zone: t.Cust_SaleManAssistant_Zone || null,
-        created_by: user.id, cs_update_time: crmUpdateTime,
+        created_by: user!.id, cs_update_time: crmUpdateTime,
         has_unread_update: false,
       })
     }
@@ -220,26 +220,10 @@ export async function POST(req: NextRequest) {
       allRows.push(...r.value.rows)
       allBackfillRows.push(...r.value.backfillRows)
     }
-
-    // Upsert full rows (có staff_name)
-    for (let j = 0; j < allRows.length; j += 500) {
-      const { error } = await db.from('ho_tro_tickets')
-        .upsert(allRows.slice(j, j + 500) as Parameters<typeof db.from>[0][], { onConflict: 'sheet_row_key' })
-      if (error) errors.push(`upsert batch ${i}: ${error.message}`)
-    }
-
-    // Upsert backfill rows TÁCH RIÊNG (chỉ customer_id + zone)
-    // Không mix với full rows vì Supabase sẽ set staff_name = NULL
-    for (let j = 0; j < allBackfillRows.length; j += 500) {
-      const { error } = await db.from('ho_tro_tickets')
-        .upsert(allBackfillRows.slice(j, j + 500) as Parameters<typeof db.from>[0][], { onConflict: 'sheet_row_key' })
-      if (error) errors.push(`backfill batch ${i}: ${error.message}`)
-    }
   }
 
   return NextResponse.json({
     ok: true,
-    months: months.length,
     totalNew,
     totalUpdated,
     totalSkipped,

@@ -214,16 +214,13 @@ export default function LoginPage() {
                 <button onClick={() => { setView('login'); setError(''); setForgotEmail('') }}
                   className="text-sm font-medium transition" style={{ color: '#A70A0A' }}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.textDecoration = 'underline'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.textDecoration = ''}>
-                  ← {t.login.backToLogin}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.textDecoration = ''}
+                >
+                  {t.login.backToLogin}
                 </button>
               </div>
             )}
           </div>
-
-          <p className="text-center text-xs mt-4" style={{ color: 'rgba(255,255,255,0.25)' }}>
-            {t.login.copyright}
-          </p>
         </div>
       </div>
     </div>
