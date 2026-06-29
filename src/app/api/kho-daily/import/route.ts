@@ -7,21 +7,35 @@ const PERSONS = ['Kai', 'Thor', 'Nick', 'Bop', 'Peter']
 
 function getSheetsClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-  if (!raw) throw new Error('Thiếu GOOGLE_SERVICE_ACCOUNT_JSON')
+  if (!raw) throw new Error('Thieu GOOGLE_SERVICE_ACCOUNT_JSON')
   const credentials = JSON.parse(raw)
-  const auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] })
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+  })
   return google.sheets({ version: 'v4', auth })
 }
 
 function sb() {
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 }
 
-function parseDate(dateStr: string): string | null {
-  const m = dateStr.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (!m) return null
-  return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`
+function errMsg(e: unknown): string {
+  if (e && typeof e === 'object') {
+    const o = e as Record<string, unknown>
+    if (o.message) return String(o.message)
+    if (o.details) return `${o.code}: ${o.details}`
+    return JSON.stringify(e)
+  }
+  return String(e)
 }
+
+interface DeviceQty  { device: string; qty: number }
+interface ThuHoiItem { loai: string; device: string; qty: number }
+interface OtherTask  { task: string; device: string; qty: number }
 
 function norm(s: string): string {
   return (s || '').toLowerCase().trim()
@@ -29,171 +43,187 @@ function norm(s: string): string {
     .replace(/đ/g, 'd').replace(/\s+/g, ' ')
 }
 
+function parseDeviceSection(
+  header2: string[], row: string[], start: number, end: number
+): DeviceQty[] {
+  const result: DeviceQty[] = []
+  let i = start
+  while (i < end) {
+    const h  = (header2[i] || '').trim()
+    const hn = norm(h)
+    if (!h) { i++; continue }
+    if (hn.includes('ten thiet bi') || hn.includes('thiet bi khac') ||
+        (hn.includes('other') && hn.includes('tb'))) {
+      const deviceName = (row[i] || '').trim()
+      const qty = parseInt((row[i + 1] || '').replace(/,/g, '').trim()) || 0
+      if (deviceName && qty > 0 && qty < 50000) result.push({ device: deviceName, qty })
+      i += 2
+      continue
+    }
+    if (hn.includes('so luong') || hn === 'quantity') { i++; continue }
+    const qty = parseInt((row[i] || '').replace(/,/g, '').trim()) || 0
+    if (qty > 0 && qty < 50000) result.push({ device: h, qty })
+    i++
+  }
+  return result
+}
+
+function parseThuHoi(
+  header2: string[], row: string[], start: number, end: number
+): ThuHoiItem[] {
+  const result: ThuHoiItem[] = []
+  let i = start
+  while (i < end) {
+    const h  = (header2[i] || '').trim()
+    const hn = norm(h)
+    if (!h) { i++; continue }
+    if (hn.includes('loai') && (hn.includes('thu hoi') || hn === 'loai')) {
+      const loai   = (row[i]     || '').trim()
+      const device = (row[i + 1] || '').trim()
+      const qty    = parseInt((row[i + 2] || '').replace(/,/g, '').trim()) || 0
+      if ((loai || device) && qty > 0) result.push({ loai, device, qty })
+      i += 3
+      continue
+    }
+    if (hn.includes('ten thiet bi') || hn.includes('thiet bi khac') ||
+        hn.includes('so luong')) { i++; continue }
+    const qty = parseInt((row[i] || '').replace(/,/g, '').trim()) || 0
+    if (qty > 0 && qty < 50000) result.push({ loai: 'Dung duoc', device: h, qty })
+    i++
+  }
+  return result
+}
+
+function parseOther(
+  header2: string[], row: string[], start: number, end: number
+): OtherTask[] {
+  const result: OtherTask[] = []
+  let i = start
+  while (i < end) {
+    const h  = (header2[i] || '').trim()
+    const hn = norm(h)
+    if (!h) { i++; continue }
+    if (hn.includes('cong viec')) {
+      const task      = (row[i] || '').trim()
+      const deviceCol = i + 1
+      let qtyCol = i + 2
+      if (qtyCol < end && !norm(header2[qtyCol] || '').includes('so luong')) {
+        if (qtyCol + 1 < end) qtyCol++
+      }
+      const device = deviceCol < end ? (row[deviceCol] || '').trim() : ''
+      const qty    = qtyCol   < end ? (parseInt((row[qtyCol] || '').replace(/,/g, '').trim()) || 0) : 0
+      if (task && qty > 0) result.push({ task, device, qty })
+      i = qtyCol + 1
+      continue
+    }
+    if (hn.includes('ten thiet bi') || hn.includes('thiet bi') ||
+        hn.includes('so luong')) { i++; continue }
+    i++
+  }
+  return result
+}
+
 function parseSheetRows(values: string[][], personName: string) {
   if (values.length < 3) return []
-
   const header1 = values[0] ?? []
   const header2 = values[1] ?? []
 
   let thanhPhamStart = -1
-  let hangGuiVpStart = -1
-  let thuHoiStart = -1
-  let otherStart = -1
+  let hangGuiStart   = -1
+  let thuHoiStart    = -1
+  let otherStart     = -1
+  let stopCol        = header1.length
 
-  for (let i = 0; i < header1.length; i++) {
-    const n = norm(header1[i] || '')
-    if (n.includes('up thanh pham') && thanhPhamStart === -1) thanhPhamStart = i
-    else if (n.includes('hang gui') && hangGuiVpStart === -1) hangGuiVpStart = i
-    else if (n.includes('thu hoi') && thuHoiStart === -1) thuHoiStart = i
-    else if ((n.includes('other') || n.includes('cac tbi')) && otherStart === -1) otherStart = i
+  for (let c = 0; c < header1.length; c++) {
+    const h = norm(header1[c] || '')
+    if      (h.includes('up thanh pham')                           && thanhPhamStart === -1) thanhPhamStart = c
+    else if ((h.includes('hang gui') || h.includes('van phong'))   && hangGuiStart   === -1) hangGuiStart   = c
+    else if ((h.includes('thu hoi') || h.includes('thiet bi loi')) && thuHoiStart    === -1) thuHoiStart    = c
+    else if ((h.includes('other') || h.includes('cac tbi') ||
+              h.includes('cac tb') || h.includes('cong viec khac'))&& otherStart     === -1) otherStart     = c
+    if (c > 5 && /^\d+$/.test((header1[c] || '').trim())) { stopCol = c; break }
   }
 
-  const thuHoiTriplets: Array<{loaiCol: number, deviceCol: number, qtyCol: number}> = []
-  const otherTriplets: Array<{taskCol: number, deviceCol: number, qtyCol: number}> = []
+  if (thanhPhamStart === -1) thanhPhamStart = 3
 
-  if (thuHoiStart !== -1) {
-    let i = thuHoiStart
-    const end = otherStart !== -1 ? otherStart : header2.length
-    while (i < end - 2) {
-      const n2 = norm(header2[i] || '')
-      if (n2.includes('loai thu hoi') || n2.includes('loai')) {
-        const n3 = norm(header2[i+1] || '')
-        const n4 = norm(header2[i+2] || '')
-        if ((n3.includes('ten thiet bi') || n3.includes('device')) && (n4.includes('so luong') || n4.includes('qty'))) {
-          thuHoiTriplets.push({ loaiCol: i, deviceCol: i+1, qtyCol: i+2 })
-          i += 3
-          continue
-        }
-      }
-      i++
-    }
-  }
+  const rawSections = [
+    { name: 'thanh_pham', col: thanhPhamStart },
+    { name: 'hang_gui',   col: hangGuiStart   },
+    { name: 'thu_hoi',    col: thuHoiStart     },
+    { name: 'other',      col: otherStart      },
+  ].filter(s => s.col >= 0).sort((a, b) => a.col - b.col)
 
-  if (otherStart !== -1) {
-    let i = otherStart
-    while (i < header2.length - 1) {
-      const n2 = norm(header2[i] || '')
-      if (n2.includes('cong viec') || n2 === 'cong viec') {
-        const deviceCol = i + 1
-        let qtyCol = i + 2
-        if (norm(header2[qtyCol] || '') === '' && qtyCol + 1 < header2.length) {
-          const nextNorm = norm(header2[qtyCol + 1] || '')
-          if (nextNorm.includes('so luong') || nextNorm.includes('quantity') || nextNorm === '') {
-            qtyCol = qtyCol + 1
-          }
-        }
-        otherTriplets.push({ taskCol: i, deviceCol, qtyCol })
-        i = qtyCol + 1
-        continue
-      }
-      i++
-    }
-  }
+  const sections = rawSections.map((s, idx) => ({
+    name:  s.name,
+    start: s.col,
+    end:   idx + 1 < rawSections.length ? rawSections[idx + 1].col : stopCol,
+  }))
 
-  const sectionEnd = (start: number, ...nextStarts: number[]) => {
-    const nexts = nextStarts.filter(s => s > start)
-    return nexts.length > 0 ? Math.min(...nexts) : header2.length
-  }
-
-  const records = []
+  const seen = new Map<string, object>()
 
   for (let ri = 2; ri < values.length; ri++) {
     const row = values[ri] ?? []
-    const dateStr = (row[2] || '').trim()
-    if (!dateStr) continue
-    const entryDate = parseDate(dateStr)
-    if (!entryDate) continue
+    const dateRaw = (row[2] || '').trim()
+    if (!dateRaw.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) continue
 
-    const weekLabel = (row[1] || '').trim() || null
+    const parts = dateRaw.split('/')
+    const entryDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`
+    const weekLabel = (row[1] || '').trim()
 
-    let thanhPhamTotal = 0
-    if (thanhPhamStart !== -1) {
-      const end = sectionEnd(thanhPhamStart, hangGuiVpStart, thuHoiStart, otherStart)
-      for (let c = thanhPhamStart; c < end; c++) {
-        const v = parseInt((row[c] || '').replace(/,/g, '').trim()) || 0
-        if (v > 0 && v < 10000) thanhPhamTotal += v
-      }
+    let thanhPhamDevices: DeviceQty[]  = []
+    let hangGuiDevices:   DeviceQty[]  = []
+    let xuatKhoDevices:   DeviceQty[]  = []
+    let thuHoiDetails:    ThuHoiItem[] = []
+    let otherTasks:       OtherTask[]  = []
+
+    for (const sec of sections) {
+      if      (sec.name === 'thanh_pham') thanhPhamDevices = parseDeviceSection(header2, row, sec.start, sec.end)
+      else if (sec.name === 'hang_gui')   hangGuiDevices   = parseDeviceSection(header2, row, sec.start, sec.end)
+      else if (sec.name === 'thu_hoi')    thuHoiDetails    = parseThuHoi       (header2, row, sec.start, sec.end)
+      else if (sec.name === 'other')      otherTasks       = parseOther        (header2, row, sec.start, sec.end)
     }
 
-    let hangGuiVpTotal = 0
-    if (hangGuiVpStart !== -1) {
-      const end = sectionEnd(hangGuiVpStart, thuHoiStart, otherStart)
-      for (let c = hangGuiVpStart; c < end; c++) {
-        const v = parseInt((row[c] || '').replace(/,/g, '').trim()) || 0
-        if (v > 0 && v < 10000) hangGuiVpTotal += v
-      }
-    }
+    const thanhPhamTotal = thanhPhamDevices.reduce((s, x) => s + x.qty, 0)
+    const hangGuiTotal   = hangGuiDevices.reduce  ((s, x) => s + x.qty, 0)
+    const xuatKhoTotal   = xuatKhoDevices.reduce  ((s, x) => s + x.qty, 0)
+    const thuHoiTotal    = thuHoiDetails.reduce   ((s, x) => s + x.qty, 0)
+    const otherTotal     = otherTasks.reduce      ((s, x) => s + x.qty, 0)
 
-    const thuHoiDetails: Array<{loai: string, device: string, qty: number}> = []
-    let thuHoiTotal = 0
-    for (const t of thuHoiTriplets) {
-      const loai = (row[t.loaiCol] || '').trim()
-      const device = (row[t.deviceCol] || '').trim()
-      const qty = parseInt((row[t.qtyCol] || '').replace(/,/g, '').trim()) || 0
-      if ((loai || device) && qty > 0) {
-        thuHoiDetails.push({ loai, device, qty })
-        thuHoiTotal += qty
-      }
-    }
+    if (thanhPhamTotal + hangGuiTotal + xuatKhoTotal + thuHoiTotal + otherTotal === 0) continue
 
-    const otherTasksList: Array<{task: string, device: string, qty: number}> = []
-    let otherTotal = 0
-    for (const t of otherTriplets) {
-      const task = (row[t.taskCol] || '').trim()
-      const device = (row[t.deviceCol] || '').trim()
-      const qty = parseInt((row[t.qtyCol] || '').replace(/,/g, '').trim()) || 0
-      if (task && qty > 0) {
-        otherTasksList.push({ task, device, qty })
-        otherTotal += qty
-      }
-    }
-
-    if (thanhPhamTotal === 0 && hangGuiVpTotal === 0 && thuHoiTotal === 0 && otherTotal === 0) continue
-
-    records.push({
-      person_name: personName,
-      entry_date: entryDate,
-      week_label: weekLabel,
-      thanh_pham_total: thanhPhamTotal,
-      hang_gui_vp_total: hangGuiVpTotal,
-      xuat_kho_total: 0,
-      thu_hoi_total: thuHoiTotal,
-      other_total: otherTotal,
-      thu_hoi_details: thuHoiDetails,
-      other_tasks: otherTasksList,
-      updated_at: new Date().toISOString(),
+    seen.set(entryDate, {
+      person_name:         personName,
+      entry_date:          entryDate,
+      week_label:          weekLabel || null,
+      thanh_pham_devices:  thanhPhamDevices,
+      hang_gui_vp_devices: hangGuiDevices,
+      xuat_kho_devices:    xuatKhoDevices,
+      thu_hoi_details:     thuHoiDetails,
+      other_tasks:         otherTasks,
+      thanh_pham_total:    thanhPhamTotal,
+      hang_gui_vp_total:   hangGuiTotal,
+      xuat_kho_total:      xuatKhoTotal,
+      thu_hoi_total:       thuHoiTotal,
+      other_total:         otherTotal,
+      updated_at:          new Date().toISOString(),
     })
   }
 
-  // Deduplicate: nếu cùng person+date xuất hiện nhiều lần, giữ cái cuối
-  const seen = new Map<string, typeof records[0]>()
-  for (const r of records) {
-    seen.set(r.entry_date, r)
-  }
   return Array.from(seen.values())
-}
-
-function errMsg(e: unknown): string {
-  if (e && typeof e === 'object') {
-    const obj = e as Record<string, unknown>
-    if (obj.message) return String(obj.message)
-    if (obj.details) return `${obj.code}: ${obj.details}`
-    return JSON.stringify(e)
-  }
-  return String(e)
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
-    const persons: string[] = body.persons ?? PERSONS
-    const clearFirst: boolean = body.clear_first ?? false
+    const persons: string[]    = body.persons    ?? PERSONS
+    const clearFirst: boolean  = body.clear_first ?? false
 
     const sheets = getSheetsClient()
     const client = sb()
 
     if (clearFirst) {
-      await client.from('kho_daily_records').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      await client.from('kho_daily_records')
+        .delete().neq('id', '00000000-0000-0000-0000-000000000000')
     }
 
     const results = []
@@ -203,25 +233,25 @@ export async function POST(req: NextRequest) {
       try {
         const resp = await sheets.spreadsheets.values.get({
           spreadsheetId: SPREADSHEET_ID,
-          range: `'${sheetName}'!A1:ZZ500`,
+          range: `'${sheetName}'!A1:ZZ600`,
         })
-        const values = (resp.data.values ?? []) as string[][]
+        const values  = (resp.data.values ?? []) as string[][]
         const records = parseSheetRows(values, person)
 
-        if (records.length > 0) {
-          // Upsert theo batch 100 để tránh timeout
-          const BATCH = 100
-          for (let i = 0; i < records.length; i += BATCH) {
-            const batch = records.slice(i, i + BATCH)
-            const { error } = await client.from('kho_daily_records')
-              .upsert(batch, { onConflict: 'person_name,entry_date' })
-            if (error) throw error
-          }
+        let inserted = 0
+        const errors: string[] = []
+
+        for (let i = 0; i < records.length; i += 50) {
+          const batch = records.slice(i, i + 50)
+          const { error } = await client.from('kho_daily_records')
+            .upsert(batch, { onConflict: 'person_name,entry_date' })
+          if (error) errors.push(errMsg(error))
+          else inserted += batch.length
         }
 
-        results.push({ person, status: 'ok', rows: records.length })
+        results.push({ person, status: errors.length === 0 ? 'ok' : 'partial', rows: inserted, errors })
       } catch (e) {
-        results.push({ person, status: 'error: ' + errMsg(e) })
+        results.push({ person, status: 'error', rows: 0, errors: [errMsg(e)] })
       }
     }
 
@@ -231,19 +261,18 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET — dry run debug: ?person=Thor&debug=1 trả về records parsed
 export async function GET(req: NextRequest) {
-  const person = req.nextUrl.searchParams.get('person') ?? 'Nick'
+  const person    = req.nextUrl.searchParams.get('person') ?? 'Nick'
   const sheetName = `${person}_report`
   try {
     const sheets = getSheetsClient()
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `'${sheetName}'!A1:ZZ500`,
+      range: `'${sheetName}'!A1:ZZ600`,
     })
-    const values = (resp.data.values ?? []) as string[][]
+    const values  = (resp.data.values ?? []) as string[][]
     const records = parseSheetRows(values, person)
-    return NextResponse.json({ person, total: records.length, sample: records.slice(-10) })
+    return NextResponse.json({ person, total: records.length, sample: records.slice(-5) })
   } catch (e) {
     return NextResponse.json({ error: errMsg(e) }, { status: 500 })
   }

@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS kho_daily_records (
   other_total INTEGER DEFAULT 0,
   thu_hoi_details JSONB DEFAULT '[]'::jsonb,
   other_tasks JSONB DEFAULT '[]'::jsonb,
+  thanh_pham_devices JSONB DEFAULT '[]'::jsonb,
+  hang_gui_vp_devices JSONB DEFAULT '[]'::jsonb,
+  xuat_kho_devices JSONB DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(person_name, entry_date)
