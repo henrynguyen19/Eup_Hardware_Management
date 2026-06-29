@@ -165,7 +165,22 @@ function parseSheetRows(values: string[][], personName: string) {
     })
   }
 
-  return records
+  // Deduplicate: nếu cùng person+date xuất hiện nhiều lần, giữ cái cuối
+  const seen = new Map<string, typeof records[0]>()
+  for (const r of records) {
+    seen.set(r.entry_date, r)
+  }
+  return Array.from(seen.values())
+}
+
+function errMsg(e: unknown): string {
+  if (e && typeof e === 'object') {
+    const obj = e as Record<string, unknown>
+    if (obj.message) return String(obj.message)
+    if (obj.details) return `${obj.code}: ${obj.details}`
+    return JSON.stringify(e)
+  }
+  return String(e)
 }
 
 export async function POST(req: NextRequest) {
@@ -194,23 +209,29 @@ export async function POST(req: NextRequest) {
         const records = parseSheetRows(values, person)
 
         if (records.length > 0) {
-          const { error } = await client.from('kho_daily_records')
-            .upsert(records, { onConflict: 'person_name,entry_date' })
-          if (error) throw error
+          // Upsert theo batch 100 để tránh timeout
+          const BATCH = 100
+          for (let i = 0; i < records.length; i += BATCH) {
+            const batch = records.slice(i, i + BATCH)
+            const { error } = await client.from('kho_daily_records')
+              .upsert(batch, { onConflict: 'person_name,entry_date' })
+            if (error) throw error
+          }
         }
 
         results.push({ person, status: 'ok', rows: records.length })
       } catch (e) {
-        results.push({ person, status: 'error: ' + String(e) })
+        results.push({ person, status: 'error: ' + errMsg(e) })
       }
     }
 
     return NextResponse.json({ results })
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 })
+    return NextResponse.json({ error: errMsg(e) }, { status: 500 })
   }
 }
 
+// GET — dry run debug: ?person=Thor&debug=1 trả về records parsed
 export async function GET(req: NextRequest) {
   const person = req.nextUrl.searchParams.get('person') ?? 'Nick'
   const sheetName = `${person}_report`
@@ -224,6 +245,6 @@ export async function GET(req: NextRequest) {
     const records = parseSheetRows(values, person)
     return NextResponse.json({ person, total: records.length, sample: records.slice(-10) })
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 })
+    return NextResponse.json({ error: errMsg(e) }, { status: 500 })
   }
 }
