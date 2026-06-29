@@ -217,9 +217,9 @@ export default function UserManagement({ currentUserEmail }: Props) {
           <p className="text-xs text-gray-400">{allUsers.length} tài khoản · {currentUserEmail}</p>
         </div>
         <div className="flex gap-2">
-          <a href="/admin/permissions"
+          <a href="/admin/roles"
             className="px-4 py-2 text-sm border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50 transition">
-            🔐 Phân quyền
+            🔐 Vai trò & quyền
           </a>
           <button onClick={() => { setShowAddUser(true); setAddDeptId(selectedDept && selectedDept !== '__none__' ? selectedDept : '') }}
             className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">

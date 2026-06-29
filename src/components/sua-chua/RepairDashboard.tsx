@@ -1540,10 +1540,12 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
                       {t.suaChua.kpiBanGiao}: <strong className="text-gray-700">{calcBanGiao(weekData.stats, selectedWeek.id)}</strong> {t.suaChua.kpiDevices}
                     </p>
                   </div>
-                  <div className="flex gap-2 items-center">
-                    <button onClick={() => setEditingDates(e => !e)} className="text-xs text-blue-500 hover:underline">📅 Sửa ngày</button>
-                    <button onClick={() => handleDelete(selectedWeek.id)} className="text-xs text-red-500 hover:text-red-700">🗑 Xóa</button>
-                  </div>
+                  {canWrite && (
+                    <div className="flex gap-2 items-center">
+                      <button onClick={() => setEditingDates(e => !e)} className="text-xs text-blue-500 hover:underline">📅 Sửa ngày</button>
+                      <button onClick={() => handleDelete(selectedWeek.id)} className="text-xs text-red-500 hover:text-red-700">🗑 Xóa</button>
+                    </div>
+                  )}
                 </div>
                 {/* Date edit form */}
                 {editingDates && (

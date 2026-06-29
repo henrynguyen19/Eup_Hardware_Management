@@ -14,7 +14,7 @@ async function getRolesWithPermissions() {
     .order('name')
   return (data ?? []).map((r: { id: string; name: string; is_system: boolean; role_permissions: { permission: string }[] }) => ({
     ...r,
-    permissions: r.role_permissions.map((p) => p.permission),
+    permissions: r.role_permissions.map((p) => p.permission).filter(Boolean),
   }))
 }
 
@@ -37,7 +37,7 @@ export default async function RolesPage() {
   if (!user) redirect('/login')
 
   const permissions = await getCurrentUserPermissions(user.id)
-  if (!permissions.includes('admin:roles')) redirect('/')
+  if (!permissions.includes('admin:roles') && !permissions.includes('admin:users')) redirect('/')
 
   const roles = await getRolesWithPermissions()
 
