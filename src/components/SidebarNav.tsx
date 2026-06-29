@@ -40,7 +40,7 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
 
   const navItems: NavItem[] = [
     { icon: '📦', label: t.sidebar.deviceMgmt,  href: '/kho',          show: canKho || isAdmin },
-    { icon: '📋', label: 'Công việc Kho',        href: '/kho-daily',    show: canKhoDaily || isAdmin },
+    { icon: '📋', label: 'Quản lý Kho',        href: '/kho-daily',    show: canKhoDaily || isAdmin },
     { icon: '🛠️', label: t.sidebar.techSupport, href: '/ho-tro',       show: canHoTro || isAdmin },
     { icon: '📜', label: t.sidebar.certificate, href: '/chung-nhan',   show: canChungNhan || isAdmin },
     { icon: '📊', label: t.sidebar.repairStats, href: '/sua-chua',     show: canSuaChua || isAdmin },

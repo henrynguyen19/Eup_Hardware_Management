@@ -320,6 +320,29 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
     }
   })
 
+  // Aggregate by device type
+  const deviceStats: Record<string, { thanh_pham: number; hang_gui: number; thu_hoi: number }> = {}
+  for (const rec of records) {
+    for (const d of (rec.thanh_pham_devices ?? [])) {
+      if (!d.device) continue
+      if (!deviceStats[d.device]) deviceStats[d.device] = { thanh_pham: 0, hang_gui: 0, thu_hoi: 0 }
+      deviceStats[d.device].thanh_pham += d.qty || 0
+    }
+    for (const d of (rec.hang_gui_vp_devices ?? [])) {
+      if (!d.device) continue
+      if (!deviceStats[d.device]) deviceStats[d.device] = { thanh_pham: 0, hang_gui: 0, thu_hoi: 0 }
+      deviceStats[d.device].hang_gui += d.qty || 0
+    }
+    for (const d of (rec.thu_hoi_details ?? [])) {
+      if (!d.device) continue
+      if (!deviceStats[d.device]) deviceStats[d.device] = { thanh_pham: 0, hang_gui: 0, thu_hoi: 0 }
+      deviceStats[d.device].thu_hoi += d.qty || 0
+    }
+  }
+  const deviceRows = Object.entries(deviceStats)
+    .map(([device, v]) => ({ device, ...v, total: v.thanh_pham + v.hang_gui + v.thu_hoi }))
+    .sort((a, b) => b.total - a.total)
+
   const sortedRecords = [...records].sort((a, b) => b.entry_date.localeCompare(a.entry_date))
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -517,10 +540,52 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
               </div>
             )}
           </div>
+          {/* Device breakdown table */}
+          {deviceRows.length > 0 && (
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-700">Thong ke theo loai thiet bi</h3>
+                <span className="text-xs text-gray-400">{deviceRows.length} loai thiet bi</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Thiet bi</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-blue-600 uppercase">UP Thanh Pham</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-emerald-600 uppercase">Hang Gui VP</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-red-600 uppercase">Thu Hoi</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 uppercase">Tong</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {deviceRows.map(row => (
+                      <tr key={row.device} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 font-medium text-gray-800">{row.device}</td>
+                        <td className="px-4 py-2 text-right text-blue-700">{row.thanh_pham > 0 ? row.thanh_pham : '—'}</td>
+                        <td className="px-4 py-2 text-right text-emerald-700">{row.hang_gui > 0 ? row.hang_gui : '—'}</td>
+                        <td className="px-4 py-2 text-right text-red-600">{row.thu_hoi > 0 ? row.thu_hoi : '—'}</td>
+                        <td className="px-4 py-2 text-right font-bold text-gray-900">{row.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                    <tr>
+                      <td className="px-4 py-2 text-xs font-semibold text-gray-500">TONG CONG</td>
+                      <td className="px-4 py-2 text-right text-xs font-bold text-blue-700">{deviceRows.reduce((s,r)=>s+r.thanh_pham,0)}</td>
+                      <td className="px-4 py-2 text-right text-xs font-bold text-emerald-700">{deviceRows.reduce((s,r)=>s+r.hang_gui,0)}</td>
+                      <td className="px-4 py-2 text-right text-xs font-bold text-red-600">{deviceRows.reduce((s,r)=>s+r.thu_hoi,0)}</td>
+                      <td className="px-4 py-2 text-right text-xs font-bold text-gray-900">{deviceRows.reduce((s,r)=>s+r.total,0)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── TAB: NHẬP LIỆU ────────────────────────────────────────────────── */}
+      {/* ── TAB: NHAP LIEU ────────────────────────────────────────────────── */}
       {activeTab === 'entry' && (
         <div className="space-y-4 max-w-2xl">
           <div className="bg-white rounded-lg shadow p-6 space-y-5">
