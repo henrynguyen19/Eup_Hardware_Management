@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface DeviceQty  { device: string; qty: number }
@@ -249,7 +249,7 @@ function DetailPanel({ record }: { record: KhoRecord }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 interface KhoDailyProps { userEmail?: string; permissions?: string[] }
 export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'entry' | 'sync'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'stats' | 'entry' | 'sync'>('overview')
 
   // Overview state
   const [records, setRecords]       = useState<KhoRecord[]>([])
@@ -345,6 +345,61 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
 
   const sortedRecords = [...records].sort((a, b) => b.entry_date.localeCompare(a.entry_date))
 
+  // ── Stats tab computations ──────────────────────────────────────────────────
+  const weeklyTrend = (() => {
+    const byW: Record<string, { period: string; 'UP Thành Phẩm': number; 'Hàng Gửi VP': number; 'Thu Hồi': number; Other: number }> = {}
+    for (const rec of records) {
+      const key = rec.week_label || weekLabel(rec.entry_date)
+      if (!byW[key]) byW[key] = { period: key, 'UP Thành Phẩm': 0, 'Hàng Gửi VP': 0, 'Thu Hồi': 0, Other: 0 }
+      byW[key]['UP Thành Phẩm'] += rec.thanh_pham_total || 0
+      byW[key]['Hàng Gửi VP']   += rec.hang_gui_vp_total || 0
+      byW[key]['Thu Hồi']        += rec.thu_hoi_total || 0
+      byW[key].Other             += rec.other_total || 0
+    }
+    return Object.values(byW).sort((a, b) => a.period.localeCompare(b.period))
+  })()
+
+  const deviceThanhPhamChart = Object.entries(
+    records.flatMap(r => r.thanh_pham_devices ?? [])
+      .filter(d => d.device)
+      .reduce((acc, d) => { acc[d.device] = (acc[d.device] || 0) + (d.qty || 0); return acc }, {} as Record<string, number>)
+  ).map(([device, qty]) => ({ device, qty })).sort((a, b) => b.qty - a.qty)
+
+  const deviceHangGuiChart = Object.entries(
+    records.flatMap(r => r.hang_gui_vp_devices ?? [])
+      .filter(d => d.device)
+      .reduce((acc, d) => { acc[d.device] = (acc[d.device] || 0) + (d.qty || 0); return acc }, {} as Record<string, number>)
+  ).map(([device, qty]) => ({ device, qty })).sort((a, b) => b.qty - a.qty)
+
+  const deviceThuHoiChart = (() => {
+    const raw: Record<string, { 'Dùng được': number; 'Không dùng được': number; 'Đang kiểm tra': number }> = {}
+    for (const rec of records) {
+      for (const d of (rec.thu_hoi_details ?? [])) {
+        if (!d.device) continue
+        if (!raw[d.device]) raw[d.device] = { 'Dùng được': 0, 'Không dùng được': 0, 'Đang kiểm tra': 0 }
+        const loai = d.loai || 'Đang kiểm tra'
+        if (loai in raw[d.device]) (raw[d.device] as Record<string, number>)[loai] += d.qty || 0
+        else raw[d.device]['Đang kiểm tra'] += d.qty || 0
+      }
+    }
+    return Object.entries(raw)
+      .map(([device, v]) => ({ device, ...v, total: v['Dùng được'] + v['Không dùng được'] + v['Đang kiểm tra'] }))
+      .sort((a, b) => b.total - a.total)
+  })()
+
+  const otherTaskChart = Object.entries(
+    records.flatMap(r => r.other_tasks ?? [])
+      .filter(t => t.task)
+      .reduce((acc, t) => { acc[t.task] = (acc[t.task] || 0) + (t.qty || 0); return acc }, {} as Record<string, number>)
+  ).map(([task, qty]) => ({ task, qty })).sort((a, b) => b.qty - a.qty)
+
+  const DEVICE_COLORS: Record<string, string> = {
+    'VN88-4G': '#3b82f6', 'Go Track': '#ef4444', 'DVR-88': '#f59e0b',
+    'C43': '#10b981', 'H5': '#8b5cf6', 'Bewin': '#06b6d4', 'MT99': '#f97316',
+  }
+  const getDeviceColor = (device: string, idx: number) =>
+    DEVICE_COLORS[device] || ['#3b82f6','#ef4444','#f59e0b','#10b981','#8b5cf6','#06b6d4','#f97316','#ec4899'][idx % 8]
+
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleEntrySubmit = async () => {
     setEntrySubmitting(true)
@@ -405,6 +460,7 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
   // ── Render ────────────────────────────────────────────────────────────────
   const tabs = [
     { id: 'overview', label: 'Tổng quan' },
+    { id: 'stats',    label: 'Thống kê chi tiết' },
     { id: 'entry',    label: 'Nhập liệu' },
     { id: 'sync',     label: 'Đồng bộ GG Sheet' },
   ] as const
@@ -585,7 +641,223 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
         </div>
       )}
 
-      {/* ── TAB: NHAP LIEU ────────────────────────────────────────────────── */}
+      {/* ── TAB: THỐNG KÊ CHI TIẾT ──────────────────────────────────────── */}
+      {activeTab === 'stats' && (
+        <div className="space-y-5">
+
+          {/* Xu hướng theo tuần */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <h3 className="font-semibold text-gray-700 mb-1">Xu hướng theo tuần</h3>
+            <p className="text-xs text-gray-400 mb-3">Tổng công việc mỗi tuần theo loại</p>
+            {loading ? <div className="text-center text-gray-400 py-8">Đang tải...</div> :
+             weeklyTrend.length === 0 ? <div className="text-center text-gray-400 py-8">Không có dữ liệu</div> : (
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={weeklyTrend} margin={{ top: 5, right: 20, left: 0, bottom: 40 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="UP Thành Phẩm" stroke="#3b82f6" strokeWidth={2} dot />
+                  <Line type="monotone" dataKey="Hàng Gửi VP"   stroke="#10b981" strokeWidth={2} dot />
+                  <Line type="monotone" dataKey="Thu Hồi"        stroke="#ef4444" strokeWidth={2} dot />
+                  <Line type="monotone" dataKey="Other"          stroke="#f59e0b" strokeWidth={2} dot />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* Row: Thành Phẩm + Hàng Gửi VP by device */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            {/* UP Thành Phẩm theo thiết bị */}
+            <div className="bg-white rounded-lg shadow p-4">
+              <h3 className="font-semibold text-gray-700 mb-1">UP Thành Phẩm theo thiết bị</h3>
+              <p className="text-xs text-gray-400 mb-3">Số lượng thiết bị đã lên thành phẩm</p>
+              {deviceThanhPhamChart.length === 0 ? <div className="text-center text-gray-400 py-8 text-sm">Không có dữ liệu</div> : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={deviceThanhPhamChart} layout="vertical" margin={{ top: 0, right: 30, left: 60, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="device" tick={{ fontSize: 11 }} width={60} />
+                    <Tooltip />
+                    <Bar dataKey="qty" name="Số lượng" radius={[0, 4, 4, 0]}>
+                      {deviceThanhPhamChart.map((entry, index) => (
+                        <rect key={index} fill={getDeviceColor(entry.device, index)} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              {/* Table */}
+              {deviceThanhPhamChart.length > 0 && (
+                <table className="w-full text-xs mt-3 border-t border-gray-100 pt-2">
+                  <thead><tr><th className="text-left py-1 text-gray-500">Thiết bị</th><th className="text-right py-1 text-gray-500">SL</th><th className="text-right py-1 text-gray-500">%</th></tr></thead>
+                  <tbody>
+                    {deviceThanhPhamChart.map(r => {
+                      const total = deviceThanhPhamChart.reduce((s, x) => s + x.qty, 0)
+                      return (
+                        <tr key={r.device} className="border-t border-gray-50">
+                          <td className="py-1 font-medium text-gray-700">{r.device}</td>
+                          <td className="py-1 text-right text-blue-700 font-semibold">{r.qty}</td>
+                          <td className="py-1 text-right text-gray-400">{total > 0 ? Math.round(r.qty / total * 100) : 0}%</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Hàng Gửi VP theo thiết bị */}
+            <div className="bg-white rounded-lg shadow p-4">
+              <h3 className="font-semibold text-gray-700 mb-1">Hàng Gửi VP theo thiết bị</h3>
+              <p className="text-xs text-gray-400 mb-3">Số lượng thiết bị đã gửi văn phòng</p>
+              {deviceHangGuiChart.length === 0 ? <div className="text-center text-gray-400 py-8 text-sm">Không có dữ liệu</div> : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={deviceHangGuiChart} layout="vertical" margin={{ top: 0, right: 30, left: 60, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="device" tick={{ fontSize: 11 }} width={60} />
+                    <Tooltip />
+                    <Bar dataKey="qty" name="Số lượng" fill="#10b981" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              {deviceHangGuiChart.length > 0 && (
+                <table className="w-full text-xs mt-3 border-t border-gray-100 pt-2">
+                  <thead><tr><th className="text-left py-1 text-gray-500">Thiết bị</th><th className="text-right py-1 text-gray-500">SL</th><th className="text-right py-1 text-gray-500">%</th></tr></thead>
+                  <tbody>
+                    {deviceHangGuiChart.map(r => {
+                      const total = deviceHangGuiChart.reduce((s, x) => s + x.qty, 0)
+                      return (
+                        <tr key={r.device} className="border-t border-gray-50">
+                          <td className="py-1 font-medium text-gray-700">{r.device}</td>
+                          <td className="py-1 text-right text-emerald-700 font-semibold">{r.qty}</td>
+                          <td className="py-1 text-right text-gray-400">{total > 0 ? Math.round(r.qty / total * 100) : 0}%</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          {/* Thu Hồi theo thiết bị & trạng thái */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <h3 className="font-semibold text-gray-700 mb-1">Thu Hồi theo thiết bị & trạng thái</h3>
+            <p className="text-xs text-gray-400 mb-3">Phân loại thiết bị thu hồi: dùng được / không dùng được / đang kiểm tra</p>
+            {deviceThuHoiChart.length === 0 ? <div className="text-center text-gray-400 py-8 text-sm">Không có dữ liệu</div> : (
+              <ResponsiveContainer width="100%" height={Math.max(180, deviceThuHoiChart.length * 44)}>
+                <BarChart data={deviceThuHoiChart} layout="vertical" margin={{ top: 0, right: 30, left: 80, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="device" tick={{ fontSize: 11 }} width={80} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="Dùng được"        stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Không dùng được"  stackId="a" fill="#ef4444" />
+                  <Bar dataKey="Đang kiểm tra"    stackId="a" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* Row: Performance nhân viên + Công việc khác */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            {/* Performance nhân viên */}
+            <div className="bg-white rounded-lg shadow p-4">
+              <h3 className="font-semibold text-gray-700 mb-1">Performance nhân viên</h3>
+              <p className="text-xs text-gray-400 mb-3">Tổng đóng góp mỗi nhân viên theo khoảng thời gian đã chọn</p>
+              {loading ? <div className="text-center text-gray-400 py-8">Đang tải...</div> : (
+                <>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <Tooltip />
+                      <Legend />
+                      {Object.entries(CATEGORY_COLORS).map(([cat, color]) => (
+                        <Bar key={cat} dataKey={cat} stackId="a" fill={color} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <table className="w-full text-xs mt-3 border-t border-gray-100">
+                    <thead><tr>
+                      <th className="text-left py-1 text-gray-500">NV</th>
+                      <th className="text-right py-1 text-blue-500">UP TP</th>
+                      <th className="text-right py-1 text-emerald-500">Gửi VP</th>
+                      <th className="text-right py-1 text-red-500">Thu Hồi</th>
+                      <th className="text-right py-1 text-gray-700 font-bold">Tổng</th>
+                    </tr></thead>
+                    <tbody>
+                      {chartData.filter(r => r['UP Thành Phẩm'] + r['Hàng Gửi VP'] + r['Thu Hồi'] + r.Other > 0).map(r => (
+                        <tr key={r.name} className="border-t border-gray-50">
+                          <td className="py-1 font-semibold text-gray-800">{r.name}</td>
+                          <td className="py-1 text-right text-blue-700">{r['UP Thành Phẩm']}</td>
+                          <td className="py-1 text-right text-emerald-700">{r['Hàng Gửi VP']}</td>
+                          <td className="py-1 text-right text-red-600">{r['Thu Hồi']}</td>
+                          <td className="py-1 text-right font-bold text-gray-900">
+                            {r['UP Thành Phẩm'] + r['Hàng Gửi VP'] + r['Thu Hồi'] + r.Other}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
+
+            {/* Công việc khác */}
+            <div className="bg-white rounded-lg shadow p-4">
+              <h3 className="font-semibold text-gray-700 mb-1">Công việc khác</h3>
+              <p className="text-xs text-gray-400 mb-3">Phân loại các công việc phát sinh ngoài nhập kho</p>
+              {otherTaskChart.length === 0 ? (
+                <div className="text-center text-gray-400 py-8 text-sm">Không có công việc khác trong kỳ này</div>
+              ) : (
+                <>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={otherTaskChart} layout="vertical" margin={{ top: 0, right: 30, left: 80, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 11 }} />
+                      <YAxis type="category" dataKey="task" tick={{ fontSize: 10 }} width={80} />
+                      <Tooltip />
+                      <Bar dataKey="qty" name="Số lượng" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <table className="w-full text-xs mt-3 border-t border-gray-100">
+                    <thead><tr><th className="text-left py-1 text-gray-500">Công việc</th><th className="text-right py-1 text-gray-500">SL</th><th className="text-right py-1 text-gray-500">%</th></tr></thead>
+                    <tbody>
+                      {otherTaskChart.map(r => {
+                        const total = otherTaskChart.reduce((s, x) => s + x.qty, 0)
+                        return (
+                          <tr key={r.task} className="border-t border-gray-50">
+                            <td className="py-1 text-gray-700">{r.task}</td>
+                            <td className="py-1 text-right text-amber-700 font-semibold">{r.qty}</td>
+                            <td className="py-1 text-right text-gray-400">{total > 0 ? Math.round(r.qty / total * 100) : 0}%</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Ghi chú về văn phòng */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800">
+            <strong>Lưu ý:</strong> Thống kê "Hàng Gửi VP theo văn phòng" chưa có do dữ liệu nhập hiện tại không lưu tên văn phòng nhận hàng. 
+            Để bổ sung, cần thêm trường "Văn phòng" vào phần nhập liệu Hàng Gửi VP.
+          </div>
+
+        </div>
+      )}
+
+            {/* ── TAB: NHAP LIEU ────────────────────────────────────────────────── */}
       {activeTab === 'entry' && (
         <div className="space-y-4 max-w-2xl">
           <div className="bg-white rounded-lg shadow p-6 space-y-5">
