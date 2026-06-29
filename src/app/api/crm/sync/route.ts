@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     const perms: string[] = permData?.permissions ?? []
     if (!perms.includes('admin:users') && !perms.includes('ho_tro:write'))
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    isAdmin = perms.includes('admin:users')
+    isAdmin = perms.includes('admin:users') || perms.includes('ho_tro:admin')
   } else {
     isAdmin = true // cron luôn chạy với quyền admin (full sync)
   }

@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const { data: permData } = await db
     .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
   const perms: string[] = permData?.permissions ?? []
-  const isAdmin = perms.includes('admin:users')
+  const isAdmin = perms.includes('admin:users') || perms.includes('ho_tro:admin')
   const hasAccess = isAdmin || perms.includes('ho_tro:read') || perms.includes('ho_tro:write')
   if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
@@ -118,7 +118,7 @@ export async function PATCH(req: NextRequest) {
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   // Non-admin can only edit their own tickets
-  const isAdmin = perms.includes('admin:users')
+  const isAdmin = perms.includes('admin:users') || perms.includes('ho_tro:admin')
   if (!isAdmin) {
     const { data: ticket } = await db.from('ho_tro_tickets').select('staff_name').eq('id', id).single()
     const myName = user.email?.split('@')[0] ?? ''
