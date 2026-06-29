@@ -37,8 +37,8 @@ interface DeviceQty  { device: string; qty: number }
 interface ThuHoiItem { loai: string; device: string; qty: number }
 interface OtherTask  { task: string; device: string; qty: number }
 
-function norm(s: string): string {
-  return (s || '').toLowerCase().trim()
+function norm(s: unknown): string {
+  return String(s ?? '').toLowerCase().trim()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/đ/g, 'd').replace(/\s+/g, ' ')
 }

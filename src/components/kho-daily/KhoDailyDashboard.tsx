@@ -29,6 +29,22 @@ interface KhoRecord {
 type DateRange = '7d' | '30d' | 'month' | 'custom'
 const PERSONS = ['Kai', 'Thor', 'Nick', 'Bop', 'Peter']
 const DEVICES  = ['VN88-4G', 'Go Track', 'DVR-88', 'C43', 'H5', 'Bewin', 'MT99']
+// Danh sách thiết bị trong dropdown "tên thiết bị" của Other section — phải khớp chính xác GG Sheet
+const OTHER_DEVICES_LIST = [
+  'MDVR Streamax H5',
+  'VN88-4G',
+  'VN88-4GH',
+  'VN88',
+  'Go 168',
+  'MT99 GPS tracker',
+  'DVR-88(V5-3)',
+  'MDVR Streamax C43',
+  'BW-A5204-G6(4G-DVR)',
+  'LF USB IR Camera 720P',
+  'AS USB N-IR Camera 720P',
+  'Streamax-Internal-IR-A6610CW',
+  'Streamax-External-IR-WF-30F',
+]
 const THU_HOI_LOAI = ['Dùng được', 'Không dùng được', 'Đang kiểm tra']
 const OTHER_TASKS_LIST = [
   'Nhập hàng mới (Kiểm-nhập CRM)',
