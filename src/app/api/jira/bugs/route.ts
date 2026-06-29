@@ -220,34 +220,27 @@ export async function GET(req: NextRequest) {
 
   const auth = Buffer.from(`${email}:${token}`).toString('base64')
 
-  try {
-    const bugs = await fetchSheetBugs()
 
-       return NextResponse.json({ bugs, auth: auth.substring(0, 8) + '...' })
+  try {
+    const sheetBugs = await fetchSheetBugs()
+    const enriched = await Promise.all(
+      sheetBugs.map(async bug => {
+        const d = await fetchJiraIssue(bug.issue_key, auth)
+        return {
+          ...bug,
+          due_date_jira:   d.duedate,
+          due_date_source: d.due_date_source,
+          assignee:        d.assignee,
+          assignee_source: d.assignee_source,
+          summary:         d.summary,
+          status:          d.status,
+          status_color:    d.status_color,
+          linked_issues:   d.linked_issues,
+        } satisfies JiraBug
+      })
+    )
+    return NextResponse.json({ bugs: enriched })
   } catch (e: unknown) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
-  }
-}
- = bugs.slice(i, i + 3)
-      const jiraData = await Promise.all(batch.map(b => fetchJiraIssue(b.issue_key, auth)))
-      batch.forEach((bug, idx) => {
-        const d = jiraData[idx]
-        results.push({
-          ...bug,
-          due_date_jira:  d.duedate,
-          due_date_source: d.due_date_source,
-          assignee:       d.assignee,
-          assignee_source: d.assignee_source,
-          linked_issues:  d.linked_issues,
-          summary:        d.summary,
-          status:         d.status,
-          status_color:   d.status_color,
-        })
-      })
-    }
-
-    return NextResponse.json({ bugs: results, total: results.length })
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }
