@@ -648,7 +648,7 @@ function SummaryView({
 export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
   const { t } = useLanguage()
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
-  const [activeTab, setActiveTab] = useState<'tickets' | 'stats' | 'jira' | 'hashtag'>('tickets')
+  const [activeTab, setActiveTab] = useState<'tickets' | 'stats' | 'team' | 'jira' | 'hashtag'>('tickets')
   // Legacy — kept for stats tab internals
   const [isSummaryMode, setIsSummaryMode]   = useState(false)
   const [isJiraBugsMode, setIsJiraBugsMode] = useState(false)
@@ -977,7 +977,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
 
   // Re-fetch stats khi tab Thống kê được mở hoặc kỳ thay đổi
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (activeTab === 'stats') fetchStatsData() }, [activeTab, periodMode, selectedWeekKey, selectedMonthIdx, selectedDay, rangeFrom, rangeTo])
+  useEffect(() => { if (activeTab === 'stats' || activeTab === 'team') fetchStatsData() }, [activeTab, periodMode, selectedWeekKey, selectedMonthIdx, selectedDay, rangeFrom, rangeTo])
 
   // ── CRM Ticket List (Tab Yêu cầu) ────────────────────────────
   interface CRMTicketRow {
@@ -1321,16 +1321,18 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             {[
               { key: 'tickets', label: `📋 ${t.hoTro.tabRequests}` },
               { key: 'stats',   label: `📊 ${t.hoTro.tabStats}` },
+              ...(isAdmin ? [{ key: 'team', label: '👥 Thống kê nhóm' }] : []),
               { key: 'jira',    label: `🐛 ${t.jira.title}` },
               { key: 'hashtag', label: `🏷️ ${t.hoTro.tabHashtag}` },
             ].map(({ key, label }) => (
               <button
                 key={key}
-                onClick={() => setActiveTab(key as 'tickets' | 'stats' | 'jira' | 'hashtag')}
+                onClick={() => setActiveTab(key as 'tickets' | 'stats' | 'team' | 'jira' | 'hashtag')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
                   activeTab === key
                     ? key === 'tickets' ? 'bg-blue-600 text-white'
                     : key === 'stats'   ? 'bg-gray-800 text-white'
+                    : key === 'team'    ? 'bg-indigo-600 text-white'
                     : key === 'jira'    ? 'bg-red-600 text-white'
                     :                     'bg-teal-600 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
@@ -1532,6 +1534,207 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               </div>
             )}
           </div>
+
+        ) : activeTab === 'team' ? (
+          /* ── Tab: Thống kê nhóm — tổng hợp toàn team ── */
+          (() => {
+            const tickets = statsTickets
+            const dateRange = getTicketDateRange()
+
+            type StaffStat = {
+              name: string; total: number; fast: number; normal: number; low: number
+              hen: number; maiBoLai: number
+            }
+            const staffMap: Record<string, StaffStat> = {}
+            for (const tk of tickets) {
+              const name = tk.staff_name || 'Không rõ'
+              if (!staffMap[name]) staffMap[name] = { name, total: 0, fast: 0, normal: 0, low: 0, hen: 0, maiBoLai: 0 }
+              const s = staffMap[name]
+              s.total++
+              const speed = tk.speed_tag ?? ''
+              if (speed === 'fast') s.fast++
+              else if (speed === 'low') s.low++
+              else s.normal++
+              const reply = (tk.reply ?? '').toLowerCase()
+              const content2 = (tk.content ?? '').toLowerCase()
+              if (reply.includes('hẹn') || content2.includes('hẹn')) s.hen++
+              if (reply.includes('mai báo lại') || reply.includes('mai bao lai')) s.maiBoLai++
+            }
+            const staffList = Object.values(staffMap).sort((a, b) => b.total - a.total)
+            const grandTotal = staffList.reduce((s, x) => s + x.total, 0)
+            const grandFast  = staffList.reduce((s, x) => s + x.fast,  0)
+            const grandHen   = staffList.reduce((s, x) => s + x.hen,   0)
+            const grandMai   = staffList.reduce((s, x) => s + x.maiBoLai, 0)
+            const COLORS = ['#6366f1','#22d3ee','#f59e0b','#10b981','#f43f5e','#a78bfa','#34d399','#fb923c']
+
+            return (
+              <div>
+                {/* Period picker */}
+                <div className="flex flex-wrap items-center gap-2 mb-5">
+                  {(['tuan','thang','ngay','khoang'] as const).map(m => (
+                    <button key={m} onClick={() => setPeriodMode(m)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${periodMode === m ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                      {m === 'tuan' ? '📅 Tuần' : m === 'thang' ? '🗓️ Tháng' : m === 'ngay' ? '📆 Ngày' : '📊 Khoảng'}
+                    </button>
+                  ))}
+                  {periodMode === 'tuan' && (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => navWeek(-1)} className="px-2 py-1 rounded border text-xs">‹</button>
+                      <span className="text-xs text-gray-600 px-2">{selectedWeekKey ? isoWeekBounds(selectedWeekKey).label : '—'}</span>
+                      <button onClick={() => navWeek(1)} className="px-2 py-1 rounded border text-xs">›</button>
+                    </div>
+                  )}
+                  {periodMode === 'thang' && (
+                    <select value={selectedMonthIdx} onChange={e => setSelectedMonthIdx(Number(e.target.value))}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+                      {MONTHS.map((m, i) => <option key={i} value={i}>{m.label}</option>)}
+                    </select>
+                  )}
+                  {periodMode === 'ngay' && (
+                    <input type="date" value={selectedDay} onChange={e => setSelectedDay(e.target.value)}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white" />
+                  )}
+                  {periodMode === 'khoang' && (
+                    <div className="flex items-center gap-1">
+                      <input type="date" value={rangeFrom} onChange={e => setRangeFrom(e.target.value)}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white" />
+                      <span className="text-xs text-gray-400">→</span>
+                      <input type="date" value={rangeTo} onChange={e => setRangeTo(e.target.value)}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white" />
+                    </div>
+                  )}
+                  <button onClick={fetchStatsData} disabled={statsLoading}
+                    className="ml-auto px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-xs hover:bg-indigo-100 transition disabled:opacity-50">
+                    {statsLoading ? '⏳ Đang tải...' : '🔄 Làm mới'}
+                  </button>
+                </div>
+
+                {statsLoading ? (
+                  <div className="text-center py-16 text-gray-400">⏳ Đang tải dữ liệu nhóm...</div>
+                ) : grandTotal === 0 ? (
+                  <div className="text-center py-16 text-gray-400">
+                    Chưa có dữ liệu cho kỳ này
+                    {dateRange && <p className="text-xs mt-1">{dateRange.dateFrom} → {dateRange.dateTo}</p>}
+                  </div>
+                ) : (
+                  <>
+                    {/* KPI cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                        <p className="text-xs text-gray-500 mb-1">📞 Tổng yêu cầu</p>
+                        <p className="text-2xl font-bold text-gray-800">{grandTotal}</p>
+                        <p className="text-xs text-gray-400">{staffList.length} nhân viên</p>
+                      </div>
+                      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                        <p className="text-xs text-gray-500 mb-1">⚡ Xử lý nhanh (#f)</p>
+                        <p className="text-2xl font-bold text-green-600">{grandTotal > 0 ? Math.round(grandFast * 100 / grandTotal) : 0}%</p>
+                        <p className="text-xs text-gray-400">{grandFast} yêu cầu</p>
+                      </div>
+                      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                        <p className="text-xs text-gray-500 mb-1">📅 Hẹn lại</p>
+                        <p className="text-2xl font-bold text-orange-500">{grandHen}</p>
+                        <p className="text-xs text-gray-400">{grandTotal > 0 ? Math.round(grandHen * 100 / grandTotal) : 0}% tổng</p>
+                      </div>
+                      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                        <p className="text-xs text-gray-500 mb-1">🔁 Mai báo lại</p>
+                        <p className="text-2xl font-bold text-pink-500">{grandMai}</p>
+                        <p className="text-xs text-gray-400">{grandTotal > 0 ? Math.round(grandMai * 100 / grandTotal) : 0}% tổng</p>
+                      </div>
+                    </div>
+
+                    {/* Bar chart so sánh */}
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-5">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-4">📊 So sánh nhân viên</h3>
+                      <div className="space-y-3">
+                        {staffList.map((s, i) => {
+                          const pct     = grandTotal > 0 ? Math.round(s.total * 100 / grandTotal) : 0
+                          const fastPct = s.total > 0 ? Math.round(s.fast * 100 / s.total) : 0
+                          return (
+                            <div key={s.name}>
+                              <div className="flex items-center justify-between text-xs mb-1">
+                                <span className="font-medium" style={{ color: COLORS[i % COLORS.length] }}>● {s.name}</span>
+                                <span className="text-gray-500">{s.total} YC &nbsp;|&nbsp; ⚡ {fastPct}% nhanh</span>
+                              </div>
+                              <div className="h-5 bg-gray-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all"
+                                  style={{ width: `${pct}%`, backgroundColor: COLORS[i % COLORS.length], minWidth: s.total > 0 ? '2px' : '0' }} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Bảng chi tiết */}
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="px-5 py-3 border-b border-gray-100">
+                        <h3 className="text-sm font-semibold text-gray-700">📋 Chi tiết từng nhân viên</h3>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-50 text-xs text-gray-500">
+                              <th className="text-left px-4 py-2.5">Nhân viên</th>
+                              <th className="text-center px-3 py-2.5">Tổng</th>
+                              <th className="text-center px-3 py-2.5 text-green-600">⚡ Nhanh</th>
+                              <th className="text-center px-3 py-2.5 text-blue-600">• Thường</th>
+                              <th className="text-center px-3 py-2.5 text-gray-400">↓ Thấp</th>
+                              <th className="text-center px-3 py-2.5 text-orange-500">Hẹn</th>
+                              <th className="text-center px-3 py-2.5 text-pink-500">Mai báo lại</th>
+                              <th className="text-center px-3 py-2.5 text-indigo-600">% Nhanh</th>
+                              <th className="text-center px-3 py-2.5 text-gray-400">% Tổng</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {staffList.map((s, i) => {
+                              const fastPct  = s.total > 0 ? Math.round(s.fast * 100 / s.total) : 0
+                              const sharePct = grandTotal > 0 ? Math.round(s.total * 100 / grandTotal) : 0
+                              return (
+                                <tr key={s.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                                  <td className="px-4 py-2.5 font-medium" style={{ color: COLORS[i % COLORS.length] }}>● {s.name}</td>
+                                  <td className="text-center px-3 py-2.5 font-bold text-gray-800">{s.total}</td>
+                                  <td className="text-center px-3 py-2.5 text-green-600">{s.fast}</td>
+                                  <td className="text-center px-3 py-2.5 text-blue-600">{s.normal}</td>
+                                  <td className="text-center px-3 py-2.5 text-gray-400">{s.low}</td>
+                                  <td className="text-center px-3 py-2.5 text-orange-500">{s.hen}</td>
+                                  <td className="text-center px-3 py-2.5 text-pink-500">{s.maiBoLai}</td>
+                                  <td className="text-center px-3 py-2.5">
+                                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                      fastPct >= 80 ? 'bg-green-100 text-green-700' :
+                                      fastPct >= 60 ? 'bg-yellow-100 text-yellow-700' :
+                                      'bg-red-100 text-red-600'
+                                    }`}>{fastPct}%</span>
+                                  </td>
+                                  <td className="text-center px-3 py-2.5 text-gray-400 text-xs">{sharePct}%</td>
+                                </tr>
+                              )
+                            })}
+                            <tr className="bg-indigo-50 border-t-2 border-indigo-100 font-bold">
+                              <td className="px-4 py-2.5 text-indigo-700">Tổng cộng</td>
+                              <td className="text-center px-3 py-2.5 text-indigo-700">{grandTotal}</td>
+                              <td className="text-center px-3 py-2.5 text-green-600">{grandFast}</td>
+                              <td className="text-center px-3 py-2.5 text-blue-600">{staffList.reduce((s,x)=>s+x.normal,0)}</td>
+                              <td className="text-center px-3 py-2.5 text-gray-400">{staffList.reduce((s,x)=>s+x.low,0)}</td>
+                              <td className="text-center px-3 py-2.5 text-orange-500">{grandHen}</td>
+                              <td className="text-center px-3 py-2.5 text-pink-500">{grandMai}</td>
+                              <td className="text-center px-3 py-2.5">
+                                <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  grandTotal > 0 && Math.round(grandFast*100/grandTotal) >= 80 ? 'bg-green-100 text-green-700' :
+                                  grandTotal > 0 && Math.round(grandFast*100/grandTotal) >= 60 ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-red-100 text-red-600'
+                                }`}>{grandTotal > 0 ? Math.round(grandFast * 100 / grandTotal) : 0}%</span>
+                              </td>
+                              <td className="text-center px-3 py-2.5 text-indigo-400 text-xs">100%</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })()
 
         ) : /* activeTab === 'stats' */ (
           /* ── Tab: Thống kê — CRM data, UI cũ ── */

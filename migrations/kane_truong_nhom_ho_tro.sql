@@ -14,8 +14,8 @@ BEGIN
 
   SELECT id INTO v_role_id FROM roles WHERE name = 'Truong nhom Ho tro';
 
-  -- 2. Gán các permissions cho role này
-  INSERT INTO role_permissions (role_id, permission_key) VALUES
+  -- 2. Gán các permissions cho role này (cột đúng là "permission", không phải "permission_key")
+  INSERT INTO role_permissions (role_id, permission) VALUES
     (v_role_id, 'ho_tro:read'),
     (v_role_id, 'ho_tro:write'),
     (v_role_id, 'ho_tro:admin'),
@@ -33,10 +33,10 @@ BEGIN
     RAISE EXCEPTION 'Không tìm thấy tài khoản kane@eup.net.vn';
   END IF;
 
-  -- 4. Gán role cho Kane (upsert — giữ nguyên nếu đã có)
+  -- 4. Gán role cho Kane (DELETE + INSERT vì không có unique constraint trên user_id)
+  DELETE FROM user_roles WHERE user_id = v_user_id;
   INSERT INTO user_roles (user_id, user_email, role_id)
-  VALUES (v_user_id, 'kane@eup.net.vn', v_role_id)
-  ON CONFLICT (user_id) DO UPDATE SET role_id = EXCLUDED.role_id;
+  VALUES (v_user_id, 'kane@eup.net.vn', v_role_id);
 
   RAISE NOTICE 'Đã gán role "Truong nhom Ho tro" cho Kane (user_id: %)', v_user_id;
 
