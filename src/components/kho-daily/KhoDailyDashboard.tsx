@@ -96,18 +96,26 @@ function DeviceSelect({ value, onChange }: { value: string; onChange: (v: string
 
 /** One row in UP Thành Phẩm or Hàng Gửi sections */
 function DeviceRow({
-  item, onChange, onRemove,
-}: { item: DeviceQty; onChange: (v: DeviceQty) => void; onRemove: () => void }) {
+  item, onChange, onRemove, accentColor = 'blue',
+}: { item: DeviceQty; onChange: (v: DeviceQty) => void; onRemove: () => void; accentColor?: string }) {
+  const adj = (delta: number) => onChange({ ...item, qty: Math.max(0, (item.qty || 0) + delta) })
   return (
-    <div className="flex gap-2 items-center">
+    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm hover:border-gray-300 transition group">
       <DeviceSelect value={item.device} onChange={d => onChange({ ...item, device: d })} />
-      <input
-        type="number" min="0" placeholder="SL"
-        value={item.qty || ''}
-        onChange={e => onChange({ ...item, qty: parseInt(e.target.value) || 0 })}
-        className="border border-gray-300 rounded px-2 py-1 text-sm w-20 text-right"
-      />
-      <button onClick={onRemove} className="text-red-400 hover:text-red-600 text-lg leading-none px-1">×</button>
+      <div className="flex items-center gap-1 ml-auto flex-shrink-0">
+        <button onClick={() => adj(-1)}
+          className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">−</button>
+        <input
+          type="number" min="0"
+          value={item.qty || ''}
+          onChange={e => onChange({ ...item, qty: parseInt(e.target.value) || 0 })}
+          className="w-14 text-center border border-gray-200 rounded-lg py-1 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+        />
+        <button onClick={() => adj(1)}
+          className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">+</button>
+      </div>
+      <button onClick={onRemove}
+        className="w-7 h-7 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-lg leading-none transition ml-1">×</button>
     </div>
   )
 }
@@ -116,24 +124,39 @@ function DeviceRow({
 function ThuHoiRow({
   item, onChange, onRemove,
 }: { item: ThuHoiItem; onChange: (v: ThuHoiItem) => void; onRemove: () => void }) {
+  const adj = (delta: number) => onChange({ ...item, qty: Math.max(0, (item.qty || 0) + delta) })
+  const loaiBadge = item.loai === 'Dùng được'
+    ? 'bg-green-100 text-green-700 border-green-200'
+    : item.loai === 'Không dùng được'
+    ? 'bg-red-100 text-red-700 border-red-200'
+    : 'bg-amber-100 text-amber-700 border-amber-200'
   return (
-    <div className="flex gap-2 items-center flex-wrap">
-      <select
-        value={item.loai}
-        onChange={e => onChange({ ...item, loai: e.target.value })}
-        className="border border-gray-300 rounded px-2 py-1 text-sm w-40"
-      >
-        <option value="">-- Loại --</option>
-        {THU_HOI_LOAI.map(l => <option key={l} value={l}>{l}</option>)}
-      </select>
-      <DeviceSelect value={item.device} onChange={d => onChange({ ...item, device: d })} />
-      <input
-        type="number" min="0" placeholder="SL"
-        value={item.qty || ''}
-        onChange={e => onChange({ ...item, qty: parseInt(e.target.value) || 0 })}
-        className="border border-gray-300 rounded px-2 py-1 text-sm w-20 text-right"
-      />
-      <button onClick={onRemove} className="text-red-400 hover:text-red-600 text-lg leading-none px-1">×</button>
+    <div className="bg-white border border-gray-200 rounded-xl px-3 py-2.5 shadow-sm hover:border-gray-300 transition space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <select
+          value={item.loai}
+          onChange={e => onChange({ ...item, loai: e.target.value })}
+          className={'border rounded-lg px-2 py-1 text-xs font-medium ' + loaiBadge}
+        >
+          <option value="">-- Trạng thái --</option>
+          {THU_HOI_LOAI.map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
+        <DeviceSelect value={item.device} onChange={d => onChange({ ...item, device: d })} />
+        <div className="flex items-center gap-1 ml-auto">
+          <button onClick={() => adj(-1)}
+            className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">−</button>
+          <input
+            type="number" min="0"
+            value={item.qty || ''}
+            onChange={e => onChange({ ...item, qty: parseInt(e.target.value) || 0 })}
+            className="w-14 text-center border border-gray-200 rounded-lg py-1 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-red-300"
+          />
+          <button onClick={() => adj(1)}
+            className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">+</button>
+        </div>
+        <button onClick={onRemove}
+          className="w-7 h-7 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-lg leading-none transition">×</button>
+      </div>
     </div>
   )
 }
@@ -142,22 +165,30 @@ function ThuHoiRow({
 function OtherRow({
   item, onChange, onRemove,
 }: { item: OtherTask; onChange: (v: OtherTask) => void; onRemove: () => void }) {
+  const adj = (delta: number) => onChange({ ...item, qty: Math.max(0, (item.qty || 0) + delta) })
   return (
-    <div className="flex gap-2 items-center flex-wrap">
+    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm hover:border-gray-300 transition flex-wrap">
       <input
-        type="text" placeholder="Công việc"
+        type="text" placeholder="Tên công việc..."
         value={item.task}
         onChange={e => onChange({ ...item, task: e.target.value })}
-        className="border border-gray-300 rounded px-2 py-1 text-sm w-40"
+        className="border border-gray-200 rounded-lg px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-amber-300"
       />
       <DeviceSelect value={item.device} onChange={d => onChange({ ...item, device: d })} />
-      <input
-        type="number" min="0" placeholder="SL"
-        value={item.qty || ''}
-        onChange={e => onChange({ ...item, qty: parseInt(e.target.value) || 0 })}
-        className="border border-gray-300 rounded px-2 py-1 text-sm w-20 text-right"
-      />
-      <button onClick={onRemove} className="text-red-400 hover:text-red-600 text-lg leading-none px-1">×</button>
+      <div className="flex items-center gap-1 ml-auto">
+        <button onClick={() => adj(-1)}
+          className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">−</button>
+        <input
+          type="number" min="0"
+          value={item.qty || ''}
+          onChange={e => onChange({ ...item, qty: parseInt(e.target.value) || 0 })}
+          className="w-14 text-center border border-gray-200 rounded-lg py-1 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-300"
+        />
+        <button onClick={() => adj(1)}
+          className="w-7 h-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 flex items-center justify-center text-base leading-none transition">+</button>
+      </div>
+      <button onClick={onRemove}
+        className="w-7 h-7 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center text-lg leading-none transition">×</button>
     </div>
   )
 }
@@ -858,106 +889,224 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
       )}
 
             {/* ── TAB: NHAP LIEU ────────────────────────────────────────────────── */}
-      {activeTab === 'entry' && (
-        <div className="space-y-4 max-w-2xl">
-          <div className="bg-white rounded-lg shadow p-6 space-y-5">
-            <h3 className="font-semibold text-gray-700 text-lg">Nhập liệu hàng ngày</h3>
+      {activeTab === 'entry' && (() => {
+        const tpTotal  = entryThanhPham.reduce((s, x) => s + (x.qty || 0), 0)
+        const guiTotal = entryHangGui.reduce((s, x) => s + (x.qty || 0), 0)
+        const hoiTotal = entryThuHoi.reduce((s, x) => s + (x.qty || 0), 0)
+        const otherTotal = entryOther.reduce((s, x) => s + (x.qty || 0), 0)
+        const grandTotal = tpTotal + guiTotal + hoiTotal + otherTotal
+        return (
+        <div className="space-y-3 max-w-2xl">
 
-            {/* Person + Date */}
-            <div className="grid grid-cols-2 gap-4">
+          {/* ── Header: person + date ── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Thông tin nhập liệu</p>
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nhân viên</label>
+                <label className="block text-xs text-gray-500 mb-1">Nhân viên</label>
                 <select value={entryPerson} onChange={e => setEntryPerson(e.target.value)}
-                  className="border border-gray-300 rounded px-3 py-2 text-sm w-full">
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-gray-50">
                   {PERSONS.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ngày</label>
+                <label className="block text-xs text-gray-500 mb-1">Ngày nhập</label>
                 <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)}
-                  className="border border-gray-300 rounded px-3 py-2 text-sm w-full" />
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-gray-50" />
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nhãn tuần</label>
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs text-gray-400">Nhãn tuần:</span>
               <input type="text" value={entryWeek} onChange={e => setEntryWeek(e.target.value)}
-                placeholder="Tự động tính hoặc nhập tay"
-                className="border border-gray-300 rounded px-3 py-2 text-sm w-full" />
+                className="flex-1 border-0 border-b border-dashed border-gray-200 text-xs text-gray-600 py-0.5 focus:outline-none focus:border-blue-400 bg-transparent" />
             </div>
-
-            {/* UP Thành Phẩm */}
-            <SectionCard title="UP Thành Phẩm" color="blue">
-              <div className="space-y-2">
-                {entryThanhPham.map((item, i) => (
-                  <DeviceRow key={i} item={item}
-                    onChange={v => setEntryThanhPham(arr => arr.map((x, j) => j === i ? v : x))}
-                    onRemove={() => setEntryThanhPham(arr => arr.filter((_, j) => j !== i))}
-                  />
-                ))}
-                <button onClick={() => setEntryThanhPham(arr => [...arr, { device: '', qty: 0 }])}
-                  className="text-blue-600 hover:text-blue-800 text-sm font-medium">+ Thêm thiết bị</button>
-              </div>
-            </SectionCard>
-
-            {/* Hàng Gửi VP */}
-            <SectionCard title="Hàng Gửi Các Văn Phòng" color="emerald">
-              <div className="space-y-2">
-                {entryHangGui.map((item, i) => (
-                  <DeviceRow key={i} item={item}
-                    onChange={v => setEntryHangGui(arr => arr.map((x, j) => j === i ? v : x))}
-                    onRemove={() => setEntryHangGui(arr => arr.filter((_, j) => j !== i))}
-                  />
-                ))}
-                <button onClick={() => setEntryHangGui(arr => [...arr, { device: '', qty: 0 }])}
-                  className="text-emerald-600 hover:text-emerald-800 text-sm font-medium">+ Thêm thiết bị</button>
-              </div>
-            </SectionCard>
-
-            {/* Thu Hồi */}
-            <SectionCard title="Thu Hồi Thiết Bị Lỗi" color="red">
-              <div className="space-y-2">
-                {entryThuHoi.map((item, i) => (
-                  <ThuHoiRow key={i} item={item}
-                    onChange={v => setEntryThuHoi(arr => arr.map((x, j) => j === i ? v : x))}
-                    onRemove={() => setEntryThuHoi(arr => arr.filter((_, j) => j !== i))}
-                  />
-                ))}
-                <button onClick={() => setEntryThuHoi(arr => [...arr, { loai: 'Dùng được', device: '', qty: 0 }])}
-                  className="text-red-600 hover:text-red-800 text-sm font-medium">+ Thêm thiết bị thu hồi</button>
-              </div>
-            </SectionCard>
-
-            {/* Công việc khác */}
-            <SectionCard title="Công Việc Khác" color="amber">
-              <div className="space-y-2">
-                {entryOther.map((item, i) => (
-                  <OtherRow key={i} item={item}
-                    onChange={v => setEntryOther(arr => arr.map((x, j) => j === i ? v : x))}
-                    onRemove={() => setEntryOther(arr => arr.filter((_, j) => j !== i))}
-                  />
-                ))}
-                <button onClick={() => setEntryOther(arr => [...arr, { task: '', device: '', qty: 0 }])}
-                  className="text-amber-600 hover:text-amber-800 text-sm font-medium">+ Thêm công việc</button>
-              </div>
-            </SectionCard>
-
-            {/* Submit */}
-            {entrySuccess && (
-              <div className="p-3 bg-green-50 text-green-700 rounded text-sm">{entrySuccess}</div>
-            )}
-            {entryError && (
-              <div className="p-3 bg-red-50 text-red-700 rounded text-sm">{entryError}</div>
-            )}
-            <button
-              onClick={handleEntrySubmit}
-              disabled={entrySubmitting}
-              className="w-full py-2 bg-blue-600 text-white rounded font-medium text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {entrySubmitting ? 'Đang lưu...' : 'Lưu dữ liệu'}
-            </button>
           </div>
+
+          {/* ── UP Thành Phẩm ── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-blue-100 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-blue-50 border-b border-blue-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></span>
+                <span className="font-semibold text-blue-800 text-sm">UP Thành Phẩm</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {entryThanhPham.length > 0 && (
+                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                    {entryThanhPham.length} loại · <strong>{tpTotal}</strong> chiếc
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              {entryThanhPham.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">Chưa có thiết bị nào. Nhấn nút bên dưới để thêm.</p>
+              )}
+              {entryThanhPham.map((item, i) => (
+                <DeviceRow key={i} item={item} accentColor="blue"
+                  onChange={v => setEntryThanhPham(arr => arr.map((x, j) => j === i ? v : x))}
+                  onRemove={() => setEntryThanhPham(arr => arr.filter((_, j) => j !== i))}
+                />
+              ))}
+              <button onClick={() => setEntryThanhPham(arr => [...arr, { device: '', qty: 0 }])}
+                className="w-full mt-1 py-2 text-sm text-blue-600 hover:text-blue-800 font-medium border border-dashed border-blue-200 rounded-xl hover:bg-blue-50 transition">
+                + Thêm thiết bị
+              </button>
+            </div>
+          </div>
+
+          {/* ── Hàng Gửi VP ── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-emerald-100 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-emerald-50 border-b border-emerald-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                <span className="font-semibold text-emerald-800 text-sm">Hàng Gửi Các Văn Phòng</span>
+              </div>
+              {entryHangGui.length > 0 && (
+                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+                  {entryHangGui.length} loại · <strong>{guiTotal}</strong> chiếc
+                </span>
+              )}
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              {entryHangGui.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">Chưa có thiết bị nào.</p>
+              )}
+              {entryHangGui.map((item, i) => (
+                <DeviceRow key={i} item={item} accentColor="emerald"
+                  onChange={v => setEntryHangGui(arr => arr.map((x, j) => j === i ? v : x))}
+                  onRemove={() => setEntryHangGui(arr => arr.filter((_, j) => j !== i))}
+                />
+              ))}
+              <button onClick={() => setEntryHangGui(arr => [...arr, { device: '', qty: 0 }])}
+                className="w-full mt-1 py-2 text-sm text-emerald-600 hover:text-emerald-800 font-medium border border-dashed border-emerald-200 rounded-xl hover:bg-emerald-50 transition">
+                + Thêm thiết bị
+              </button>
+            </div>
+          </div>
+
+          {/* ── Thu Hồi ── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-red-100 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-red-50 border-b border-red-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>
+                <span className="font-semibold text-red-800 text-sm">Thu Hồi Thiết Bị Lỗi</span>
+              </div>
+              {entryThuHoi.length > 0 && (
+                <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">
+                  {entryThuHoi.length} mục · <strong>{hoiTotal}</strong> chiếc
+                </span>
+              )}
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              {entryThuHoi.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">Chưa có thiết bị nào.</p>
+              )}
+              {entryThuHoi.map((item, i) => (
+                <ThuHoiRow key={i} item={item}
+                  onChange={v => setEntryThuHoi(arr => arr.map((x, j) => j === i ? v : x))}
+                  onRemove={() => setEntryThuHoi(arr => arr.filter((_, j) => j !== i))}
+                />
+              ))}
+              <button onClick={() => setEntryThuHoi(arr => [...arr, { loai: 'Dùng được', device: '', qty: 0 }])}
+                className="w-full mt-1 py-2 text-sm text-red-600 hover:text-red-800 font-medium border border-dashed border-red-200 rounded-xl hover:bg-red-50 transition">
+                + Thêm thiết bị thu hồi
+              </button>
+            </div>
+          </div>
+
+          {/* ── Công việc khác ── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-amber-100 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-amber-50 border-b border-amber-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
+                <span className="font-semibold text-amber-800 text-sm">Công Việc Khác</span>
+              </div>
+              {entryOther.length > 0 && (
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                  {entryOther.length} việc · <strong>{otherTotal}</strong>
+                </span>
+              )}
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              {entryOther.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">Không có công việc phát sinh.</p>
+              )}
+              {entryOther.map((item, i) => (
+                <OtherRow key={i} item={item}
+                  onChange={v => setEntryOther(arr => arr.map((x, j) => j === i ? v : x))}
+                  onRemove={() => setEntryOther(arr => arr.filter((_, j) => j !== i))}
+                />
+              ))}
+              <button onClick={() => setEntryOther(arr => [...arr, { task: '', device: '', qty: 0 }])}
+                className="w-full mt-1 py-2 text-sm text-amber-600 hover:text-amber-800 font-medium border border-dashed border-amber-200 rounded-xl hover:bg-amber-50 transition">
+                + Thêm công việc
+              </button>
+            </div>
+          </div>
+
+          {/* ── Summary + Save ── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            {grandTotal > 0 && (
+              <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                <p className="text-xs text-gray-500 mb-2 font-medium">Tóm tắt lần nhập này</p>
+                <div className="flex flex-wrap gap-3">
+                  {tpTotal > 0 && (
+                    <div className="flex items-center gap-1.5 bg-blue-50 rounded-lg px-3 py-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                      <span className="text-xs text-blue-700">UP TP</span>
+                      <span className="text-sm font-bold text-blue-800">{tpTotal}</span>
+                    </div>
+                  )}
+                  {guiTotal > 0 && (
+                    <div className="flex items-center gap-1.5 bg-emerald-50 rounded-lg px-3 py-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      <span className="text-xs text-emerald-700">Gửi VP</span>
+                      <span className="text-sm font-bold text-emerald-800">{guiTotal}</span>
+                    </div>
+                  )}
+                  {hoiTotal > 0 && (
+                    <div className="flex items-center gap-1.5 bg-red-50 rounded-lg px-3 py-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                      <span className="text-xs text-red-700">Thu Hồi</span>
+                      <span className="text-sm font-bold text-red-800">{hoiTotal}</span>
+                    </div>
+                  )}
+                  {otherTotal > 0 && (
+                    <div className="flex items-center gap-1.5 bg-amber-50 rounded-lg px-3 py-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                      <span className="text-xs text-amber-700">Khác</span>
+                      <span className="text-sm font-bold text-amber-800">{otherTotal}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5 bg-gray-100 rounded-lg px-3 py-1.5 ml-auto">
+                    <span className="text-xs text-gray-500">Tổng</span>
+                    <span className="text-sm font-bold text-gray-800">{grandTotal}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="px-4 py-3 space-y-2">
+              {entrySuccess && (
+                <div className="flex items-center gap-2 p-3 bg-green-50 text-green-700 rounded-xl text-sm border border-green-100">
+                  <span className="text-base">✓</span> {entrySuccess}
+                </div>
+              )}
+              {entryError && (
+                <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm border border-red-100">{entryError}</div>
+              )}
+              <button
+                onClick={handleEntrySubmit}
+                disabled={entrySubmitting || grandTotal === 0}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md active:scale-[0.99]"
+              >
+                {entrySubmitting ? 'Đang lưu...' : grandTotal === 0 ? 'Nhập dữ liệu để lưu' : 'Lưu dữ liệu cho ' + entryPerson}
+              </button>
+            </div>
+          </div>
+
         </div>
-      )}
+        )
+      })()}
 
       {/* ── TAB: ĐỒNG BỘ GG SHEET ────────────────────────────────────────── */}
       {activeTab === 'sync' && (
