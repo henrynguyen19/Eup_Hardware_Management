@@ -1415,7 +1415,7 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
 }
 
 // ── Tab: Lịch sử + Import ──────────────────────────────────────
-function HistoryTab({ refreshKey }: { refreshKey: number }) {
+function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: boolean }) {
   const { t } = useLanguage()
   const [weeks, setWeeks] = useState<RepairWeek[]>([])
   const [loading, setLoading] = useState(true)
@@ -1492,20 +1492,21 @@ function HistoryTab({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <p className="text-sm font-semibold text-amber-800">{t.suaChua.historyImportTitle}</p>
-          <p className="text-xs text-amber-600 mt-0.5">{t.suaChua.historyImportDesc}</p>
+      {canWrite && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <p className="text-sm font-semibold text-amber-800">{t.suaChua.historyImportTitle}</p>
+            <p className="text-xs text-amber-600 mt-0.5">{t.suaChua.historyImportDesc}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {importResult && <p className="text-xs">{importResult}</p>}
+            <button onClick={handleImport} disabled={importing}
+              className="px-4 py-2 text-xs font-semibold text-white rounded-lg transition disabled:opacity-50"
+              style={{ background: '#164d81' }}
+            >{importing ? (t.common.loading ?? 'Đang import...') : t.suaChua.importFromSheets}</button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          {importResult && <p className="text-xs">{importResult}</p>}
-          <button onClick={handleImport} disabled={importing}
-            className="px-4 py-2 text-xs font-semibold text-white rounded-lg transition disabled:opacity-50"
-            style={{ background: '#164d81' }}
-          >{importing ? (t.common.loading ?? 'Đang import...') : t.suaChua.importFromSheets}</button>
-        </div>
-      </div>
-
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100">
@@ -1701,7 +1702,7 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
       <div className="px-6 py-5">
         {tab === 'dashboard' && <DashboardTab />}
         {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} faultConfigs={faultConfigs} />}
-        {tab === 'history'   && <HistoryTab refreshKey={refreshKey} />}
+        {tab === 'history'   && <HistoryTab refreshKey={refreshKey} canWrite={canWrite} />}
         {tab === 'config'    && (
           <FaultConfigPanel
             faultConfigs={faultConfigs}

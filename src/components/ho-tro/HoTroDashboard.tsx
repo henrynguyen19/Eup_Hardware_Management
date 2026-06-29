@@ -1238,7 +1238,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 />
               </div>
             )}
-            {/* Sync buttons + notifications */}
+            {/* Sync buttons + notifications (ẩn với tài khoản chỉ đọc) */}
             <div className="flex items-center gap-1.5 flex-wrap">
               {crmResult && (
                 <span className="text-[10px] text-gray-500 whitespace-nowrap max-w-[180px] truncate" title={crmResult}>
@@ -1255,8 +1255,8 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 </button>
               )}
 
-              {/* Per-staff sync buttons */}
-              {isAdmin ? (
+              {/* Per-staff sync buttons — chỉ hiện với tài khoản có quyền write */}
+              {canWrite && (isAdmin ? (
                 <>
                   {([
                     { name: 'Kane',   cls: 'border-blue-200   text-blue-600   hover:bg-blue-50'   },
@@ -1285,7 +1285,6 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   </button>
                 </>
               ) : (
-                // Non-admin: chỉ 1 nút sync của chính mình
                 <button
                   onClick={() => handleSyncStaff(staffConfig?.name ?? 'Self')}
                   disabled={crmSyncing}
@@ -1294,7 +1293,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 >
                   {crmSyncing ? '⏳' : '🔄'} Đồng bộ
                 </button>
-              )}
+              ))}
             </div>
 
             {/* Nhập liệu thủ công đã bỏ — dữ liệu lấy từ CRM */}
