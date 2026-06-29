@@ -23,9 +23,10 @@ interface Props {
   canSuaChua?: boolean
   canKho?: boolean
   canChungNhan?: boolean
+  canKhoDaily?: boolean
 }
 
-export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong = false, canSuaChua = false, canKho = false, canChungNhan = false }: Props) {
+export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong = false, canSuaChua = false, canKho = false, canChungNhan = false, canKhoDaily = false }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const [showChangePw, setShowChangePw] = useState(false)
@@ -39,6 +40,7 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
 
   const navItems: NavItem[] = [
     { icon: '📦', label: t.sidebar.deviceMgmt,  href: '/kho',          show: canKho || isAdmin },
+    { icon: '📋', label: 'Công việc Kho',        href: '/kho-daily',    show: canKhoDaily || isAdmin },
     { icon: '🛠️', label: t.sidebar.techSupport, href: '/ho-tro',       show: canHoTro || isAdmin },
     { icon: '📜', label: t.sidebar.certificate, href: '/chung-nhan',   show: canChungNhan || isAdmin },
     { icon: '📊', label: t.sidebar.repairStats, href: '/sua-chua',     show: canSuaChua || isAdmin },

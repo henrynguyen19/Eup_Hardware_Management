@@ -13,6 +13,7 @@ export default function AppShell({ userEmail, permissions, children }: Props) {
   const canSuaChua   = permissions.includes('sua_chua:read')   || isAdmin
   const canKho       = permissions.includes('kho:read')        || isAdmin
   const canChungNhan = permissions.includes('chung_nhan:read') || isAdmin
+  const canKhoDaily  = permissions.includes('kho_daily:read')  || isAdmin
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -24,6 +25,7 @@ export default function AppShell({ userEmail, permissions, children }: Props) {
         canSuaChua={canSuaChua}
         canKho={canKho}
         canChungNhan={canChungNhan}
+        canKhoDaily={canKhoDaily}
       />
       <div className="flex-1 min-w-0 overflow-hidden">
         {children}
