@@ -122,16 +122,43 @@ function fillThuHoiSection(row: string[], header2: string[], section: Section | 
 function fillOtherSection(row: string[], header2: string[], section: Section | undefined, tasks: OtherTask[]) {
   if (!section) return
   const { start, end } = section
-  const cvCols: number[] = []
-  for (let i = start; i < end; i++) {
-    if (norm(header2[i] || '').includes('cong viec')) cvCols.push(i)
+
+  // Build triplets by scanning header2: find each group of (cong viec, ten thiet bi, so luong)
+  // The triplets may not be perfectly at col+1, col+2 — scan explicitly
+  const triplets: Array<{ taskCol: number; deviceCol: number; qtyCol: number }> = []
+  let i = start
+  while (i < end) {
+    const hn = norm(header2[i] || '')
+    if (hn.includes('cong viec')) {
+      // Find next device col and qty col within the next few columns
+      let deviceCol = i + 1
+      let qtyCol    = i + 2
+      // Scan up to 4 cols ahead to find "ten thiet bi" and "so luong"
+      for (let j = i + 1; j < Math.min(i + 5, end); j++) {
+        const jn = norm(header2[j] || '')
+        if (jn.includes('ten thiet bi') || jn.includes('thiet bi')) deviceCol = j
+        else if (jn.includes('so luong') || jn.includes('quantity'))  qtyCol   = j
+      }
+      triplets.push({ taskCol: i, deviceCol, qtyCol })
+      i = qtyCol + 1
+    } else {
+      i++
+    }
   }
-  for (const c of cvCols) { row[c] = ''; if (c+1 < end) row[c+1] = ''; if (c+2 < end) row[c+2] = '' }
-  for (let i = 0; i < tasks.length && i < cvCols.length; i++) {
-    const col = cvCols[i]
-    row[col] = tasks[i].task || ''
-    if (col+1 < end) row[col+1] = tasks[i].device || ''
-    if (col+2 < end) row[col+2] = tasks[i].qty > 0 ? String(tasks[i].qty) : ''
+
+  // Clear all triplet columns first
+  for (const { taskCol, deviceCol, qtyCol } of triplets) {
+    row[taskCol]   = ''
+    if (deviceCol < end) row[deviceCol] = ''
+    if (qtyCol    < end) row[qtyCol]    = ''
+  }
+
+  // Write tasks into triplets
+  for (let t = 0; t < tasks.length && t < triplets.length; t++) {
+    const { taskCol, deviceCol, qtyCol } = triplets[t]
+    row[taskCol] = tasks[t].task || ''
+    if (deviceCol < end) row[deviceCol] = tasks[t].device || ''
+    if (qtyCol    < end) row[qtyCol]    = tasks[t].qty > 0 ? String(tasks[t].qty) : ''
   }
 }
 
