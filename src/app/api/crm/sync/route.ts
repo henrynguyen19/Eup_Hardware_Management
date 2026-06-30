@@ -165,7 +165,7 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form.toString(),
-    signal: AbortSignal.timeout(50_000),
+    signal: AbortSignal.timeout(90_000),  // tăng lên 90s — staff nhiều data như Stefan cần thời gian
   })
   if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
   const rawText = await resp.text()
@@ -177,7 +177,7 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
 }
 
 export const runtime     = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 300  // 5 phút — 5 staff × ~90s mỗi staff
 
 // ── POST /api/crm/sync ─────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
