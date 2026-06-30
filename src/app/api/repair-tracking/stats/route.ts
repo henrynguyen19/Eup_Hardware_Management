@@ -57,30 +57,46 @@ export async function GET(req: NextRequest) {
   const scrap     = items.filter(i => i.destination === 'scrap').length
   const supplier  = items.filter(i => i.destination === 'supplier').length
 
-  // ── 2. Thống kê theo IMEI (thiết bị lặp) ─────────────────────
-  const imeiMap = new Map<string, typeof items>()
+  // ── 2. Thống kê theo IMEI (thiết bị lặp) — gom theo loại ────
+  const imeiMap = new Map<string, { product_name: string; rows: typeof items }>()
   for (const it of items) {
     const key = it.imei?.trim() || `CRM-${it.crm_repair_id}`
-    if (!imeiMap.has(key)) imeiMap.set(key, [])
-    imeiMap.get(key)!.push(it)
+    if (!imeiMap.has(key)) imeiMap.set(key, { product_name: it.product_name, rows: [] })
+    imeiMap.get(key)!.rows.push(it)
   }
 
   // Chỉ lấy thiết bị xuất hiện > 1 lần
-  const duplicates = Array.from(imeiMap.entries())
-    .filter(([, rows]) => rows.length > 1)
-    .map(([imei, rows]) => ({
+  const repeatedDevices = Array.from(imeiMap.entries())
+    .filter(([, { rows }]) => rows.length > 1)
+    .map(([imei, { product_name, rows }]) => ({
       imei,
-      product_name:  rows[0].product_name,
-      count:         rows.length,
+      product_name: (product_name || 'Unknown').trim(),
+      count:        rows.length,
       last_received: rows[0].received_at,
-      statuses:      rows.map(r => r.status),
-      destinations:  rows.map(r => r.destination).filter(Boolean),
     }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 50)
 
-  const duplicateDeviceCount  = imeiMap.size   // unique devices
-  const repeatedDeviceCount   = duplicates.length
+  // Gom theo loại thiết bị
+  const productDupMap = new Map<string, { deviceCount: number; totalRepairs: number; devices: typeof repeatedDevices }>()
+  for (const d of repeatedDevices) {
+    const key = d.product_name
+    if (!productDupMap.has(key)) productDupMap.set(key, { deviceCount: 0, totalRepairs: 0, devices: [] })
+    const g = productDupMap.get(key)!
+    g.deviceCount++
+    g.totalRepairs += d.count
+    g.devices.push(d)
+  }
+
+  const duplicatesByProduct = Array.from(productDupMap.entries())
+    .map(([product_name, g]) => ({
+      product_name,
+      deviceCount:  g.deviceCount,
+      totalRepairs: g.totalRepairs,
+      devices: g.devices.sort((a, b) => b.count - a.count),
+    }))
+    .sort((a, b) => b.totalRepairs - a.totalRepairs)
+
+  const duplicateDeviceCount = imeiMap.size
+  const repeatedDeviceCount  = repeatedDevices.length
 
   // ── 3. Thống kê theo loại thiết bị (product_name) ────────────
   const productMap = new Map<string, {
@@ -138,7 +154,7 @@ export async function GET(req: NextRequest) {
     successRate:     completed > 0 ? Math.round(oldDevice / completed * 100) : 0,
     scrapRate:       completed > 0 ? Math.round(scrap    / completed * 100) : 0,
     supplierRate:    completed > 0 ? Math.round(supplier / completed * 100) : 0,
-    duplicates,
+    duplicatesByProduct,
     byProduct,
     byWarehouse,
   })

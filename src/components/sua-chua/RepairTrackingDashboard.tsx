@@ -24,12 +24,14 @@ interface RepairItem {
   crm_repair_id:    number | null
 }
 
+interface DupDevice { imei: string; product_name: string; count: number; last_received: string }
+interface DupProductGroup { product_name: string; deviceCount: number; totalRepairs: number; devices: DupDevice[] }
 interface StatsData {
   total: number; completed: number; inRepair: number; waiting: number
   oldDevice: number; scrap: number; supplier: number
   uniqueDevices: number; repeatedDeviceCount: number
   completionRate: number; successRate: number; scrapRate: number; supplierRate: number
-  duplicates: { imei: string; product_name: string; count: number; last_received: string; statuses: string[]; destinations: string[] }[]
+  duplicatesByProduct: DupProductGroup[]
   byProduct: { product_name: string; total: number; completed: number; oldDevice: number; scrap: number; supplier: number; inRepair: number; waiting: number; successRate: number; scrapRate: number; supplierRate: number }[]
   byWarehouse: { warehouse: string; total: number; completed: number; scrap: number; supplier: number }[]
 }
@@ -395,8 +397,7 @@ function StatsTab() {
   const [loading, setLoading] = useState(true)
   const [from, setFrom]     = useState('')
   const [to, setTo]         = useState('')
-  const [dupSort, setDupSort] = useState<'count' | 'name'>('count')
-  const [showAllDup, setShowAllDup] = useState(false)
+  const [expandedProduct, setExpandedProduct] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -413,12 +414,6 @@ function StatsTab() {
 
   if (loading) return <div className="py-12 text-center text-sm text-gray-400">Đang tải thống kê...</div>
   if (!stats)  return <div className="py-12 text-center text-sm text-red-400">Lỗi tải dữ liệu</div>
-
-  const sortedDups = [...stats.duplicates].sort(dupSort === 'count'
-    ? (a, b) => b.count - a.count
-    : (a, b) => a.product_name.localeCompare(b.product_name)
-  )
-  const visibleDups = showAllDup ? sortedDups : sortedDups.slice(0, 10)
 
   return (
     <div className="space-y-6">
@@ -489,43 +484,54 @@ function StatsTab() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Thiết bị lặp lại */}
+        {/* Thiết bị sửa nhiều lần — gom theo loại */}
         <div className="bg-white border border-orange-200 rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700">Thiết bị sửa nhiều lần</h3>
-              <p className="text-xs text-gray-400 mt-0.5">{stats.repeatedDeviceCount} thiết bị bị lặp</p>
-            </div>
-            <select value={dupSort} onChange={e => setDupSort(e.target.value as 'count' | 'name')}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none">
-              <option value="count">Nhiều nhất</option>
-              <option value="name">Tên thiết bị</option>
-            </select>
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-gray-700">Thiết bị sửa nhiều lần</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {stats.repeatedDeviceCount} thiết bị · {stats.duplicatesByProduct.length} loại
+            </p>
           </div>
-          {sortedDups.length === 0 ? (
+          {stats.duplicatesByProduct.length === 0 ? (
             <p className="text-xs text-gray-400 py-4 text-center">Không có thiết bị nào sửa nhiều lần</p>
           ) : (
-            <div className="space-y-2">
-              {visibleDups.map(d => (
-                <div key={d.imei} className="flex items-start justify-between py-2 border-b border-gray-50 last:border-0">
-                  <div className="flex-1 min-w-0 pr-2">
-                    <p className="text-xs font-medium text-gray-700 truncate">{d.product_name}</p>
-                    <p className="text-xs font-mono text-gray-400">{d.imei}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">
-                      {d.count}x
-                    </span>
-                    <p className="text-xs text-gray-400 mt-0.5">{fmtDate(d.last_received)}</p>
-                  </div>
+            <div className="space-y-1">
+              {stats.duplicatesByProduct.map(g => (
+                <div key={g.product_name} className="border border-gray-100 rounded-xl overflow-hidden">
+                  {/* Header loại thiết bị */}
+                  <button
+                    onClick={() => setExpandedProduct(expandedProduct === g.product_name ? null : g.product_name)}
+                    className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-orange-50 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-medium text-gray-800">{g.product_name}</span>
+                      <span className="text-xs text-gray-400">{g.deviceCount} thiết bị</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">
+                        {g.totalRepairs} lượt
+                      </span>
+                      <span className="text-gray-400 text-xs">{expandedProduct === g.product_name ? '▲' : '▼'}</span>
+                    </div>
+                  </button>
+                  {/* Danh sách thiết bị trong loại */}
+                  {expandedProduct === g.product_name && (
+                    <div className="border-t border-gray-100 bg-gray-50 divide-y divide-gray-100">
+                      {g.devices.map(d => (
+                        <div key={d.imei} className="flex items-center justify-between px-5 py-2">
+                          <div>
+                            <p className="text-xs font-mono text-gray-600">{d.imei}</p>
+                            <p className="text-xs text-gray-400">Lần cuối: {fmtDate(d.last_received)}</p>
+                          </div>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">
+                            {d.count}x
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
-              {sortedDups.length > 10 && (
-                <button onClick={() => setShowAllDup(v => !v)}
-                  className="text-xs text-blue-500 hover:underline mt-1">
-                  {showAllDup ? 'Thu gọn' : `Xem thêm ${sortedDups.length - 10} thiết bị`}
-                </button>
-              )}
             </div>
           )}
         </div>
