@@ -207,47 +207,56 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Map + upsert theo crm_repair_id
+  // Map records
   const rows = records.map(mapRecord)
-  const crmIds = rows.map(r => r.crm_repair_id).filter(Boolean)
-
-  // Lấy danh sách crm_repair_id đã có trong DB
-  const existingIds = new Set<number>()
-  for (let i = 0; i < crmIds.length; i += 500) {
-    const { data } = await db
-      .from('repair_items')
-      .select('crm_repair_id')
-      .in('crm_repair_id', crmIds.slice(i, i + 500))
-    for (const row of (data ?? [])) {
-      if (row.crm_repair_id) existingIds.add(row.crm_repair_id)
-    }
-  }
-
-  const toInsert = rows.filter(r => !existingIds.has(r.crm_repair_id))
-  const toUpdate = rows.filter(r =>  existingIds.has(r.crm_repair_id))
+  const crmIds = rows.map(r => r.crm_repair_id) as number[]
 
   let upserted = 0
   const errors: string[] = []
 
-  // Insert mới
-  for (let i = 0; i < toInsert.length; i += 50) {
-    const batch = toInsert.slice(i, i + 50)
-    const { error } = await db.from('repair_items').insert(batch)
-    if (error) errors.push(`insert: ${error.message}`)
-    else upserted += batch.length
-  }
-
-  // Update existing — dùng crm_repair_id làm key
-  for (const row of toUpdate) {
+  // ── Thử upsert (nếu unique index đã được tạo) ────────────────
+  let upsertSupported = true
+  for (let i = 0; i < rows.length; i += 100) {
+    const batch = rows.slice(i, i + 100)
     const { error } = await db
       .from('repair_items')
-      .update(row)
-      .eq('crm_repair_id', row.crm_repair_id)
-    if (error) errors.push(`update ${row.crm_repair_id}: ${error.message}`)
-    else upserted++
+      .upsert(batch, { onConflict: 'crm_repair_id', ignoreDuplicates: false })
+    if (error) {
+      if (error.message.includes('no unique') || error.message.includes('ON CONFLICT')) {
+        // Unique index chưa tạo — fallback về insert-only
+        upsertSupported = false
+        console.warn('[repair/sync-crm] Unique index chưa có, fallback insert-only')
+        break
+      }
+      errors.push(error.message)
+    } else {
+      upserted += batch.length
+    }
   }
 
-  console.log(`[repair/sync-crm] insert=${toInsert.length} update=${toUpdate.length} errors=${errors.length}`)
+  // ── Fallback: chỉ insert record mới (skip update để tránh timeout) ──
+  if (!upsertSupported) {
+    const existingIds = new Set<number>()
+    for (let i = 0; i < crmIds.length; i += 500) {
+      const { data } = await db
+        .from('repair_items')
+        .select('crm_repair_id')
+        .in('crm_repair_id', crmIds.slice(i, i + 500))
+      for (const row of (data ?? [])) {
+        if (row.crm_repair_id) existingIds.add(row.crm_repair_id as number)
+      }
+    }
+    const toInsert = rows.filter(r => !existingIds.has(r.crm_repair_id))
+    for (let i = 0; i < toInsert.length; i += 100) {
+      const batch = toInsert.slice(i, i + 100)
+      const { error } = await db.from('repair_items').insert(batch)
+      if (error) errors.push(`insert: ${error.message}`)
+      else upserted += batch.length
+    }
+    console.log(`[repair/sync-crm] fallback insert-only: ${toInsert.length} mới / ${rows.length} total`)
+  } else {
+    console.log(`[repair/sync-crm] upsert OK: ${upserted}/${rows.length}`)
+  }
 
   return NextResponse.json({
     ok:        errors.length === 0,
