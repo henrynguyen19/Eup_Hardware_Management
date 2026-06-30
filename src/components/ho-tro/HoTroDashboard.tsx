@@ -745,11 +745,20 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   }
 
   // Derive sorted list of ISO week keys from current records
+  // Always include current week so user can navigate to it even if no data yet
   const allWeekKeys = useMemo(() => {
     const source = (activeTab === 'stats' && isAdmin)
       ? Object.values(staffDataMap).flat()
       : records
     const keys = new Set(source.filter(r => r.total_requests > 0).map(r => getISOWeekKey(r.sortKey)))
+    // Always add current week
+    const now = new Date()
+    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+    const day = d.getUTCDay() || 7
+    d.setUTCDate(d.getUTCDate() + 4 - day)
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+    const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+    keys.add(`${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`)
     return Array.from(keys).sort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [records, staffDataMap, activeTab, isAdmin])
