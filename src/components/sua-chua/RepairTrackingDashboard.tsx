@@ -102,16 +102,13 @@ function SyncCRMPanel({ onSynced }: { onSynced: () => void }) {
   const [result, setResult]   = useState<{ ok: boolean; total: number; upserted: number; inserted?: number; updated?: number; errors?: string[] } | null>(null)
   const [err, setErr]         = useState('')
 
-  async function handleSync() {
+  async function doSync(payload: object) {
     setLoading(true); setErr(''); setResult(null)
     try {
       const res = await fetch('/api/repair-tracking/sync-crm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startTime: `${from} 00:00:00`,
-          endTime:   `${to} 23:59:59`,
-        }),
+        body: JSON.stringify(payload),
       })
       const d = await res.json()
       if (!res.ok) { setErr(d.error || 'Lỗi sync'); return }
@@ -125,26 +122,38 @@ function SyncCRMPanel({ onSynced }: { onSynced: () => void }) {
   }
 
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className="block text-xs font-medium text-blue-700 mb-1">Từ ngày</label>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-            className="border border-blue-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-blue-700 mb-1">Đến ngày</label>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)}
-            className="border border-blue-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300" />
-        </div>
-        <button onClick={handleSync} disabled={loading}
+    <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-3">
+      {/* Nút incremental — sync mặc định */}
+      <div className="flex items-center gap-3">
+        <button onClick={() => doSync({})} disabled={loading}
           className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white text-sm rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-sm">
-          {loading
-            ? <><span className="animate-spin">⟳</span> Đang tải...</>
-            : <>🔄 Đồng bộ từ CRM</>
-          }
+          {loading ? <><span className="animate-spin">⟳</span> Đang tải...</> : <>⚡ Sync dữ liệu mới</>}
         </button>
+        <p className="text-xs text-blue-600">Tự động lấy từ record mới nhất trong DB</p>
       </div>
+
+      {/* Sync theo khoảng thời gian */}
+      <details className="group">
+        <summary className="text-xs text-blue-500 cursor-pointer hover:underline list-none">
+          ▸ Sync theo khoảng thời gian cụ thể
+        </summary>
+        <div className="flex flex-wrap items-end gap-3 mt-2">
+          <div>
+            <label className="block text-xs font-medium text-blue-700 mb-1">Từ ngày</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+              className="border border-blue-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-blue-700 mb-1">Đến ngày</label>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)}
+              className="border border-blue-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+          <button onClick={() => doSync({ startTime: `${from} 00:00:00`, endTime: `${to} 23:59:59` })} disabled={loading}
+            className="flex items-center gap-2 px-4 py-1.5 bg-gray-600 text-white text-sm rounded-xl hover:bg-gray-700 disabled:opacity-50">
+            🔄 Đồng bộ theo ngày
+          </button>
+        </div>
+      </details>
 
       {err && <p className="text-xs text-red-600 mt-2">⚠ {err}</p>}
 

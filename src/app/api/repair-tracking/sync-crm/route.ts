@@ -152,17 +152,48 @@ export async function POST(req: NextRequest) {
     startTime?: string
     endTime?:   string
     staffName?: string
+    mode?:      'incremental' | 'full'  // incremental = chỉ từ record mới nhất, full = theo date range
   }
 
-  // Default: 30 ngày gần nhất
-  const now   = new Date()
-  const ago30 = new Date(now.getTime() - 30 * 86400000)
-  const pad   = (n: number) => String(n).padStart(2, '0')
-  const fmt   = (d: Date)   =>
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const fmt = (d: Date)   =>
     `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} 00:00:00`
+  const now = new Date()
 
-  const startTime = body.startTime || fmt(ago30)
-  const endTime   = body.endTime   || fmt(now).replace('00:00:00', '23:59:59')
+  let startTime: string
+  let endTime:   string
+
+  if (body.startTime) {
+    // Người dùng chọn khoảng thời gian thủ công
+    startTime = body.startTime
+    endTime   = body.endTime ?? fmt(now).replace('00:00:00', '23:59:59')
+  } else if (body.mode === 'full') {
+    // Full sync — 30 ngày
+    const ago30 = new Date(now.getTime() - 30 * 86400000)
+    startTime = fmt(ago30)
+    endTime   = fmt(now).replace('00:00:00', '23:59:59')
+  } else {
+    // Incremental (default): tìm Repair_InsertDate mới nhất trong DB → sync từ đó
+    const { data: latestRow } = await db
+      .from('repair_items')
+      .select('received_at')
+      .order('received_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (latestRow?.received_at) {
+      // Lùi 1 ngày để tránh bỏ sót do chênh lệch múi giờ
+      const latestDate = new Date(latestRow.received_at)
+      latestDate.setDate(latestDate.getDate() - 1)
+      startTime = fmt(latestDate)
+      console.log(`[repair/sync-crm] incremental từ ${startTime} (latest DB: ${latestRow.received_at})`)
+    } else {
+      // DB trống — sync 30 ngày gần nhất
+      const ago30 = new Date(now.getTime() - 30 * 86400000)
+      startTime = fmt(ago30)
+    }
+    endTime = fmt(now).replace('00:00:00', '23:59:59')
+  }
 
   // Lấy CRM session
   let sessionId: string, identity: string
