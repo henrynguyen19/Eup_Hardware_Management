@@ -24,6 +24,16 @@ interface RepairItem {
   crm_repair_id:    number | null
 }
 
+interface StatsData {
+  total: number; completed: number; inRepair: number; waiting: number
+  oldDevice: number; scrap: number; supplier: number
+  uniqueDevices: number; repeatedDeviceCount: number
+  completionRate: number; successRate: number; scrapRate: number; supplierRate: number
+  duplicates: { imei: string; product_name: string; count: number; last_received: string; statuses: string[]; destinations: string[] }[]
+  byProduct: { product_name: string; total: number; completed: number; oldDevice: number; scrap: number; supplier: number; inRepair: number; waiting: number; successRate: number; scrapRate: number; supplierRate: number }[]
+  byWarehouse: { warehouse: string; total: number; completed: number; scrap: number; supplier: number }[]
+}
+
 // ── Constants ─────────────────────────────────────────────────
 const STATUS_LABEL: Record<RepairStatus, string> = {
   cho_gui:     'Chờ gửi sửa',
@@ -87,7 +97,7 @@ function SyncCRMPanel({ onSynced }: { onSynced: () => void }) {
   const [from, setFrom]       = useState(monthAgoStr())
   const [to, setTo]           = useState(todayStr())
   const [loading, setLoading] = useState(false)
-  const [result, setResult]   = useState<{ ok: boolean; total: number; upserted: number; errors?: string[] } | null>(null)
+  const [result, setResult]   = useState<{ ok: boolean; total: number; upserted: number; inserted?: number; updated?: number; errors?: string[] } | null>(null)
   const [err, setErr]         = useState('')
 
   async function handleSync() {
@@ -139,7 +149,7 @@ function SyncCRMPanel({ onSynced }: { onSynced: () => void }) {
       {result && (
         <div className={`mt-2 text-sm rounded-lg px-3 py-2 ${result.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
           {result.ok
-            ? `✅ Đồng bộ xong: ${result.total} records từ CRM → lưu ${result.upserted} vào DB`
+            ? `✅ Đồng bộ xong: ${result.total} records từ CRM → thêm mới ${result.inserted ?? 0}, cập nhật ${result.updated ?? 0}`
             : `⚠ Hoàn thành có lỗi: ${result.upserted}/${result.total} records`
           }
           {result.errors && result.errors.length > 0 && (
@@ -363,8 +373,233 @@ function RepairRow({ item, onAction }: {
   )
 }
 
+// ── Rate bar ─────────────────────────────────────────────────
+function RateBar({ rate, color }: { rate: number; color: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+        <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${Math.min(rate, 100)}%` }} />
+      </div>
+      <span className="text-xs font-medium w-9 text-right">{rate}%</span>
+    </div>
+  )
+}
+
+// ── Stats Tab ─────────────────────────────────────────────────
+function StatsTab() {
+  const [stats, setStats]   = useState<StatsData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [from, setFrom]     = useState('')
+  const [to, setTo]         = useState('')
+  const [dupSort, setDupSort] = useState<'count' | 'name'>('count')
+  const [showAllDup, setShowAllDup] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (from) params.set('from', from)
+    if (to)   params.set('to', to)
+    const res = await fetch('/api/repair-tracking/stats?' + params.toString())
+    const d = await res.json()
+    setStats(d)
+    setLoading(false)
+  }, [from, to])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <div className="py-12 text-center text-sm text-gray-400">Đang tải thống kê...</div>
+  if (!stats)  return <div className="py-12 text-center text-sm text-red-400">Lỗi tải dữ liệu</div>
+
+  const sortedDups = [...stats.duplicates].sort(dupSort === 'count'
+    ? (a, b) => b.count - a.count
+    : (a, b) => a.product_name.localeCompare(b.product_name)
+  )
+  const visibleDups = showAllDup ? sortedDups : sortedDups.slice(0, 10)
+
+  return (
+    <div className="space-y-6">
+      {/* Bộ lọc thời gian */}
+      <div className="flex flex-wrap gap-3 items-end bg-gray-50 border border-gray-200 rounded-xl p-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Từ ngày nhận</label>
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Đến ngày</label>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200" />
+        </div>
+        <button onClick={load} className="px-4 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 bg-white">
+          🔄 Cập nhật
+        </button>
+        {(from || to) && (
+          <button onClick={() => { setFrom(''); setTo('') }} className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600">
+            Xoá lọc
+          </button>
+        )}
+      </div>
+
+      {/* Tổng quan rates */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {[
+          { label: 'Tổng lượt sửa', value: stats.total, sub: `${stats.uniqueDevices} thiết bị riêng`, color: 'text-gray-800', bg: 'bg-gray-50 border-gray-200' },
+          { label: 'Hoàn thành',    value: `${stats.completionRate}%`, sub: `${stats.completed}/${stats.total}`, color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
+          { label: 'TB lặp lại',    value: stats.repeatedDeviceCount, sub: 'thiết bị sửa ≥ 2 lần', color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' },
+          { label: 'Gửi Supplier',  value: `${stats.supplierRate}%`, sub: `${stats.supplier} thiết bị`, color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
+        ].map(s => (
+          <div key={s.label} className={`rounded-xl border p-4 ${s.bg}`}>
+            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+            <p className="text-xs font-medium text-gray-600 mt-0.5">{s.label}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{s.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Tỉ lệ kết quả (trong số đã hoàn thành) */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5">
+        <h3 className="text-sm font-semibold text-gray-700 mb-4">Tỉ lệ kết quả (trong {stats.completed} thiết bị đã hoàn thành)</h3>
+        <div className="space-y-3">
+          <div>
+            <div className="flex justify-between text-xs text-gray-600 mb-1">
+              <span>✅ Sửa chữa thành công (Old Device)</span>
+              <span className="font-medium text-emerald-600">{stats.oldDevice} thiết bị</span>
+            </div>
+            <RateBar rate={stats.successRate} color="bg-emerald-500" />
+          </div>
+          <div>
+            <div className="flex justify-between text-xs text-gray-600 mb-1">
+              <span>🗑 Báo phế (Scrap)</span>
+              <span className="font-medium text-red-600">{stats.scrap} thiết bị</span>
+            </div>
+            <RateBar rate={stats.scrapRate} color="bg-red-400" />
+          </div>
+          <div>
+            <div className="flex justify-between text-xs text-gray-600 mb-1">
+              <span>🏭 Gửi bảo hành (Supplier)</span>
+              <span className="font-medium text-purple-600">{stats.supplier} thiết bị</span>
+            </div>
+            <RateBar rate={stats.supplierRate} color="bg-purple-400" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Thiết bị lặp lại */}
+        <div className="bg-white border border-orange-200 rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700">Thiết bị sửa nhiều lần</h3>
+              <p className="text-xs text-gray-400 mt-0.5">{stats.repeatedDeviceCount} thiết bị bị lặp</p>
+            </div>
+            <select value={dupSort} onChange={e => setDupSort(e.target.value as 'count' | 'name')}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none">
+              <option value="count">Nhiều nhất</option>
+              <option value="name">Tên thiết bị</option>
+            </select>
+          </div>
+          {sortedDups.length === 0 ? (
+            <p className="text-xs text-gray-400 py-4 text-center">Không có thiết bị nào sửa nhiều lần</p>
+          ) : (
+            <div className="space-y-2">
+              {visibleDups.map(d => (
+                <div key={d.imei} className="flex items-start justify-between py-2 border-b border-gray-50 last:border-0">
+                  <div className="flex-1 min-w-0 pr-2">
+                    <p className="text-xs font-medium text-gray-700 truncate">{d.product_name}</p>
+                    <p className="text-xs font-mono text-gray-400">{d.imei}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">
+                      {d.count}x
+                    </span>
+                    <p className="text-xs text-gray-400 mt-0.5">{fmtDate(d.last_received)}</p>
+                  </div>
+                </div>
+              ))}
+              {sortedDups.length > 10 && (
+                <button onClick={() => setShowAllDup(v => !v)}
+                  className="text-xs text-blue-500 hover:underline mt-1">
+                  {showAllDup ? 'Thu gọn' : `Xem thêm ${sortedDups.length - 10} thiết bị`}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Theo kho sửa */}
+        <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Theo kho sửa chữa</h3>
+          {stats.byWarehouse.length === 0 ? (
+            <p className="text-xs text-gray-400 py-4 text-center">Chưa có dữ liệu</p>
+          ) : (
+            <div className="space-y-3">
+              {stats.byWarehouse.map(w => (
+                <div key={w.warehouse}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="font-medium text-gray-700">{w.warehouse}</span>
+                    <span className="text-gray-400">{w.total} thiết bị</span>
+                  </div>
+                  <div className="flex gap-1">
+                    <div className="bg-emerald-500 h-2 rounded-l" style={{ width: `${w.total > 0 ? w.completed/w.total*100 : 0}%` }} title={`Hoàn thành: ${w.completed}`} />
+                    <div className="bg-red-400 h-2" style={{ width: `${w.total > 0 ? w.scrap/w.total*100 : 0}%` }} title={`Scrap: ${w.scrap}`} />
+                    <div className="bg-purple-400 h-2 rounded-r" style={{ width: `${w.total > 0 ? w.supplier/w.total*100 : 0}%` }} title={`Supplier: ${w.supplier}`} />
+                  </div>
+                  <div className="flex gap-3 text-xs text-gray-400 mt-0.5">
+                    <span className="text-emerald-600">{w.completed} hoàn thành</span>
+                    <span className="text-red-500">{w.scrap} scrap</span>
+                    <span className="text-purple-500">{w.supplier} supplier</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Theo loại thiết bị */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-700">Thống kê theo loại thiết bị</h3>
+          <p className="text-xs text-gray-400 mt-0.5">{stats.byProduct.length} loại</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 uppercase tracking-wide">
+                <th className="px-4 py-2 text-left">Loại thiết bị</th>
+                <th className="px-4 py-2 text-right">Tổng</th>
+                <th className="px-4 py-2 text-right">Đang sửa</th>
+                <th className="px-4 py-2 text-right">Old Device</th>
+                <th className="px-4 py-2 text-right">Scrap</th>
+                <th className="px-4 py-2 text-right">Supplier</th>
+                <th className="px-4 py-2 text-left w-40">Tỉ lệ thành công</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.byProduct.map(p => (
+                <tr key={p.product_name} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="px-4 py-2 font-medium text-gray-700">{p.product_name}</td>
+                  <td className="px-4 py-2 text-right text-gray-600">{p.total}</td>
+                  <td className="px-4 py-2 text-right text-blue-600">{p.inRepair}</td>
+                  <td className="px-4 py-2 text-right text-emerald-600">{p.oldDevice}</td>
+                  <td className="px-4 py-2 text-right text-red-500">{p.scrap}</td>
+                  <td className="px-4 py-2 text-right text-purple-600">{p.supplier}</td>
+                  <td className="px-4 py-2">
+                    <RateBar rate={p.successRate} color="bg-emerald-500" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main ──────────────────────────────────────────────────────
 export default function RepairTrackingDashboard() {
+  const [activeTab, setActiveTab]   = useState<'list' | 'stats'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
   const [loading, setLoading]       = useState(true)
@@ -397,59 +632,77 @@ export default function RepairTrackingDashboard() {
         </div>
       </div>
 
-      {/* Sync CRM Panel */}
-      <SyncCRMPanel onSynced={load} />
-
-      {/* Stats */}
-      <StatsBar items={items} />
-
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        <select value={filterStatus} onChange={e => setFilter(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
-          <option value="">Tất cả trạng thái</option>
-          <option value="cho_gui">Chờ gửi sửa</option>
-          <option value="da_gui">Đã gửi sửa</option>
-          <option value="da_sua_xong">Đã sửa xong</option>
-        </select>
-        <input value={filterProduct} onChange={e => setFilterP(e.target.value)}
-          placeholder="Lọc loại thiết bị..."
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 w-48" />
-        <button onClick={load} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
-          🔄 Làm mới
-        </button>
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+        {([['list', '📋 Danh sách'], ['stats', '📊 Thống kê']] as const).map(([tab, label]) => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={`px-4 py-1.5 text-sm rounded-lg transition-colors font-medium ${
+              activeTab === tab ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}>
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                <th className="px-4 py-3">Thiết bị / IMEI</th>
-                <th className="px-4 py-3">Trạng thái</th>
-                <th className="px-4 py-3">Nhận về kho</th>
-                <th className="px-4 py-3">Gửi sửa</th>
-                <th className="px-4 py-3">Hoàn thành</th>
-                <th className="px-4 py-3">Kết quả</th>
-                <th className="px-4 py-3">Ghi chú</th>
-                <th className="px-4 py-3">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Đang tải...</td></tr>
-              ) : items.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Chưa có dữ liệu — Đồng bộ từ CRM để bắt đầu</td></tr>
-              ) : (
-                items.map(item => (
-                  <RepairRow key={item.id} item={item} onAction={(i, a) => setModal({ type: a, item: i })} />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {activeTab === 'list' ? (
+        <>
+          {/* Sync CRM Panel */}
+          <SyncCRMPanel onSynced={load} />
+
+          {/* Stats */}
+          <StatsBar items={items} />
+
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2">
+            <select value={filterStatus} onChange={e => setFilter(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+              <option value="">Tất cả trạng thái</option>
+              <option value="cho_gui">Chờ gửi sửa</option>
+              <option value="da_gui">Đã gửi sửa</option>
+              <option value="da_sua_xong">Đã sửa xong</option>
+            </select>
+            <input value={filterProduct} onChange={e => setFilterP(e.target.value)}
+              placeholder="Lọc loại thiết bị..."
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 w-48" />
+            <button onClick={load} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
+              🔄 Làm mới
+            </button>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-3">Thiết bị / IMEI</th>
+                    <th className="px-4 py-3">Trạng thái</th>
+                    <th className="px-4 py-3">Nhận về kho</th>
+                    <th className="px-4 py-3">Gửi sửa</th>
+                    <th className="px-4 py-3">Hoàn thành</th>
+                    <th className="px-4 py-3">Kết quả</th>
+                    <th className="px-4 py-3">Ghi chú</th>
+                    <th className="px-4 py-3">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Đang tải...</td></tr>
+                  ) : items.length === 0 ? (
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Chưa có dữ liệu — Đồng bộ từ CRM để bắt đầu</td></tr>
+                  ) : (
+                    items.map(item => (
+                      <RepairRow key={item.id} item={item} onAction={(i, a) => setModal({ type: a, item: i })} />
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : (
+        <StatsTab />
+      )}
 
       {/* Modals */}
       {modal?.type === 'send' && (
