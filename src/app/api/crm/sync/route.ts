@@ -3,12 +3,165 @@ import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { getCRMSessionForUser, getCRMCredentials, invalidateCRMSession, crmLoginRaw } from '@/lib/crm-session'
 import { extractHandlerFromMemo, parseSpeedTag, parseCRMTime } from '@/lib/crm-utils'
+import { google } from 'googleapis'
 
 const adminClient = () =>
   createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
+
+// ─── Jira Sheet write-back ────────────────────────────────────────────────────
+const JIRA_SHEET_ID  = '1NoYiwiIVjoJNBt-mqWthbcBZg2X3ToDf5WCoCPdiNsw'
+const JIRA_SHEET_GID = 1295593616
+const JIRA_BASE      = 'https://euptw.atlassian.net'
+
+function extractJiraInfo(text: string): { key: string; url: string } | null {
+  const urlMatch = text.match(/https?:\/\/[^\s<>"]+\/browse\/([A-Z]{2,10}-\d+)/i)
+  if (urlMatch) {
+    const url = urlMatch[0].replace(/[)"'\].>]+$/, '')
+    return { url, key: urlMatch[1].toUpperCase() }
+  }
+  const keyMatch = text.match(/\b([A-Z]{2,10}-\d+)\b/)
+  if (keyMatch) return { key: keyMatch[1].toUpperCase(), url: `${JIRA_BASE}/browse/${keyMatch[1]}` }
+  return null
+}
+
+function normH(s: string): string {
+  return String(s || '').toLowerCase().trim()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd').replace(/\s+/g, ' ')
+}
+
+interface JiraTicketData {
+  date: string; company: string; contact: string; ticket_type: string
+  direction: string; content: string; reply: string; handler: string
+  car_number: string; code: string; jira_url: string; zone: string
+}
+
+function mapHeaderToValue(header: string, t: JiraTicketData): string {
+  const h = normH(header)
+  if (!h) return ''
+  if (h.includes('ngay') || h.includes('date') || h.includes('thoi gian')) return t.date
+  if (h.includes('khach hang') || h.includes('cong ty') || h.includes('company')) return t.company
+  if ((h.includes('loai') || h.includes('type')) && !h.includes('ngay')) return t.ticket_type
+  if (h.includes('nguoi lien he') || (h.includes('lien he') && !h.includes('ky thuat'))) return t.contact
+  if (h.includes('noi dung') || h === 'content' || h.includes('van de')) return t.content
+  if (h.includes('ghi chu') || h.includes('phan hoi') || h.includes('reply') || h.includes('memo')) return t.reply.substring(0, 500)
+  if (h.includes('ky thuat') || h.includes('nhan vien') || h.includes('nguoi xu ly') || h === 'handler') return t.handler
+  if (h.includes('xu ly') && !h.includes('noi dung') && !h.includes('ky thuat')) return t.handler
+  if (h.includes('bien so') || (h.includes('xe') && !h.includes('xu')) || h.includes('car')) return t.car_number
+  if (h.includes('jira') || h.includes('link') || h.includes('atlassian')) return t.jira_url
+  if ((h.includes('ma') || h === 'code' || h === 'id' || h.includes('so phieu')) && !h.includes('thiet bi')) return t.code
+  if (h.includes('chieu') || h === 'io' || h.includes('direction')) return t.direction
+  if (h.includes('vung') || h.includes('zone') || h.includes('khu vuc')) return t.zone
+  return ''
+}
+
+interface JiraWriteTicket {
+  csId: number; csDate: string; custName: string; cmName: string; ccName: string
+  csIO: string; csContext: string; csMemo: string; csCarNumber: string; zone: string
+  handler: string; jiraInfo: { key: string; url: string }
+}
+
+async function writeJiraTicketsToSheet(
+  tickets: JiraWriteTicket[]
+): Promise<{ written: number; updated: number; error?: string }> {
+  if (!tickets.length) return { written: 0, updated: 0 }
+  try {
+    const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
+    const key   = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
+    if (!email || !key) throw new Error('Thiếu Google Service Account credentials')
+    const auth = new google.auth.GoogleAuth({
+      credentials: { client_email: email, private_key: key },
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    })
+    const sheets = google.sheets({ version: 'v4', auth })
+
+    // Lấy tên sheet từ GID
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: JIRA_SHEET_ID, fields: 'sheets.properties' })
+    const sheetProp = meta.data.sheets?.find(s => s.properties?.sheetId === JIRA_SHEET_GID)
+    if (!sheetProp?.properties?.title) throw new Error(`Không tìm thấy sheet GID ${JIRA_SHEET_GID}`)
+    const sheetName = sheetProp.properties.title
+
+    // Đọc A1:Q600 — header row + toàn bộ data
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId: JIRA_SHEET_ID,
+      range: `'${sheetName}'!A1:Q600`,
+      valueRenderOption: 'FORMATTED_VALUE',
+    })
+    const rows = (resp.data.values ?? []) as string[][]
+    const headers = rows[0] ?? []   // row 1 = headers
+
+    // Build map: Jira key → row number (1-indexed cho Sheets API)
+    // Jira link ở cột L = index 11
+    const keyToRow = new Map<string, number>()
+    for (let i = 1; i < rows.length; i++) {
+      const cell = String(rows[i][11] ?? '')
+      const km   = cell.match(/([A-Z]{2,10}-\d+)/i)
+      if (km) keyToRow.set(km[1].toUpperCase(), i + 1)
+    }
+
+    // Dòng append tiếp theo (sau dòng dữ liệu cuối cùng)
+    let nextRow = 2
+    for (let i = rows.length - 1; i >= 1; i--) {
+      if (rows[i].some(c => String(c ?? '').trim() !== '')) { nextRow = i + 2; break }
+    }
+
+    const updates: { range: string; values: string[][] }[] = []
+    let written = 0, updated = 0
+
+    for (const t of tickets) {
+      const td: JiraTicketData = {
+        date:        t.csDate,
+        company:     t.custName || '',
+        contact:     t.cmName   || '',
+        ticket_type: t.ccName   || '',
+        direction:   t.csIO     || '',
+        content:     t.csContext || '',
+        reply:       t.csMemo   || '',
+        handler:     t.handler,
+        car_number:  t.csCarNumber || '',
+        code:        String(t.csId),
+        jira_url:    t.jiraInfo.url,
+        zone:        t.zone || '',
+      }
+
+      // Cells cho cột J–Q (indices 9–16)
+      const cells: string[] = []
+      for (let ci = 9; ci <= 16; ci++) {
+        cells.push(mapHeaderToValue(headers[ci] ?? '', td))
+      }
+
+      const existingRow = keyToRow.get(t.jiraInfo.key)
+      if (existingRow) {
+        // Update chỉ khi cột J còn trống (không ghi đè dữ liệu nhập tay)
+        const jVal = String(rows[existingRow - 1]?.[9] ?? '').trim()
+        if (jVal === '') {
+          updates.push({ range: `'${sheetName}'!J${existingRow}:Q${existingRow}`, values: [cells] })
+          updated++
+        }
+      } else {
+        // Append row mới: ghi J–Q + đảm bảo link Jira ở cột L
+        updates.push({ range: `'${sheetName}'!J${nextRow}:Q${nextRow}`, values: [cells] })
+        keyToRow.set(t.jiraInfo.key, nextRow)
+        nextRow++
+        written++
+      }
+    }
+
+    if (updates.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: JIRA_SHEET_ID,
+        requestBody: { valueInputOption: 'USER_ENTERED', data: updates },
+      })
+    }
+    return { written, updated }
+  } catch (e) {
+    console.error('[crm/sync] writeJiraTicketsToSheet:', e)
+    return { written: 0, updated: 0, error: String(e) }
+  }
+}
 
 interface CRMTicket {
   CS_ID: number; CS_Date: string; CS_IO: string; CS_Context: string; CS_Memo: string
@@ -329,14 +482,45 @@ export async function POST(req: NextRequest) {
     saved += batch.length
   }
 
+  // ── Ghi Jira tickets lên Google Sheet ────────────────────────────────────────
+  // Quét toàn bộ allTickets (không chỉ rows được save) để tìm Jira link trong CS_Memo
+  const jiraWriteTickets: JiraWriteTicket[] = []
+  for (const t of allTickets) {
+    if (!t.CS_Memo) continue
+    const jiraInfo = extractJiraInfo(t.CS_Memo)
+    if (!jiraInfo) continue
+    const handler = extractHandlerFromMemo(t.CS_Memo) ?? 'Unknown'
+    jiraWriteTickets.push({
+      csId:        t.CS_ID,
+      csDate:      t.CS_Date,
+      custName:    t.Cust_Name    || '',
+      cmName:      t.CM_Name      || '',
+      ccName:      t.CC_Name      || '',
+      csIO:        t.CS_IO        || '',
+      csContext:   t.CS_Context   || '',
+      csMemo:      t.CS_Memo      || '',
+      csCarNumber: t.CS_CarNumber || '',
+      zone:        t.Cust_SaleManAssistant_Zone || '',
+      handler,
+      jiraInfo,
+    })
+  }
+
+  let jiraSheet: { written: number; updated: number; error?: string } | null = null
+  if (jiraWriteTickets.length > 0) {
+    jiraSheet = await writeJiraTicketsToSheet(jiraWriteTickets)
+    console.log('[crm/sync] Jira sheet write-back:', jiraSheet)
+  }
+
   return NextResponse.json({
-    ok:               true,
-    mode:              body.mode ?? 'incremental',
+    ok:           true,
+    mode:         body.mode ?? 'incremental',
     saved,
     newCount:     0,
     updatedCount: saved,
     skippedCount: 0,
     rows:         [],
     backfillRows: [],
+    jiraSheet,
   })
 }
