@@ -29,8 +29,8 @@ function extractJiraInfo(text: string): { key: string; url: string } | null {
 
 function normH(s: string): string {
   return String(s || '').toLowerCase().trim()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/đ/g, 'd').replace(/\s+/g, ' ')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/d\u0301/g, 'd').replace(/\s+/g, ' ')
 }
 
 interface JiraTicketData {
@@ -71,30 +71,26 @@ async function writeJiraTicketsToSheet(
   try {
     const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
     const key   = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
-    if (!email || !key) throw new Error('Thiếu Google Service Account credentials')
+    if (!email || !key) throw new Error('Thieu Google Service Account credentials')
     const auth = new google.auth.GoogleAuth({
       credentials: { client_email: email, private_key: key },
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     })
     const sheets = google.sheets({ version: 'v4', auth })
 
-    // Lấy tên sheet từ GID
     const meta = await sheets.spreadsheets.get({ spreadsheetId: JIRA_SHEET_ID, fields: 'sheets.properties' })
     const sheetProp = meta.data.sheets?.find(s => s.properties?.sheetId === JIRA_SHEET_GID)
-    if (!sheetProp?.properties?.title) throw new Error(`Không tìm thấy sheet GID ${JIRA_SHEET_GID}`)
+    if (!sheetProp?.properties?.title) throw new Error(`Khong tim thay sheet GID ${JIRA_SHEET_GID}`)
     const sheetName = sheetProp.properties.title
 
-    // Đọc A1:Q600 — header row + toàn bộ data
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: JIRA_SHEET_ID,
       range: `'${sheetName}'!A1:Q600`,
       valueRenderOption: 'FORMATTED_VALUE',
     })
     const rows = (resp.data.values ?? []) as string[][]
-    const headers = rows[0] ?? []   // row 1 = headers
+    const headers = rows[0] ?? []
 
-    // Build map: Jira key → row number (1-indexed cho Sheets API)
-    // Jira link ở cột L = index 11
     const keyToRow = new Map<string, number>()
     for (let i = 1; i < rows.length; i++) {
       const cell = String(rows[i][11] ?? '')
@@ -102,7 +98,6 @@ async function writeJiraTicketsToSheet(
       if (km) keyToRow.set(km[1].toUpperCase(), i + 1)
     }
 
-    // Dòng append tiếp theo (sau dòng dữ liệu cuối cùng)
     let nextRow = 2
     for (let i = rows.length - 1; i >= 1; i--) {
       if (rows[i].some(c => String(c ?? '').trim() !== '')) { nextRow = i + 2; break }
@@ -113,36 +108,23 @@ async function writeJiraTicketsToSheet(
 
     for (const t of tickets) {
       const td: JiraTicketData = {
-        date:        t.csDate,
-        company:     t.custName || '',
-        contact:     t.cmName   || '',
-        ticket_type: t.ccName   || '',
-        direction:   t.csIO     || '',
-        content:     t.csContext || '',
-        reply:       t.csMemo   || '',
-        handler:     t.handler,
-        car_number:  t.csCarNumber || '',
-        code:        String(t.csId),
-        jira_url:    t.jiraInfo.url,
-        zone:        t.zone || '',
+        date: t.csDate, company: t.custName || '', contact: t.cmName || '',
+        ticket_type: t.ccName || '', direction: t.csIO || '', content: t.csContext || '',
+        reply: t.csMemo || '', handler: t.handler, car_number: t.csCarNumber || '',
+        code: String(t.csId), jira_url: t.jiraInfo.url, zone: t.zone || '',
       }
-
-      // Cells cho cột J–Q (indices 9–16)
       const cells: string[] = []
       for (let ci = 9; ci <= 16; ci++) {
         cells.push(mapHeaderToValue(headers[ci] ?? '', td))
       }
-
       const existingRow = keyToRow.get(t.jiraInfo.key)
       if (existingRow) {
-        // Update chỉ khi cột J còn trống (không ghi đè dữ liệu nhập tay)
         const jVal = String(rows[existingRow - 1]?.[9] ?? '').trim()
         if (jVal === '') {
           updates.push({ range: `'${sheetName}'!J${existingRow}:Q${existingRow}`, values: [cells] })
           updated++
         }
       } else {
-        // Append row mới: ghi J–Q + đảm bảo link Jira ở cột L
         updates.push({ range: `'${sheetName}'!J${nextRow}:Q${nextRow}`, values: [cells] })
         keyToRow.set(t.jiraInfo.key, nextRow)
         nextRow++
@@ -183,23 +165,22 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form.toString(),
-    signal: AbortSignal.timeout(50_000),   // 50s — đủ cho CRM phản hồi
+    signal: AbortSignal.timeout(50_000),
   })
   if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
   const rawText = await resp.text()
-  if (!rawText || rawText.trim() === '') throw new Error('CRM trả về body rỗng')
+  if (!rawText || rawText.trim() === '') throw new Error('CRM tra ve body rong')
   let json: CRMResponse
-  try { json = JSON.parse(rawText) } catch { throw new Error(`CRM response không parse được: ${rawText.substring(0, 100)}`) }
+  try { json = JSON.parse(rawText) } catch { throw new Error(`CRM response khong parse duoc: ${rawText.substring(0, 100)}`) }
   if (!json.status) throw new Error(json.error || 'CRM returned status=0')
   return json.result ?? []
 }
 
 export const runtime     = 'nodejs'
-export const maxDuration = 120   // 2 phút — đủ cho full sync 5 staff
+export const maxDuration = 120
 
 // ── POST /api/crm/sync ─────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  // Cho phép internal call từ cron job (xác thực bằng x-cron-secret header)
   const cronSecret = process.env.CRON_SECRET
   const internalCall = cronSecret && req.headers.get('x-cron-secret') === cronSecret
 
@@ -220,25 +201,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     isAdmin = perms.includes('admin:users') || perms.includes('ho_tro:admin')
   } else {
-    isAdmin = true // cron luôn chạy với quyền admin (full sync)
+    isAdmin = true
   }
 
   const url = process.env.CRM_SOAP_URL
-  if (!url) return NextResponse.json({ error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
+  if (!url) return NextResponse.json({ error: 'Thieu CRM_SOAP_URL' }, { status: 500 })
 
   const body = await req.json().catch(() => ({})) as {
     mode?: 'full' | 'self' | 'one'
-    staffName?: string   // dùng khi mode='one'
+    staffName?: string
     fromDate?: string
     toDate?: string
   }
   const mode = body.mode ?? 'self'
 
-  // Full/one mode chỉ dành cho admin
   if ((mode === 'full' || mode === 'one') && !isAdmin)
-    return NextResponse.json({ error: 'Chỉ admin mới dùng được' }, { status: 403 })
+    return NextResponse.json({ error: 'Chi admin moi dung duoc' }, { status: 403 })
 
-  // ── Xác định danh sách staff cần fetch ──
   const FULL_STAFF = [
     { id: 9141, name: 'Kane'   },
     { id: 9090, name: 'Stefan' },
@@ -253,23 +232,19 @@ export async function POST(req: NextRequest) {
   if (mode === 'full') {
     staffToFetch = FULL_STAFF
   } else if (mode === 'one') {
-    // Sync đúng 1 nhân viên theo tên
     const target = FULL_STAFF.find(s => s.name.toLowerCase() === (body.staffName ?? '').toLowerCase())
-    if (!target) return NextResponse.json({ error: `Không tìm thấy staff: ${body.staffName}` }, { status: 400 })
+    if (!target) return NextResponse.json({ error: `Khong tim thay staff: ${body.staffName}` }, { status: 400 })
     staffToFetch = [target]
   } else {
-    // Self sync: chỉ user đang đăng nhập
     if (!user) return NextResponse.json({ error: 'user required for self sync' }, { status: 400 })
     const creds = await getCRMCredentials(user.id)
-    if (!creds) return NextResponse.json({ error: 'Chưa cấu hình CRM credentials' }, { status: 400 })
+    if (!creds) return NextResponse.json({ error: 'Chua cau hinh CRM credentials' }, { status: 400 })
     myNickName = creds.crm_nick_name ?? null
     staffToFetch = [{ id: creds.crm_staff_id, name: myNickName ?? 'Self' }]
   }
 
   const db = adminClient()
 
-  // ── Load credentials map: crm_staff_id -> { crm_account, crm_password, user_id } ──
-  // Lấy cả crm_account + crm_password để login fresh (giống debug route)
   const { data: allMappings } = await db
     .from('user_crm_mapping')
     .select('user_id, crm_staff_id, crm_nick_name, crm_account, crm_password')
@@ -280,16 +255,12 @@ export async function POST(req: NextRequest) {
     if (m.crm_staff_id) credMap.set(m.crm_staff_id, m)
   }
 
-  // Self mode: lấy session từ user đang đăng nhập (đã login)
   let selfSession: { sessionId: string; staffId: number; identity: string; fromCache: boolean } | null = null
   if (mode === 'self' && user) {
     try { selfSession = await getCRMSessionForUser(user.id) }
     catch (err) { return NextResponse.json({ error: String(err) }, { status: 400 }) }
   }
 
-  // ── Fetch từ CRM tuần tự (tránh login đồng thời gây conflict session) ──
-  // mode 'one'/'full': login fresh bằng credentials riêng — giống debug route
-  // mode 'self': dùng session đã có của user
   const fetchResults: PromiseSettledResult<{ name: string; tickets: CRMTicket[]; error?: string }>[] = []
 
   for (const s of staffToFetch) {
@@ -298,24 +269,21 @@ export async function POST(req: NextRequest) {
       let identity: string
 
       if (mode === 'self' && selfSession) {
-        // Self: dùng session sẵn có của user đang đăng nhập
         sessionId = selfSession.sessionId
         identity  = selfSession.identity
       } else {
-        // One/Full: login fresh bằng crm_account + crm_password của chính staff đó
-        // (giống debug route — không dùng cached session vì có thể stale/sai)
         const cred = credMap.get(s.id)
         if (!cred?.crm_account || !cred?.crm_password) {
-          throw new Error(`Không tìm thấy crm_account/crm_password cho ${s.name} (id=${s.id})`)
+          throw new Error(`Khong tim thay crm_account/crm_password cho ${s.name} (id=${s.id})`)
         }
         console.log(`[sync] Login CRM cho ${s.name} (account=${cred.crm_account})`)
         const loginRes = await crmLoginRaw(cred.crm_account, cred.crm_password)
         if (!loginRes.ok || !loginRes.detectedSessionId) {
-          throw new Error(`Login CRM thất bại cho ${s.name}: ${loginRes.error ?? 'No SESSION_ID'}`)
+          throw new Error(`Login CRM that bai cho ${s.name}: ${loginRes.error ?? 'No SESSION_ID'}`)
         }
         sessionId = loginRes.detectedSessionId
         identity  = loginRes.detectedIdentity ?? String(s.id)
-        console.log(`[sync] ${s.name} login OK — SESSION=${sessionId.substring(0, 16)}... IDENTITY=${identity}`)
+        console.log(`[sync] ${s.name} login OK - SESSION=${sessionId.substring(0, 16)}... IDENTITY=${identity}`)
       }
 
       const tickets = await callCRMSoap(s.id, sessionId, identity, url)
@@ -328,10 +296,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Merge & dedup by CS_ID ──
   const ticketMap = new Map<number, CRMTicket>()
   const fetchErrors: Record<string, string> = {}
-  const perStaffRaw: Record<string, number> = {}
   let totalFetched = 0
 
   for (const r of fetchResults) {
@@ -339,7 +305,6 @@ export async function POST(req: NextRequest) {
     const { name, tickets, error } = r.value as { name: string; tickets: CRMTicket[]; error?: string }
     if (error) { fetchErrors[name] = error; continue }
     totalFetched += tickets.length
-    perStaffRaw[name] = tickets.length
     for (const t of tickets) {
       const existing = ticketMap.get(t.CS_ID)
       if (!existing) {
@@ -354,11 +319,9 @@ export async function POST(req: NextRequest) {
 
   let allTickets = Array.from(ticketMap.values())
 
-  // Lọc date range
   if (body.fromDate) allTickets = allTickets.filter(t => t.CS_Date >= body.fromDate!)
   if (body.toDate)   allTickets = allTickets.filter(t => t.CS_Date <= body.toDate!)
 
-  // ── Fetch existing từ DB ──
   const keys = allTickets.map(t => `crm:${t.CS_ID}`)
   type ExistingRow = { sheet_row_key: string; cs_update_time: string | null; has_unread_update: boolean; customer_id: string | null; zone: string | null }
   const existingMap = new Map<string, ExistingRow>()
@@ -370,11 +333,8 @@ export async function POST(req: NextRequest) {
     for (const row of (data ?? [])) existingMap.set(row.sheet_row_key, row as ExistingRow)
   }
 
-  // ── Build rows cần upsert ──
   let newCount = 0, updatedCount = 0, skippedCount = 0, rejectedCount = 0
   const rows = []
-  // backfillRows: chỉ cập nhật customer_id/zone — PHẢI tách riêng để tránh
-  // Supabase upsert normalize NULL vào staff_name (NOT NULL constraint)
   const backfillRows: { sheet_row_key: string; customer_id: string | null; zone: string | null }[] = []
 
   for (const t of allTickets) {
@@ -383,12 +343,10 @@ export async function POST(req: NextRequest) {
     const existing      = existingMap.get(key)
 
     if (existing) {
-      // ── Record đã có trong DB ──
       if (existing.cs_update_time && crmUpdateTime) {
         const dbMs  = new Date(existing.cs_update_time).getTime()
         const crmMs = new Date(crmUpdateTime).getTime()
         if (crmMs <= dbMs) {
-          // Không đổi — nhưng backfill customer_id/zone nếu đang null
           if (!existing.customer_id || !existing.zone) {
             backfillRows.push({
               sheet_row_key: key,
@@ -401,7 +359,6 @@ export async function POST(req: NextRequest) {
           continue
         }
       }
-      // CS_UpdateTime mới hơn → update + flag unread
       updatedCount++
       rows.push({
         sheet_row_key:    key,
@@ -422,21 +379,14 @@ export async function POST(req: NextRequest) {
         has_unread_update: true,
       })
     } else {
-      // ── Record mới ──
       const handler = extractHandlerFromMemo(t.CS_Memo ?? '')
 
       if (mode === 'self') {
-        // Chỉ thêm nếu CS_Memo có hashtag đúng tên mình
         if (!handler || handler.toLowerCase() !== (myNickName ?? '').toLowerCase()) {
-          rejectedCount++
-          continue
+          rejectedCount++; continue
         }
       } else {
-        // full mode: thêm nếu CS_Memo có hashtag của bất kỳ 1 trong 5 người
-        if (!handler) {
-          rejectedCount++
-          continue
-        }
+        if (!handler) { rejectedCount++; continue }
       }
 
       newCount++
@@ -456,12 +406,11 @@ export async function POST(req: NextRequest) {
         customer_id:      t.Cust_ID ? String(t.Cust_ID) : null,
         created_by:       user?.id ?? 'cron',
         cs_update_time:   crmUpdateTime,
-        has_unread_update: false, // record mới không cần thông báo
+        has_unread_update: false,
       })
     }
   }
 
-  // ── Upsert full rows (có staff_name) ──
   let saved = 0
   for (let i = 0; i < rows.length; i += 500) {
     const batch = rows.slice(i, i + 500)
@@ -470,8 +419,6 @@ export async function POST(req: NextRequest) {
     saved += batch.length
   }
 
-  // ── Backfill rows: dùng UPDATE (không INSERT) để tránh NOT NULL trên staff_name ──
-  // upsert sẽ INSERT nếu row chưa tồn tại → vi phạm NOT NULL; update thì bỏ qua nếu không tìm thấy
   for (let i = 0; i < backfillRows.length; i += 50) {
     const batch = backfillRows.slice(i, i + 50)
     await Promise.all(batch.map(bRow =>
@@ -482,8 +429,7 @@ export async function POST(req: NextRequest) {
     saved += batch.length
   }
 
-  // ── Ghi Jira tickets lên Google Sheet ────────────────────────────────────────
-  // Quét toàn bộ allTickets (không chỉ rows được save) để tìm Jira link trong CS_Memo
+  // ── Ghi Jira tickets len Google Sheet ─────────────────────────────────────
   const jiraWriteTickets: JiraWriteTicket[] = []
   for (const t of allTickets) {
     if (!t.CS_Memo) continue
@@ -491,18 +437,11 @@ export async function POST(req: NextRequest) {
     if (!jiraInfo) continue
     const handler = extractHandlerFromMemo(t.CS_Memo) ?? 'Unknown'
     jiraWriteTickets.push({
-      csId:        t.CS_ID,
-      csDate:      t.CS_Date,
-      custName:    t.Cust_Name    || '',
-      cmName:      t.CM_Name      || '',
-      ccName:      t.CC_Name      || '',
-      csIO:        t.CS_IO        || '',
-      csContext:   t.CS_Context   || '',
-      csMemo:      t.CS_Memo      || '',
-      csCarNumber: t.CS_CarNumber || '',
-      zone:        t.Cust_SaleManAssistant_Zone || '',
-      handler,
-      jiraInfo,
+      csId: t.CS_ID, csDate: t.CS_Date, custName: t.Cust_Name || '',
+      cmName: t.CM_Name || '', ccName: t.CC_Name || '', csIO: t.CS_IO || '',
+      csContext: t.CS_Context || '', csMemo: t.CS_Memo || '',
+      csCarNumber: t.CS_CarNumber || '', zone: t.Cust_SaleManAssistant_Zone || '',
+      handler, jiraInfo,
     })
   }
 
@@ -516,11 +455,11 @@ export async function POST(req: NextRequest) {
     ok:           true,
     mode:         body.mode ?? 'incremental',
     saved,
-    newCount:     0,
-    updatedCount: saved,
-    skippedCount: 0,
-    rows:         [],
-    backfillRows: [],
+    newCount,
+    updatedCount,
+    skippedCount,
+    rejectedCount,
+    fetchErrors,
     jiraSheet,
   })
 }

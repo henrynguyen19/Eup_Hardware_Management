@@ -1318,11 +1318,11 @@ function SectionCard({ title, color, children }: { title: string; color: string;
     blue: 'bg-blue-50', emerald: 'bg-emerald-50', red: 'bg-red-50', amber: 'bg-amber-50',
   }
   return (
-    <div className={`border ${borderMap[color] || 'border-gray-200'} rounded-lg overflow-hidden`}>
-      <div className={`${bgMap[color] || 'bg-gray-50'} px-4 py-2`}>
-        <h4 className={`font-semibold text-sm ${textMap[color] || 'text-gray-700'}`}>{title}</h4>
+    <div className={`border ${borderMap[color] || 'border-gray-200'} rounded-xl overflow-hidden`}>
+      <div className={`${bgMap[color] || 'bg-gray-50'} px-4 py-2.5 flex items-center justify-between`}>
+        <h3 className={`text-sm font-semibold ${textMap[color] || 'text-gray-700'}`}>{title}</h3>
       </div>
-      <div className="px-4 py-3">{children}</div>
+      <div className="p-3 space-y-2">{children}</div>
     </div>
   )
 }

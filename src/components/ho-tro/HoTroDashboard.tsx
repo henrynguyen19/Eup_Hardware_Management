@@ -912,7 +912,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       })
       const d = await r.json() as { ok?: boolean; totalNew?: number; totalUpdated?: number; months?: number; errors?: string[]; error?: string }
       if (!r.ok) { setCrmResult(`❌ ${d.error ?? 'Lỗi sync-all'}`); return }
-      setCrmResult(`✅ Sync-all xong: ${d.months} tháng — mới: ${d.totalNew}, cập nhật: ${d.totalUpdated}`)
+      setCrmResult(`✅ Sync-all xong — mới: ${d.totalNew ?? 0}, cập nhật: ${d.totalUpdated ?? 0}`)
       fetchCRMTickets(1)
     } catch (err) {
       setCrmResult(`❌ ${err instanceof Error ? err.message : String(err)}`)
