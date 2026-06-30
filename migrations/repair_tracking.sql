@@ -112,12 +112,20 @@ CREATE POLICY "repair_items_update"
 
 -- ── Permission ───────────────────────────────────────────────
 
--- Thêm permission mới vào bảng permissions (nếu đã có bảng này)
-INSERT INTO permissions (permission, description)
-VALUES
-  ('repair_tracking:write', 'Nhập liệu + cập nhật trạng thái sửa chữa thiết bị'),
-  ('repair_tracking:read',  'Xem danh sách sửa chữa thiết bị')
-ON CONFLICT (permission) DO NOTHING;
+-- Gán permission vào role Admin (nếu có)
+DO $$
+DECLARE
+  v_admin_role UUID;
+BEGIN
+  SELECT id INTO v_admin_role FROM roles WHERE name = 'Admin' LIMIT 1;
+  IF v_admin_role IS NOT NULL THEN
+    INSERT INTO role_permissions (role_id, permission)
+    VALUES
+      (v_admin_role, 'repair_tracking:write'),
+      (v_admin_role, 'repair_tracking:read')
+    ON CONFLICT DO NOTHING;
+  END IF;
+END $$;
 
 -- ── View thống kê nhanh ───────────────────────────────────────
 
@@ -129,9 +137,13 @@ SELECT
   COUNT(*) FILTER (WHERE destination = 'old_device')              AS dest_old_device,
   COUNT(*) FILTER (WHERE destination = 'scrap')                   AS dest_scrap,
   COUNT(*) FILTER (WHERE destination = 'supplier')                AS dest_supplier,
-  AVG(EXTRACT(EPOCH FROM (sent_at - received_at)) / 3600)::NUMERIC(10,1)
-    FILTER (WHERE sent_at IS NOT NULL)                            AS avg_hours_to_send,
-  AVG(EXTRACT(EPOCH FROM (completed_at - sent_at)) / 86400)::NUMERIC(10,1)
-    FILTER (WHERE completed_at IS NOT NULL AND sent_at IS NOT NULL) AS avg_days_repair
+  ROUND(
+    AVG(EXTRACT(EPOCH FROM (sent_at - received_at)) / 3600)
+      FILTER (WHERE sent_at IS NOT NULL)::NUMERIC, 1
+  )                                                                AS avg_hours_to_send,
+  ROUND(
+    AVG(EXTRACT(EPOCH FROM (completed_at - sent_at)) / 86400)
+      FILTER (WHERE completed_at IS NOT NULL AND sent_at IS NOT NULL)::NUMERIC, 1
+  )                                                                AS avg_days_repair
 FROM repair_items
 GROUP BY status, product_name;
