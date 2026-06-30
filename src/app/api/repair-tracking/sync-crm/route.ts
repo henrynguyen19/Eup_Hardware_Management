@@ -209,25 +209,54 @@ export async function POST(req: NextRequest) {
 
   // Map + upsert theo crm_repair_id
   const rows = records.map(mapRecord)
+  const crmIds = rows.map(r => r.crm_repair_id).filter(Boolean)
+
+  // Lấy danh sách crm_repair_id đã có trong DB
+  const existingIds = new Set<number>()
+  for (let i = 0; i < crmIds.length; i += 500) {
+    const { data } = await db
+      .from('repair_items')
+      .select('crm_repair_id')
+      .in('crm_repair_id', crmIds.slice(i, i + 500))
+    for (const row of (data ?? [])) {
+      if (row.crm_repair_id) existingIds.add(row.crm_repair_id)
+    }
+  }
+
+  const toInsert = rows.filter(r => !existingIds.has(r.crm_repair_id))
+  const toUpdate = rows.filter(r =>  existingIds.has(r.crm_repair_id))
 
   let upserted = 0
   const errors: string[] = []
 
-  for (let i = 0; i < rows.length; i += 50) {
-    const batch = rows.slice(i, i + 50)
-    const { error } = await db
-      .from('repair_items')
-      .upsert(batch, { onConflict: 'crm_repair_id', ignoreDuplicates: false })
-    if (error) errors.push(error.message)
+  // Insert mới
+  for (let i = 0; i < toInsert.length; i += 50) {
+    const batch = toInsert.slice(i, i + 50)
+    const { error } = await db.from('repair_items').insert(batch)
+    if (error) errors.push(`insert: ${error.message}`)
     else upserted += batch.length
   }
+
+  // Update existing — dùng crm_repair_id làm key
+  for (const row of toUpdate) {
+    const { error } = await db
+      .from('repair_items')
+      .update(row)
+      .eq('crm_repair_id', row.crm_repair_id)
+    if (error) errors.push(`update ${row.crm_repair_id}: ${error.message}`)
+    else upserted++
+  }
+
+  console.log(`[repair/sync-crm] insert=${toInsert.length} update=${toUpdate.length} errors=${errors.length}`)
 
   return NextResponse.json({
     ok:        errors.length === 0,
     total:     records.length,
     upserted,
+    inserted:  toInsert.length,
+    updated:   toUpdate.length,
     startTime,
     endTime,
-    errors:    errors.length > 0 ? errors : undefined,
+    errors:    errors.length > 0 ? errors.slice(0, 5) : undefined,
   })
 }
