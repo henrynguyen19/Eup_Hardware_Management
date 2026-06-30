@@ -33,6 +33,14 @@ function normH(s: string): string {
     .replace(/d\u0301/g, 'd').replace(/\s+/g, ' ')
 }
 
+// Chuy\u1ec3n "2026-06-29" \u2192 "29/06/2026" cho \u0111\u00fang format c\u0169 c\u1ee7a sheet
+function formatSheetDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`
+  return dateStr
+}
+
 interface JiraTicketData {
   date: string; company: string; contact: string; ticket_type: string
   direction: string; content: string; reply: string; handler: string
@@ -43,15 +51,18 @@ interface JiraTicketData {
 function mapHeaderToValue(header: string, t: JiraTicketData): string {
   const h = normH(header)
   if (!h) return ''
-  if (h.includes('ngay') || h.includes('date') || h.includes('thoi gian')) return t.date
-  if (h.includes('khach hang') || h.includes('cong ty') || h.includes('company')) return t.company
+  // Chỉ map ngày CRM vào cột "ngày tạo link" — KHÔNG ghi vào duo date / done date
+  if ((h.includes('ngay') || h.includes('thoi gian')) && !h.includes('duo') && !h.includes('done')) return t.date
+  if (h === 'stt' || h === 'so thu tu') return '' // STT gán riêng bên ngoài
+  // Mã KH phải check trước "khach hang" vì "ma khach hang" cũng chứa "khach hang"
+  if (h.includes('ma kh') || (h.includes('ma') && h.includes('khach')) || h === 'customer id' || h === 'custid') return t.customer_id
+  if ((h.includes('khach hang') || h.includes('cong ty') || h.includes('company')) && !h.includes('ma')) return t.company
   if ((h.includes('loai') || h.includes('type')) && !h.includes('ngay')) return t.ticket_type
   if (h.includes('nguoi lien he') || (h.includes('lien he') && !h.includes('ky thuat'))) return t.contact
   if (h.includes('noi dung') || h === 'content' || h.includes('van de')) return t.content
   if (h.includes('ghi chu') || h.includes('phan hoi') || h.includes('reply') || h.includes('memo')) return t.reply.substring(0, 500)
-  if (h.includes('ky thuat') || h.includes('nhan vien') || h.includes('nguoi xu ly') || h === 'handler' || h.includes('nguoi ghi') || h.includes('nguoi nhap')) return t.handler
+  if (h.includes('ky thuat') || h.includes('nhan vien') || h.includes('nguoi xu ly') || h === 'handler' || h.includes('nguoi ghi') || h.includes('nguoi nhap') || h === 'reporter') return t.handler
   if (h.includes('xu ly') && !h.includes('noi dung') && !h.includes('ky thuat')) return t.handler
-  if (h.includes('ma kh') || (h.includes('ma') && h.includes('khach')) || h === 'customer id' || h === 'custid') return t.customer_id
   if (h.includes('bien so') || (h.includes('xe') && !h.includes('xu')) || h.includes('car')) return t.car_number
   if (h.includes('jira') || h.includes('link') || h.includes('atlassian')) return t.jira_url
   if ((h.includes('ma') || h === 'code' || h === 'id' || h.includes('so phieu')) && !h.includes('thiet bi')) return t.code
@@ -101,6 +112,14 @@ async function writeJiraTicketsToSheet(
       if (km) keyToRow.set(km[1].toUpperCase(), i + 1)
     }
 
+    // Tìm STT lớn nhất trong cột J (index 9) để tăng dần cho hàng mới
+    const sttColIdx = 9  // column J
+    let nextStt = 1
+    for (let i = 1; i < rows.length; i++) {
+      const v = parseInt(String(rows[i][sttColIdx] ?? ''), 10)
+      if (!isNaN(v) && v >= nextStt) nextStt = v + 1
+    }
+
     let nextRow = 2
     for (let i = rows.length - 1; i >= 1; i--) {
       if (rows[i].some(c => String(c ?? '').trim() !== '')) { nextRow = i + 2; break }
@@ -111,7 +130,7 @@ async function writeJiraTicketsToSheet(
 
     for (const t of tickets) {
       const td: JiraTicketData = {
-        date: t.csDate, company: t.custName || '', contact: t.cmName || '',
+        date: formatSheetDate(t.csDate), company: t.custName || '', contact: t.cmName || '',
         ticket_type: t.ccName || '', direction: t.csIO || '', content: t.csContext || '',
         reply: t.csMemo || '', handler: t.handler, car_number: t.csCarNumber || '',
         code: String(t.csId), jira_url: t.jiraInfo.url, zone: t.zone || '',
@@ -125,10 +144,14 @@ async function writeJiraTicketsToSheet(
       if (existingRow) {
         const jVal = String(rows[existingRow - 1]?.[9] ?? '').trim()
         if (jVal === '') {
+          // Hàng cũ chưa có dữ liệu J:Q — điền vào, gán STT luôn
+          cells[0] = String(nextStt++)
           updates.push({ range: `'${sheetName}'!J${existingRow}:Q${existingRow}`, values: [cells] })
           updated++
         }
       } else {
+        // Hàng mới — gán STT tăng dần
+        cells[0] = String(nextStt++)
         updates.push({ range: `'${sheetName}'!J${nextRow}:Q${nextRow}`, values: [cells] })
         keyToRow.set(t.jiraInfo.key, nextRow)
         nextRow++
