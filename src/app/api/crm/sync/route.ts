@@ -37,6 +37,7 @@ interface JiraTicketData {
   date: string; company: string; contact: string; ticket_type: string
   direction: string; content: string; reply: string; handler: string
   car_number: string; code: string; jira_url: string; zone: string
+  customer_id: string
 }
 
 function mapHeaderToValue(header: string, t: JiraTicketData): string {
@@ -48,8 +49,9 @@ function mapHeaderToValue(header: string, t: JiraTicketData): string {
   if (h.includes('nguoi lien he') || (h.includes('lien he') && !h.includes('ky thuat'))) return t.contact
   if (h.includes('noi dung') || h === 'content' || h.includes('van de')) return t.content
   if (h.includes('ghi chu') || h.includes('phan hoi') || h.includes('reply') || h.includes('memo')) return t.reply.substring(0, 500)
-  if (h.includes('ky thuat') || h.includes('nhan vien') || h.includes('nguoi xu ly') || h === 'handler') return t.handler
+  if (h.includes('ky thuat') || h.includes('nhan vien') || h.includes('nguoi xu ly') || h === 'handler' || h.includes('nguoi ghi') || h.includes('nguoi nhap')) return t.handler
   if (h.includes('xu ly') && !h.includes('noi dung') && !h.includes('ky thuat')) return t.handler
+  if (h.includes('ma kh') || (h.includes('ma') && h.includes('khach')) || h === 'customer id' || h === 'custid') return t.customer_id
   if (h.includes('bien so') || (h.includes('xe') && !h.includes('xu')) || h.includes('car')) return t.car_number
   if (h.includes('jira') || h.includes('link') || h.includes('atlassian')) return t.jira_url
   if ((h.includes('ma') || h === 'code' || h === 'id' || h.includes('so phieu')) && !h.includes('thiet bi')) return t.code
@@ -59,7 +61,7 @@ function mapHeaderToValue(header: string, t: JiraTicketData): string {
 }
 
 interface JiraWriteTicket {
-  csId: number; csDate: string; custName: string; cmName: string; ccName: string
+  csId: number; csDate: string; custName: string; custId: number | null; cmName: string; ccName: string
   csIO: string; csContext: string; csMemo: string; csCarNumber: string; zone: string
   handler: string; jiraInfo: { key: string; url: string }
 }
@@ -113,6 +115,7 @@ async function writeJiraTicketsToSheet(
         ticket_type: t.ccName || '', direction: t.csIO || '', content: t.csContext || '',
         reply: t.csMemo || '', handler: t.handler, car_number: t.csCarNumber || '',
         code: String(t.csId), jira_url: t.jiraInfo.url, zone: t.zone || '',
+        customer_id: t.custId ? String(t.custId) : '',
       }
       const cells: string[] = []
       for (let ci = 9; ci <= 16; ci++) {
@@ -462,6 +465,7 @@ export async function POST(req: NextRequest) {
     const handler = extractHandlerFromMemo(t.CS_Memo) ?? 'Unknown'
     jiraWriteTickets.push({
       csId: t.CS_ID, csDate: t.CS_Date, custName: t.Cust_Name || '',
+      custId: t.Cust_ID || null,
       cmName: t.CM_Name || '', ccName: t.CC_Name || '', csIO: t.CS_IO || '',
       csContext: t.CS_Context || '', csMemo: t.CS_Memo || '',
       csCarNumber: t.CS_CarNumber || '', zone: t.Cust_SaleManAssistant_Zone || '',
