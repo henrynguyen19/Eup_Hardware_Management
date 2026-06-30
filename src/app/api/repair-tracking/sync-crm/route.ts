@@ -106,17 +106,18 @@ async function callGetDeviceRepair(
   identity:  string,
   startTime: string,
   endTime:   string,
-): Promise<RepairRecord[]> {
+): Promise<{ records: RepairRecord[]; rawJson: unknown }> {
   const form = new URLSearchParams()
   form.append('MethodName', 'GetDeviceRepair')
   form.append('Param', JSON.stringify({
-    StartTime:   startTime,
-    EndTime:     endTime,
-    searchType:  '0',
-    Device_Code: null,
+    StartTime:  startTime,
+    EndTime:    endTime,
+    searchType: '0',
   }))
   form.append('SESSION_ID', sessionId)
   form.append('IDENTITY',   identity)
+
+  console.log('[repair/sync-crm] Calling GetDeviceRepair:', { sessionId: sessionId.substring(0,16), identity, startTime, endTime })
 
   const resp = await fetch(CRM_URL, {
     method:  'POST',
@@ -128,8 +129,9 @@ async function callGetDeviceRepair(
   const raw = await resp.text()
   if (!raw?.trim()) throw new Error('CRM trả về body rỗng')
   const json = JSON.parse(raw)
+  console.log('[repair/sync-crm] CRM response status:', json.status, 'result count:', Array.isArray(json.result) ? json.result.length : 'N/A', 'error:', json.error)
   if (!json.status) throw new Error(json.error || 'CRM status=0')
-  return json.result ?? []
+  return { records: json.result ?? [], rawJson: { status: json.status, error: json.error, resultCount: Array.isArray(json.result) ? json.result.length : 0 } }
 }
 
 // ── POST handler ──────────────────────────────────────────────
@@ -187,14 +189,22 @@ export async function POST(req: NextRequest) {
 
   // Gọi CRM
   let records: RepairRecord[]
+  let rawDebug: unknown
   try {
-    records = await callGetDeviceRepair(sessionId, identity, startTime, endTime)
+    const res = await callGetDeviceRepair(sessionId, identity, startTime, endTime)
+    records  = res.records
+    rawDebug = res.rawJson
   } catch (e) {
     return NextResponse.json({ error: `Lỗi CRM: ${String(e)}` }, { status: 500 })
   }
 
   if (records.length === 0) {
-    return NextResponse.json({ ok: true, total: 0, upserted: 0, message: 'Không có dữ liệu trong khoảng thời gian này' })
+    return NextResponse.json({
+      ok: true, total: 0, upserted: 0,
+      startTime, endTime,
+      message: 'Không có dữ liệu trong khoảng thời gian này',
+      debug: rawDebug,
+    })
   }
 
   // Map + upsert theo crm_repair_id
