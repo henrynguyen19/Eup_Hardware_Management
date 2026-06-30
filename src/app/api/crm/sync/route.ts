@@ -81,11 +81,12 @@ async function writeJiraTicketsToSheet(
     const meta = await sheets.spreadsheets.get({ spreadsheetId: JIRA_SHEET_ID, fields: 'sheets.properties' })
     const sheetProp = meta.data.sheets?.find(s => s.properties?.sheetId === JIRA_SHEET_GID)
     if (!sheetProp?.properties?.title) throw new Error(`Khong tim thay sheet GID ${JIRA_SHEET_GID}`)
-    const sheetName = sheetProp.properties.title
+    const sheetName  = sheetProp.properties.title
+    const sheetRowCount = sheetProp.properties.gridProperties?.rowCount ?? 1000
 
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: JIRA_SHEET_ID,
-      range: `'${sheetName}'!A1:Q600`,
+      range: `'${sheetName}'!A1:Q${sheetRowCount}`,
       valueRenderOption: 'FORMATTED_VALUE',
     })
     const rows = (resp.data.values ?? []) as string[][]
@@ -132,12 +133,30 @@ async function writeJiraTicketsToSheet(
       }
     }
 
-    if (updates.length > 0) {
-      await sheets.spreadsheets.values.batchUpdate({
+    if (updates.length === 0) return { written, updated }
+
+    // Mở rộng sheet nếu nextRow vượt quá số row hiện tại
+    const maxRowNeeded = nextRow - 1
+    if (maxRowNeeded > sheetRowCount) {
+      const rowsToAdd = maxRowNeeded - sheetRowCount + 50  // thêm buffer 50 rows
+      await sheets.spreadsheets.batchUpdate({
         spreadsheetId: JIRA_SHEET_ID,
-        requestBody: { valueInputOption: 'USER_ENTERED', data: updates },
+        requestBody: {
+          requests: [{
+            appendDimension: {
+              sheetId:    JIRA_SHEET_GID,
+              dimension:  'ROWS',
+              length:     rowsToAdd,
+            }
+          }]
+        }
       })
     }
+
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: JIRA_SHEET_ID,
+      requestBody: { valueInputOption: 'USER_ENTERED', data: updates },
+    })
     return { written, updated }
   } catch (e) {
     console.error('[crm/sync] writeJiraTicketsToSheet:', e)
@@ -430,8 +449,13 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Ghi Jira tickets len Google Sheet ─────────────────────────────────────
+  // Chỉ quét tickets của tháng hiện tại để tránh timeout với lượng data lớn
+  const now2 = new Date()
+  const jiraMonthFrom = `${now2.getFullYear()}-${String(now2.getMonth() + 1).padStart(2, '0')}-01`
+  const jiraTicketsThisMonth = allTickets.filter(t => t.CS_Date >= jiraMonthFrom)
+
   const jiraWriteTickets: JiraWriteTicket[] = []
-  for (const t of allTickets) {
+  for (const t of jiraTicketsThisMonth) {
     if (!t.CS_Memo) continue
     const jiraInfo = extractJiraInfo(t.CS_Memo)
     if (!jiraInfo) continue
@@ -444,6 +468,7 @@ export async function POST(req: NextRequest) {
       handler, jiraInfo,
     })
   }
+  console.log(`[crm/sync] Jira scan: ${jiraTicketsThisMonth.length} tickets tháng ${now2.getMonth()+1} → ${jiraWriteTickets.length} có Jira link`)
 
   let jiraSheet: { written: number; updated: number; error?: string } | null = null
   if (jiraWriteTickets.length > 0) {
