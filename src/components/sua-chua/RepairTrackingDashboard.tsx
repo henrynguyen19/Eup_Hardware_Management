@@ -110,9 +110,12 @@ function SyncCRMPanel({ onSynced }: { onSynced: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      const d = await res.json()
-      if (!res.ok) { setErr(d.error || 'Lỗi sync'); return }
-      setResult(d)
+      const text = await res.text()
+      if (!text) { setErr(`Server trả về response rỗng (HTTP ${res.status})`); return }
+      let d: Record<string, unknown>
+      try { d = JSON.parse(text) } catch { setErr(`Lỗi parse response: ${text.substring(0, 120)}`); return }
+      if (!res.ok) { setErr((d.error as string) || 'Lỗi sync'); return }
+      setResult(d as { ok: boolean; total: number; upserted: number; inserted?: number; updated?: number; errors?: string[] })
       if (d.ok) onSynced()
     } catch (e) {
       setErr(String(e))

@@ -136,6 +136,7 @@ async function callGetDeviceRepair(
 
 // ── POST handler ──────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  try {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
@@ -159,19 +160,18 @@ export async function POST(req: NextRequest) {
   const fmt = (d: Date)   =>
     `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} 00:00:00`
   const now = new Date()
+  const ago30 = new Date(now.getTime() - 30 * 86400000)
 
-  let startTime: string
-  let endTime:   string
+  // Default = 30 ngày, override bên dưới
+  let startTime: string = fmt(ago30)
+  let endTime:   string = fmt(now).replace('00:00:00', '23:59:59')
 
   if (body.startTime) {
     // Người dùng chọn khoảng thời gian thủ công
     startTime = body.startTime
     endTime   = body.endTime ?? fmt(now).replace('00:00:00', '23:59:59')
   } else if (body.mode === 'full') {
-    // Full sync — 30 ngày
-    const ago30 = new Date(now.getTime() - 30 * 86400000)
-    startTime = fmt(ago30)
-    endTime   = fmt(now).replace('00:00:00', '23:59:59')
+    // Full sync — 30 ngày (dùng default đã set)
   } else {
     // Incremental (default): tìm Repair_InsertDate mới nhất trong DB → sync từ đó
     const { data: latestRow } = await db
@@ -293,10 +293,13 @@ export async function POST(req: NextRequest) {
     ok:        errors.length === 0,
     total:     records.length,
     upserted,
-    inserted:  toInsert.length,
-    updated:   toUpdate.length,
     startTime,
     endTime,
     errors:    errors.length > 0 ? errors.slice(0, 5) : undefined,
   })
+
+  } catch (err) {
+    console.error('[repair/sync-crm] Unhandled error:', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
 }
