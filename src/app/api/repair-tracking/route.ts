@@ -63,7 +63,29 @@ export async function GET(req: NextRequest) {
   const { data, error, count } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ items: data ?? [], total: count ?? 0 })
+  // Counts theo status + destination (không phụ thuộc limit/offset)
+  const db = sb()
+  const [cho, gui, xong, oldDev, scr, sup] = await Promise.all([
+    db.from('repair_items').select('*', { count: 'exact', head: true }).eq('status', 'cho_gui'),
+    db.from('repair_items').select('*', { count: 'exact', head: true }).eq('status', 'da_gui'),
+    db.from('repair_items').select('*', { count: 'exact', head: true }).eq('status', 'da_sua_xong'),
+    db.from('repair_items').select('*', { count: 'exact', head: true }).eq('destination', 'old_device'),
+    db.from('repair_items').select('*', { count: 'exact', head: true }).eq('destination', 'scrap'),
+    db.from('repair_items').select('*', { count: 'exact', head: true }).eq('destination', 'supplier'),
+  ])
+
+  return NextResponse.json({
+    items: data ?? [],
+    total: count ?? 0,
+    statusCounts: {
+      cho_gui:    cho.count ?? 0,
+      da_gui:     gui.count ?? 0,
+      da_sua_xong: xong.count ?? 0,
+      old_device: oldDev.count ?? 0,
+      scrap:      scr.count  ?? 0,
+      supplier:   sup.count  ?? 0,
+    },
+  })
 }
 
 // POST /api/repair-tracking — tạo mới (trạng thái: cho_gui)

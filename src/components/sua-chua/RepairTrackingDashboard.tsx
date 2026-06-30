@@ -278,14 +278,18 @@ function CompleteModal({ item, onClose, onSaved }: { item: RepairItem; onClose: 
 }
 
 // ── Stats bar ─────────────────────────────────────────────────
-function StatsBar({ items }: { items: RepairItem[] }) {
+interface StatusCounts {
+  cho_gui: number; da_gui: number; da_sua_xong: number
+  old_device: number; scrap: number; supplier: number
+}
+function StatsBar({ counts }: { counts: StatusCounts }) {
   const stats = [
-    { label: 'Chờ gửi sửa', value: items.filter(i => i.status === 'cho_gui').length,        color: 'bg-amber-50 border-amber-200 text-amber-800' },
-    { label: 'Đang sửa',    value: items.filter(i => i.status === 'da_gui').length,         color: 'bg-blue-50 border-blue-200 text-blue-800' },
-    { label: 'Hoàn thành',  value: items.filter(i => i.status === 'da_sua_xong').length,    color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
-    { label: 'Old Device',  value: items.filter(i => i.destination === 'old_device').length, color: 'bg-gray-50 border-gray-200 text-gray-700' },
-    { label: 'Scrap',       value: items.filter(i => i.destination === 'scrap').length,      color: 'bg-red-50 border-red-200 text-red-700' },
-    { label: 'Supplier',    value: items.filter(i => i.destination === 'supplier').length,   color: 'bg-purple-50 border-purple-200 text-purple-700' },
+    { label: 'Chờ gửi sửa', value: counts.cho_gui,     color: 'bg-amber-50 border-amber-200 text-amber-800' },
+    { label: 'Đang sửa',    value: counts.da_gui,      color: 'bg-blue-50 border-blue-200 text-blue-800' },
+    { label: 'Hoàn thành',  value: counts.da_sua_xong, color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+    { label: 'Old Device',  value: counts.old_device,  color: 'bg-gray-50 border-gray-200 text-gray-700' },
+    { label: 'Scrap',       value: counts.scrap,       color: 'bg-red-50 border-red-200 text-red-700' },
+    { label: 'Supplier',    value: counts.supplier,    color: 'bg-purple-50 border-purple-200 text-purple-700' },
   ]
   return (
     <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
@@ -602,6 +606,7 @@ export default function RepairTrackingDashboard() {
   const [activeTab, setActiveTab]   = useState<'list' | 'stats'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
+  const [counts, setCounts]         = useState<StatusCounts>({ cho_gui: 0, da_gui: 0, da_sua_xong: 0, old_device: 0, scrap: 0, supplier: 0 })
   const [loading, setLoading]       = useState(true)
   const [filterStatus, setFilter]   = useState<string>('')
   const [filterProduct, setFilterP] = useState('')
@@ -612,11 +617,12 @@ export default function RepairTrackingDashboard() {
     const params = new URLSearchParams()
     if (filterStatus)  params.set('status', filterStatus)
     if (filterProduct) params.set('product', filterProduct)
-    params.set('limit', '500')
+    params.set('limit', '200')
     const res = await fetch('/api/repair-tracking?' + params.toString())
     const d = await res.json()
     setItems(d.items ?? [])
     setTotal(d.total ?? 0)
+    if (d.statusCounts) setCounts(d.statusCounts)
     setLoading(false)
   }, [filterStatus, filterProduct])
 
@@ -650,7 +656,7 @@ export default function RepairTrackingDashboard() {
           <SyncCRMPanel onSynced={load} />
 
           {/* Stats */}
-          <StatsBar items={items} />
+          <StatsBar counts={counts} />
 
           {/* Filters */}
           <div className="flex flex-wrap gap-2">

@@ -23,19 +23,29 @@ export async function GET(req: NextRequest) {
   const from = searchParams.get('from') // YYYY-MM-DD
   const to   = searchParams.get('to')
 
-  // Lấy tất cả items trong khoảng thời gian
-  let query = db
-    .from('repair_items')
-    .select('id, imei, product_name, status, destination, finish_reason, received_at, sent_at, completed_at, repair_warehouse, crm_repair_id')
-    .order('received_at', { ascending: false })
+  // Lấy TẤT CẢ items — paginate qua từng batch 1000 để vượt giới hạn PostgREST
+  const PAGE = 1000
+  const items: {
+    id: string; imei: string; product_name: string; status: string
+    destination: string | null; finish_reason: string | null
+    received_at: string; sent_at: string | null; completed_at: string | null
+    repair_warehouse: string | null; crm_repair_id: number | null
+  }[] = []
 
-  if (from) query = query.gte('received_at', from + 'T00:00:00')
-  if (to)   query = query.lte('received_at', to + 'T23:59:59')
-
-  const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  const items = data ?? []
+  for (let page = 0; ; page++) {
+    let q = db
+      .from('repair_items')
+      .select('id, imei, product_name, status, destination, finish_reason, received_at, sent_at, completed_at, repair_warehouse, crm_repair_id')
+      .order('received_at', { ascending: false })
+      .range(page * PAGE, (page + 1) * PAGE - 1)
+    if (from) q = q.gte('received_at', from + 'T00:00:00')
+    if (to)   q = q.lte('received_at', to + 'T23:59:59')
+    const { data, error } = await q
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!data || data.length === 0) break
+    items.push(...data)
+    if (data.length < PAGE) break  // trang cuối
+  }
 
   // ── 1. Tổng quan ─────────────────────────────────────────────
   const total     = items.length
