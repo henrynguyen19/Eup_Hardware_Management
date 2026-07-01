@@ -635,6 +635,7 @@ function FailureRateTab() {
   async function startSync() {
     setSyncing(true); setSyncDone(false); setSyncLog([]); abortRef.current = false
     let fromDate: string | null = null
+    let finalDone = false
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -658,27 +659,31 @@ function FailureRateTab() {
           setSyncLog(p => [...p, `❌ ${d.error}`]); break
         }
 
+        // Đã sync hết tất cả tháng
         if (d.done && !d.month) {
-          setSyncLog(p => [...p, `✅ ${d.message}`]); setSyncDone(true); break
+          setSyncLog(p => [...p, `✅ ${d.message}`])
+          finalDone = true; break
         }
 
-        const line = `✅ Tháng ${d.month}: ${d.total} thiết bị → lưu ${d.upserted}`
-          + (d.errors ? ` ⚠ ${(d.errors as string[])[0]}` : '')
+        const progress = (d.syncedMonths && d.totalMonths)
+          ? ` [${d.syncedMonths}/${d.totalMonths} tháng]` : ''
+        const line = `${d.ok ? '✅' : '⚠'} Tháng ${d.month}: ${d.total} thiết bị → lưu ${d.upserted}${progress}`
+          + (d.errors ? `  ⚠ ${(d.errors as string[])[0]}` : '')
         setSyncLog(p => [...p, line])
 
-        if (d.done) { setSyncDone(true); break }
+        if (d.done) { finalDone = true; break }
         fromDate = d.nextFromDate as string | null
-        if (!fromDate) { setSyncDone(true); break }
+        if (!fromDate) { finalDone = true; break }
 
-        // Delay nhỏ tránh rate limit
-        await new Promise(r => setTimeout(r, 500))
+        await new Promise(r => setTimeout(r, 300))
       } catch (e) {
         setSyncLog(p => [...p, `❌ ${String(e)}`]); break
       }
     }
 
     setSyncing(false)
-    if (syncDone) loadStats()
+    setSyncDone(finalDone)
+    if (finalDone) loadStats()
   }
 
   return (

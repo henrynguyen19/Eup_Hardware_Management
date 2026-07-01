@@ -1,11 +1,11 @@
 /**
  * POST /api/device-inventory/sync-crm
  * Sync danh sách thiết bị từ CRM vào bảng device_inventory.
- * Tháng qua tháng, bắt đầu từ 2024-01-01 (hoặc từ tháng mới nhất trong DB).
- * Mỗi request xử lý 1 tháng để tránh timeout Vercel (60s).
+ * Dùng device_inventory_sync_log để track tháng nào đã xong.
+ * Mỗi request xử lý 1 tháng, tự động tìm tháng chưa sync.
  *
- * Body: { fromDate?: "YYYY-MM-DD" }  -- nếu để trống → tự tính từ DB
- * Response: { synced, month, nextFromDate, done }
+ * Body: { fromDate?: "YYYY-MM" }  -- force sync tháng cụ thể
+ * Response: { synced, month, nextFromDate, done, totalMonths, syncedMonths }
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -15,8 +15,8 @@ import { getCRMSessionForUser } from '@/lib/crm-session'
 export const runtime     = 'nodejs'
 export const maxDuration = 60
 
-const CRM_URL = 'https://slt.ctms.vn/Eup_Java_CRM_SOAP/CRMEup_Servlet_SOAP'
-const HISTORY_START = '2024-01-01'
+const CRM_URL       = 'https://slt.ctms.vn/Eup_Java_CRM_SOAP/CRMEup_Servlet_SOAP'
+const HISTORY_START = '2024-01'   // YYYY-MM
 
 const sb = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,43 +25,56 @@ const sb = () => createClient(
 
 // ── CRM Response type ────────────────────────────────────────
 interface CRMDevice {
-  Device_ID:              number
-  Device_Code:            string
-  Device_Date:            string   // ngày tạo record / nhập kho
-  Device_TransferTime:    string   // ngày chuyển kho
-  Device_Type:            number
-  Device_TypeName?:       string
-  Device_ProductName?:    string
+  Device_ID:               number
+  Device_Code:             string
+  Device_Date:             string
+  Device_TransferTime:     string
+  Device_Type:             number
+  Device_TypeName?:        string
+  Device_ProductName?:     string
   Device_ProductKindName?: string
-  QP_ProductKindName?:    string
-  Device_VendorName?:     string
-  Device_VendorID?:       number
-  Device_SourceStockName: string
-  Device_DestStockName:   string
+  QP_ProductKindName?:     string
+  Device_VendorName?:      string
+  Device_SourceStockName:  string
+  Device_DestStockName:    string
   Device_TransferActionName: string
-  Device_TransferManName: string
-  Device_FirewareVer?:    string
-  Device_HardwareMemo?:   string
-  Device_Memo?:           string
+  Device_TransferManName:  string
+  Device_FirewareVer?:     string
+  Device_HardwareMemo?:    string
+  Device_Memo?:            string
   [key: string]: unknown
 }
 
 function pad(n: number) { return String(n).padStart(2, '0') }
 
-function monthBounds(year: number, month: number): { start: string; end: string } {
-  const lastDay = new Date(year, month, 0).getDate()
+function monthBounds(ym: string): { start: string; end: string } {
+  const [y, m] = ym.split('-').map(Number)
+  const lastDay = new Date(y, m, 0).getDate()
   return {
-    start: `${year}-${pad(month)}-01 00:00:00`,
-    end:   `${year}-${pad(month)}-${pad(lastDay)} 23:59:59`,
+    start: `${y}-${pad(m)}-01 00:00:00`,
+    end:   `${y}-${pad(m)}-${pad(lastDay)} 23:59:59`,
   }
+}
+
+/** Sinh list tất cả YYYY-MM từ HISTORY_START đến tháng hiện tại */
+function allMonthsToNow(): string[] {
+  const months: string[] = []
+  const [sy, sm] = HISTORY_START.split('-').map(Number)
+  const now = new Date()
+  let y = sy, m = sm
+  while (y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth() + 1)) {
+    months.push(`${y}-${pad(m)}`)
+    m++; if (m > 12) { m = 1; y++ }
+  }
+  return months
 }
 
 function getProductName(r: CRMDevice): string {
   return (
-    r.Device_TypeName ||
+    r.Device_TypeName        ||
     r.Device_ProductKindName ||
-    r.QP_ProductKindName ||
-    r.Device_ProductName ||
+    r.QP_ProductKindName     ||
+    r.Device_ProductName     ||
     `Type-${r.Device_Type}`
   )
 }
@@ -74,37 +87,30 @@ function getImportedDate(r: CRMDevice): string | null {
 }
 
 async function callGetDeviceMaintenance(
-  sessionId: string,
-  identity:  string,
-  startDate: string,
-  endDate:   string,
+  sessionId: string, identity: string,
+  startDate: string, endDate: string,
 ): Promise<CRMDevice[]> {
   const form = new URLSearchParams()
   form.append('MethodName', 'GetDeviceMaintenance')
   form.append('Param', JSON.stringify({
-    StartDate:      startDate,
-    EndDate:        endDate,
-    WH_ID:          null,
-    Usable:         null,
-    Device_Code:    null,
-    QP_ProductKind: null,
+    StartDate: startDate, EndDate: endDate,
+    WH_ID: null, Usable: null, Device_Code: null, QP_ProductKind: null,
   }))
   form.append('SESSION_ID', sessionId)
   form.append('IDENTITY',   identity)
 
   console.log('[device-inventory/sync] GetDeviceMaintenance:', startDate, '→', endDate)
-
   const resp = await fetch(CRM_URL, {
-    method:  'POST',
+    method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:    form.toString(),
-    signal:  AbortSignal.timeout(50_000),
+    body: form.toString(),
+    signal: AbortSignal.timeout(50_000),
   })
   if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
   const raw = await resp.text()
   if (!raw?.trim()) throw new Error('CRM trả về body rỗng')
   const json = JSON.parse(raw)
-  console.log('[device-inventory/sync] CRM status:', json.status, 'count:', Array.isArray(json.result) ? json.result.length : 'N/A')
+  console.log('[device-inventory/sync] status:', json.status, 'count:', Array.isArray(json.result) ? json.result.length : 'N/A')
   if (!json.status) throw new Error(json.error || 'CRM status=0')
   return json.result ?? []
 }
@@ -127,38 +133,36 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({})) as { fromDate?: string }
 
-    // Tính tháng cần load
-    let fromDate = body.fromDate
+    // Lấy danh sách tháng đã sync thành công
+    const { data: syncedRows } = await db
+      .from('device_inventory_sync_log')
+      .select('month')
+    const syncedSet = new Set((syncedRows ?? []).map(r => r.month as string))
 
-    if (!fromDate) {
-      // Tìm tháng mới nhất trong DB
-      const { data: latest } = await db
-        .from('device_inventory')
-        .select('imported_date')
-        .order('imported_date', { ascending: false })
-        .limit(1)
-        .single()
+    const allMonths = allMonthsToNow()
+    const totalMonths  = allMonths.length
+    const syncedMonths = allMonths.filter(m => syncedSet.has(m)).length
 
-      if (latest?.imported_date) {
-        // Lùi lại 1 tháng để sync lại tháng cuối (tránh bỏ sót)
-        const d = new Date(latest.imported_date)
-        d.setMonth(d.getMonth() - 1)
-        fromDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`
-      } else {
-        fromDate = HISTORY_START
+    // Tìm tháng cần sync: ưu tiên fromDate (force), nếu không → tháng đầu tiên chưa sync
+    let targetMonth: string
+    if (body.fromDate) {
+      // fromDate có thể là YYYY-MM hoặc YYYY-MM-DD
+      targetMonth = body.fromDate.substring(0, 7)
+    } else {
+      const unsyncedMonth = allMonths.find(m => !syncedSet.has(m))
+      if (!unsyncedMonth) {
+        return NextResponse.json({
+          ok: true, done: true,
+          message: 'Tất cả tháng đã được sync hoàn thành',
+          totalMonths, syncedMonths,
+        })
       }
+      targetMonth = unsyncedMonth
     }
 
-    const [fy, fm] = fromDate.split('-').map(Number)
-    const now = new Date()
-
-    // Kiểm tra đã sync hết chưa
-    if (fy > now.getFullYear() || (fy === now.getFullYear() && fm > now.getMonth() + 1)) {
-      return NextResponse.json({ ok: true, done: true, message: 'Đã sync hết dữ liệu đến tháng hiện tại' })
-    }
-
-    const { start, end } = monthBounds(fy, fm)
-    const monthLabel = `${String(fm).padStart(2,'0')}/${fy}`
+    const { start, end } = monthBounds(targetMonth)
+    const [ty, tm] = targetMonth.split('-').map(Number)
+    const monthLabel = `${pad(tm)}/${ty}`
 
     // Lấy CRM session
     const session = await getCRMSessionForUser(user.id)
@@ -169,16 +173,16 @@ export async function POST(req: NextRequest) {
     try {
       records = await callGetDeviceMaintenance(sessionId, identity, start, end)
     } catch (e) {
-      return NextResponse.json({ error: `Lỗi CRM: ${String(e)}` }, { status: 500 })
+      return NextResponse.json({ error: `Lỗi CRM tháng ${monthLabel}: ${String(e)}` }, { status: 500 })
     }
 
-    console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} records từ CRM`)
+    console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} records`)
 
-    // Map + dedupe theo device_id (giữ record cuối cùng nếu trùng)
     let upserted = 0
     const errors: string[] = []
 
     if (records.length > 0) {
+      // Dedupe theo device_id (giữ record cuối cùng nếu trùng)
       const rowMap = new Map<number, Record<string, unknown>>()
       for (const r of records) {
         rowMap.set(r.Device_ID, {
@@ -210,25 +214,61 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Tính nextFromDate (tháng tiếp theo)
-    const nextMonth = new Date(fy, fm, 1)  // fm là 1-indexed, new Date(y, m, 1) = tháng m+1
-    const isDone = nextMonth > now
+    // Ghi vào sync_log nếu không có lỗi
+    const hasError = errors.length > 0
+    if (!hasError) {
+      await db.from('device_inventory_sync_log').upsert({
+        month:        targetMonth,
+        record_count: upserted,
+        has_error:    false,
+        synced_at:    new Date().toISOString(),
+      }, { onConflict: 'month' })
+      syncedSet.add(targetMonth)
+    }
 
-    const nextFromDate = isDone ? null
-      : `${nextMonth.getFullYear()}-${pad(nextMonth.getMonth() + 1)}-01`
+    // Tìm tháng chưa sync tiếp theo
+    const nextMonth    = allMonths.find(m => !syncedSet.has(m) && m > targetMonth) ?? null
+    const done         = !nextMonth
+    const newSynced    = allMonths.filter(m => syncedSet.has(m)).length
 
     return NextResponse.json({
-      ok:           errors.length === 0,
+      ok:           !hasError,
       month:        monthLabel,
       total:        records.length,
       upserted,
-      errors:       errors.length > 0 ? errors.slice(0, 3) : undefined,
-      nextFromDate,
-      done:         isDone,
+      errors:       hasError ? errors.slice(0, 3) : undefined,
+      nextFromDate: done ? null : nextMonth,
+      done,
+      totalMonths,
+      syncedMonths: newSynced,
     })
 
   } catch (err) {
     console.error('[device-inventory/sync] Error:', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
+}
+
+// GET: trả về trạng thái sync (tháng nào xong, tháng nào chưa)
+export async function GET() {
+  const supabase = createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const db = sb()
+  const { data: syncedRows } = await db
+    .from('device_inventory_sync_log')
+    .select('month, record_count, synced_at')
+    .order('month', { ascending: true })
+
+  const syncedSet = new Set((syncedRows ?? []).map(r => r.month as string))
+  const allMonths = allMonthsToNow()
+  const missing   = allMonths.filter(m => !syncedSet.has(m))
+
+  return NextResponse.json({
+    totalMonths:  allMonths.length,
+    syncedMonths: syncedSet.size,
+    missingMonths: missing,
+    log: syncedRows ?? [],
+  })
 }
