@@ -29,7 +29,13 @@ interface RepairItem {
   receiver_name: string | null; sender_name: string | null; completer_name: string | null
   crm_repair_id: number | null
 }
-interface DupDevice { imei: string; product_name: string; count: number; last_received: string }
+interface RepairHistoryEntry {
+  id: string; received_at: string; sent_at: string | null; completed_at: string | null
+  status: string; destination: string | null; finish_reason: string | null
+  notes: string | null; repair_warehouse: string | null
+  receiver_name: string | null; sender_name: string | null; completer_name: string | null
+}
+interface DupDevice { imei: string; product_name: string; count: number; last_received: string; repairs: RepairHistoryEntry[] }
 interface DupProductGroup { product_name: string; deviceCount: number; totalRepairs: number; devices: DupDevice[] }
 interface StatsData {
   total: number; completed: number; inRepair: number; waiting: number
@@ -37,6 +43,7 @@ interface StatsData {
   uniqueDevices: number; repeatedDeviceCount: number
   completionRate: number; successRate: number; scrapRate: number; supplierRate: number
   duplicatesByProduct: DupProductGroup[]
+  allRepeatedDevices: DupDevice[]
   byProduct: { product_name: string; total: number; completed: number; oldDevice: number; scrap: number; supplier: number; inRepair: number; waiting: number; successRate: number; scrapRate: number; supplierRate: number }[]
   byWarehouse: { warehouse: string; total: number; completed: number; scrap: number; supplier: number }[]
 }
@@ -525,6 +532,149 @@ function FailureProductTable({ products, t }: { products: InventoryStats['byProd
   )
 }
 
+// ── Repeat Devices Panel ──────────────────────────────────────
+const DEST_LABEL_S: Record<string, string> = { old_device:'Old Device', scrap:'Scrap', supplier:'Supplier' }
+const DEST_COLOR_S: Record<string, string> = { old_device:'text-emerald-600', scrap:'text-red-500', supplier:'text-purple-600' }
+const FINISH_LABEL_S: Record<string, string> = {
+  sua_xong:'Sửa xong', khong_loi_bt:'Không lỗi', loai_bo:'Loại bỏ',
+  loai_bo_bo_mach:'Loại bỏ bo mạch', send_supplier:'Gửi hãng',
+}
+
+function toHashtag(name: string): string {
+  const map: Record<string,string> = {
+    'à':'a','á':'a','ả':'a','ã':'a','ạ':'a','ă':'a','ắ':'a','ằ':'a','ặ':'a','ẳ':'a','ẵ':'a',
+    'â':'a','ấ':'a','ầ':'a','ậ':'a','ẩ':'a','ẫ':'a','è':'e','é':'e','ẻ':'e','ẽ':'e','ẹ':'e',
+    'ê':'e','ế':'e','ề':'e','ệ':'e','ể':'e','ễ':'e','ì':'i','í':'i','ỉ':'i','ĩ':'i','ị':'i',
+    'ò':'o','ó':'o','ỏ':'o','õ':'o','ọ':'o','ô':'o','ố':'o','ồ':'o','ộ':'o','ổ':'o','ỗ':'o',
+    'ơ':'o','ớ':'o','ờ':'o','ợ':'o','ở':'o','ỡ':'o','ù':'u','ú':'u','ủ':'u','ũ':'u','ụ':'u',
+    'ư':'u','ứ':'u','ừ':'u','ự':'u','ử':'u','ữ':'u','ỳ':'y','ý':'y','ỷ':'y','ỹ':'y','ỵ':'y',
+    'đ':'d','Đ':'d',
+  }
+  return '#' + name.split('').map(c=>map[c.toLowerCase()]??c.toLowerCase()).join('')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')
+}
+
+function RepeatDevicesPanel({ devices, t }: { devices: DupDevice[]; t:(vi:string,en:string)=>string }) {
+  const [search, setSearch]       = useState('')
+  const [minCount, setMinCount]   = useState(2)
+  const [expandedImei, setExpanded] = useState<string|null>(null)
+
+  const filtered = devices.filter(d => {
+    if (d.count < minCount) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return d.imei.toLowerCase().includes(q) || d.product_name.toLowerCase().includes(q)
+    }
+    return true
+  })
+
+  function exportCSV() {
+    const header = 'IMEI,Loại thiết bị,Số lần sửa,Lần cuối,Lần,Nhận về,Gửi sửa,Hoàn thành,Kho sửa,Kết quả,Đích đến,Ghi chú'
+    const rows: string[] = [header]
+    for (const d of filtered) {
+      for (const [i, r] of d.repairs.entries()) {
+        rows.push([
+          d.imei, d.product_name, d.count, fmtDate(d.last_received),
+          i+1, fmtDate(r.received_at), fmtDate(r.sent_at), fmtDate(r.completed_at),
+          r.repair_warehouse??'', FINISH_LABEL_S[r.finish_reason??'']??r.finish_reason??'',
+          DEST_LABEL_S[r.destination??'']??r.destination??'',
+          (r.notes??'').replace(/,/g,' ')
+        ].map(v=>`"${v}"`).join(','))
+      }
+    }
+    const blob = new Blob(['﻿'+rows.join('\n')], { type:'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a'); a.href=url; a.download=`thiet-bi-sua-nhieu-lan-${new Date().toISOString().split('T')[0]}.csv`; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="bg-white border border-orange-200 rounded-2xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-orange-100 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">🔁 {t('Thiết bị sửa nhiều lần','Repeat Repair Devices')}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{filtered.length}/{devices.length} {t('thiết bị','devices')}</p>
+          </div>
+          <button onClick={exportCSV}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">
+            ⬇ CSV
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          <input value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder={t('🔍 Tìm IMEI hoặc loại thiết bị...','🔍 Search IMEI or device type...')}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs w-60 focus:outline-none focus:ring-2 focus:ring-orange-200" />
+          <div className="flex items-center gap-1 text-xs">
+            <span className="text-gray-500">{t('Sửa ≥','Repairs ≥')}</span>
+            {[2,3,4,5,10].map(n=>(
+              <button key={n} onClick={()=>setMinCount(minCount===n?2:n)}
+                className={`px-2 py-1 rounded-lg border transition-colors ${minCount===n?'bg-orange-500 text-white border-orange-500':'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+                {n}
+              </button>
+            ))}
+          </div>
+          {search && <button onClick={()=>setSearch('')} className="text-xs text-gray-400 hover:text-gray-600">✕</button>}
+        </div>
+      </div>
+      <div className="max-h-96 overflow-y-auto divide-y divide-gray-50">
+        {filtered.length===0
+          ? <p className="text-xs text-gray-400 text-center py-8">{t('Không có kết quả','No results')}</p>
+          : filtered.map(d=>(
+            <div key={d.imei}>
+              <button onClick={()=>setExpanded(expandedImei===d.imei?null:d.imei)}
+                className="w-full flex items-center justify-between px-5 py-2.5 hover:bg-orange-50 text-left transition-colors">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xs font-mono text-gray-700 truncate">{d.imei}</span>
+                  <span className="text-xs text-gray-400 whitespace-nowrap">{d.product_name}</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-gray-400">{t('Cuối','Last')}: {fmtDate(d.last_received)}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${d.count>=5?'bg-red-100 text-red-700':d.count>=3?'bg-orange-100 text-orange-700':'bg-amber-100 text-amber-700'}`}>
+                    {d.count}×
+                  </span>
+                  <span className="text-gray-400 text-xs">{expandedImei===d.imei?'▲':'▼'}</span>
+                </div>
+              </button>
+              {expandedImei===d.imei && (
+                <div className="bg-orange-50 border-t border-orange-100 px-5 py-3 space-y-2">
+                  {d.repairs.map((r,i)=>{
+                    const tags = r.notes?.match(/#([^\s#,;.!?()[\]{}"']+)/g)??[]
+                    return (
+                      <div key={r.id} className="bg-white rounded-xl border border-orange-100 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-orange-700">#{d.repairs.length-i} · {fmtDate(r.received_at)}</span>
+                          <div className="flex items-center gap-2">
+                            {r.destination && <span className={`text-xs font-semibold ${DEST_COLOR_S[r.destination]??'text-gray-600'}`}>{DEST_LABEL_S[r.destination]??r.destination}</span>}
+                            {r.repair_warehouse && <span className="text-xs text-blue-500">{r.repair_warehouse}</span>}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs text-gray-500 mb-2">
+                          <div><span className="text-gray-400">Nhận: </span>{fmtDate(r.received_at)}{r.receiver_name && <span className="text-gray-400"> · {r.receiver_name}</span>}</div>
+                          <div><span className="text-gray-400">Gửi: </span>{r.sent_at?fmtDate(r.sent_at):'—'}{r.sender_name && <span className="text-gray-400"> · {r.sender_name}</span>}</div>
+                          <div><span className="text-gray-400">Xong: </span>{r.completed_at?fmtDate(r.completed_at):'—'}{r.completer_name && <span className="text-gray-400"> · {r.completer_name}</span>}</div>
+                        </div>
+                        {r.finish_reason && <p className="text-xs text-gray-500 mb-1">📋 {FINISH_LABEL_S[r.finish_reason]??r.finish_reason}</p>}
+                        {r.notes && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {tags.length>0 ? tags.map(tag=>(
+                              <span key={tag} className="bg-indigo-50 text-indigo-600 rounded px-1.5 py-0.5 text-xs">{tag}</span>
+                            )) : <span className="text-xs text-gray-400 italic">{r.notes.substring(0,80)}</span>}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  )
+}
+
 function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; onDone:()=>void }) {
   const [syncing, setSyncing]   = useState(false)
   const [syncLog, setSyncLog]   = useState<string[]>([])
@@ -586,8 +736,6 @@ function StatsTab({ t, onFilterByTag }: { t:(vi:string,en:string)=>string; onFil
   const [loadingS, setLoadingS] = useState(true)
   const [from, setFrom]       = useState('')
   const [to, setTo]           = useState('')
-  const [expandedProduct, setExpandedProduct] = useState<string|null>(null)
-
   const loadStats = useCallback(async()=>{
     setLoadingS(true)
     const params = new URLSearchParams()
@@ -683,59 +831,28 @@ function StatsTab({ t, onFilterByTag }: { t:(vi:string,en:string)=>string; onFil
               </div>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <div className="bg-white border border-orange-200 rounded-2xl p-5">
-                <h3 className="text-sm font-semibold text-gray-700 mb-1">{t('Thiết bị sửa nhiều lần','Repeat Repair Devices')}</h3>
-                <p className="text-xs text-gray-400 mb-4">{stats.repeatedDeviceCount} {t('thiết bị','devices')}</p>
-                {stats.duplicatesByProduct.length===0 ? <p className="text-xs text-gray-400 py-4 text-center">{t('Không có','None')}</p>
-                : <div className="space-y-1">
-                    {stats.duplicatesByProduct.map(g=>(
-                      <div key={g.product_name} className="border border-gray-100 rounded-xl overflow-hidden">
-                        <button onClick={()=>setExpandedProduct(expandedProduct===g.product_name?null:g.product_name)}
-                          className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-orange-50 text-left">
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-medium text-gray-800">{g.product_name}</span>
-                            <span className="text-xs text-gray-400">{g.deviceCount} {t('thiết bị','devices')}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">{g.totalRepairs} {t('lượt','×')}</span>
-                            <span className="text-gray-400 text-xs">{expandedProduct===g.product_name?'▲':'▼'}</span>
-                          </div>
-                        </button>
-                        {expandedProduct===g.product_name && (
-                          <div className="border-t border-gray-100 bg-gray-50 divide-y divide-gray-100">
-                            {g.devices.map(d=>(
-                              <div key={d.imei} className="flex items-center justify-between px-5 py-2">
-                                <div><p className="text-xs font-mono text-gray-600">{d.imei}</p><p className="text-xs text-gray-400">{t('Lần cuối','Last')}: {fmtDate(d.last_received)}</p></div>
-                                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">{d.count}×</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+            </div>
+            <RepeatDevicesPanel devices={stats.allRepeatedDevices??[]} t={t} />
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">{t('Theo kho sửa chữa','By Repair Warehouse')}</h3>
+              {stats.byWarehouse.length===0 ? <p className="text-xs text-gray-400 py-4 text-center">{t('Chưa có dữ liệu','No data')}</p>
+              : <div className="space-y-3">
+                  {stats.byWarehouse.map(w=>(
+                    <div key={w.warehouse}>
+                      <div className="flex justify-between text-xs mb-1"><span className="font-medium text-gray-700">{w.warehouse}</span><span className="text-gray-400">{w.total}</span></div>
+                      <div className="flex gap-1 h-2">
+                        <div className="bg-emerald-500 h-2 rounded-l" style={{width:`${w.total>0?w.completed/w.total*100:0}%`}} />
+                        <div className="bg-red-400 h-2" style={{width:`${w.total>0?w.scrap/w.total*100:0}%`}} />
+                        <div className="bg-purple-400 h-2 rounded-r" style={{width:`${w.total>0?w.supplier/w.total*100:0}%`}} />
                       </div>
-                    ))}
-                  </div>}
-              </div>
-              <div className="bg-white border border-gray-200 rounded-2xl p-5">
-                <h3 className="text-sm font-semibold text-gray-700 mb-4">{t('Theo kho sửa chữa','By Repair Warehouse')}</h3>
-                {stats.byWarehouse.length===0 ? <p className="text-xs text-gray-400 py-4 text-center">{t('Chưa có dữ liệu','No data')}</p>
-                : <div className="space-y-3">
-                    {stats.byWarehouse.map(w=>(
-                      <div key={w.warehouse}>
-                        <div className="flex justify-between text-xs mb-1"><span className="font-medium text-gray-700">{w.warehouse}</span><span className="text-gray-400">{w.total}</span></div>
-                        <div className="flex gap-1">
-                          <div className="bg-emerald-500 h-2 rounded-l" style={{width:`${w.total>0?w.completed/w.total*100:0}%`}} />
-                          <div className="bg-red-400 h-2" style={{width:`${w.total>0?w.scrap/w.total*100:0}%`}} />
-                          <div className="bg-purple-400 h-2 rounded-r" style={{width:`${w.total>0?w.supplier/w.total*100:0}%`}} />
-                        </div>
-                        <div className="flex gap-3 text-xs text-gray-400 mt-0.5">
-                          <span className="text-emerald-600">{w.completed} {t('hoàn thành','done')}</span>
-                          <span className="text-red-500">{w.scrap} scrap</span>
-                          <span className="text-purple-500">{w.supplier} supplier</span>
-                        </div>
+                      <div className="flex gap-3 text-xs text-gray-400 mt-0.5">
+                        <span className="text-emerald-600">{w.completed} {t('hoàn thành','done')}</span>
+                        <span className="text-red-500">{w.scrap} scrap</span>
+                        <span className="text-purple-500">{w.supplier} supplier</span>
                       </div>
-                    ))}
-                  </div>}
-              </div>
+                    </div>
+                  ))}
+                </div>}
             </div>
             <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100">
@@ -868,104 +985,4 @@ export default function RepairTrackingDashboard() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-800">{t('Theo dõi sửa chữa','Repair Tracking')}</h1>
-          <p className="text-xs text-gray-500 mt-0.5">{total.toLocaleString()} {t('thiết bị','devices')}</p>
-        </div>
-        <button onClick={toggle} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
-          🌐 {lang === 'vi' ? 'VI | EN' : 'EN | VI'}
-        </button>
-      </div>
-
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {([['list', t('📋 Danh sách','📋 List')], ['stats', t('📊 Thống kê','📊 Statistics')]] as const).map(([tab,label])=>(
-          <button key={tab} onClick={()=>setActiveTab(tab)}
-            className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${activeTab===tab?'bg-white text-gray-800 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab==='list' ? (
-        <>
-          <SyncCRMPanel onSynced={load} t={t} />
-          <StatsBar counts={counts} t={t} />
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="flex items-center gap-1">
-              <input value={imeiInput} onChange={e=>setImeiInput(e.target.value)}
-                onKeyDown={e=>{ if(e.key==='Enter') setFilterImei(imeiInput.trim()) }}
-                placeholder={t('Tìm mã thiết bị (IMEI)...','Search IMEI...')}
-                className="border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-52 bg-blue-50" />
-              <button onClick={()=>setFilterImei(imeiInput.trim())} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">🔍</button>
-              {filterImei && <button onClick={()=>{setImeiInput('');setFilterImei('')}} className="px-2 py-1.5 text-xs text-gray-400 hover:text-gray-600">✕</button>}
-            </div>
-            <select value={filterStatus} onChange={e=>setFilter(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
-              <option value="">{t('Tất cả trạng thái','All statuses')}</option>
-              <option value="cho_gui">{t('Chờ gửi sửa','Pending Send')}</option>
-              <option value="da_gui">{t('Đã gửi sửa','In Repair')}</option>
-              <option value="da_sua_xong">{t('Đã sửa xong','Completed')}</option>
-            </select>
-            <input value={filterProduct} onChange={e=>setFilterP(e.target.value)}
-              placeholder={t('Lọc loại thiết bị...','Filter device type...')}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 w-44" />
-            <button onClick={load} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">🔄</button>
-            <button onClick={handleExport} disabled={exporting}
-              className="ml-auto flex items-center gap-2 px-4 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
-              {exporting ? t('Đang xuất...','Exporting...') : `⬇ ${t('Xuất Excel','Export Excel')}`}
-            </button>
-          </div>
-          {(filterImei || filterTag) && (
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {filterImei && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-mono">🔍 IMEI: {filterImei}</span>}
-              {filterTag  && (
-                <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
-                  🏷 #{filterTag}
-                  <button onClick={()=>setFilterTag('')} className="text-indigo-400 hover:text-indigo-700 ml-0.5">✕</button>
-                </span>
-              )}
-              <span className="text-gray-400">{displayItems.length} {t('kết quả','results')}</span>
-            </div>
-          )}
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                    <th className="px-4 py-3">{t('Thiết bị / IMEI','Device / IMEI')}</th>
-                    <th className="px-4 py-3">{t('Trạng thái','Status')}</th>
-                    <th className="px-4 py-3">{t('Nhận về kho','Received')}</th>
-                    <th className="px-4 py-3">{t('Gửi sửa','Sent')}</th>
-                    <th className="px-4 py-3">{t('Hoàn thành','Completed')}</th>
-                    <th className="px-4 py-3">{t('Kết quả','Result')}</th>
-                    <th className="px-4 py-3">{t('Ghi chú / Tags','Notes / Tags')}</th>
-                    <th className="px-4 py-3">{t('Thao tác','Action')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading
-                    ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">{t('Đang tải...','Loading...')}</td></tr>
-                    : displayItems.length===0
-                      ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">
-                          {filterImei ? t(`Không tìm thấy IMEI "${filterImei}"`,`No device with IMEI "${filterImei}"`)
-                           : filterTag ? t(`Không có ghi chú chứa #${filterTag}`,`No notes with #${filterTag}`)
-                           : t('Chưa có dữ liệu','No data')}
-                        </td></tr>
-                      : displayItems.map(item=>(
-                          <RepairRow key={item.id} item={item} onAction={(i,a)=>setModal({type:a,item:i})} t={t} />
-                        ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      ) : (
-        <StatsTab t={t} onFilterByTag={handleFilterByTag} />
-      )}
-
-      {modal?.type==='send'     && <SendModal    item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
-      {modal?.type==='complete' && <CompleteModal item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
-    </div>
-  )
-}
+ 

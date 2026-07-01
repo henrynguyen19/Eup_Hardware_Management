@@ -1061,6 +1061,78 @@ function HashtagMiniPanel() {
   )
 }
 
+// ── Hashtag Standard Table ─────────────────────────────────────
+function toHashtagStr(name: string): string {
+  const map: Record<string,string> = {
+    'à':'a','á':'a','ả':'a','ã':'a','ạ':'a','ă':'a','ắ':'a','ằ':'a','ặ':'a','ẳ':'a','ẵ':'a',
+    'â':'a','ấ':'a','ầ':'a','ậ':'a','ẩ':'a','ẫ':'a','è':'e','é':'e','ẻ':'e','ẽ':'e','ẹ':'e',
+    'ê':'e','ế':'e','ề':'e','ệ':'e','ể':'e','ễ':'e','ì':'i','í':'i','ỉ':'i','ĩ':'i','ị':'i',
+    'ò':'o','ó':'o','ỏ':'o','õ':'o','ọ':'o','ô':'o','ố':'o','ồ':'o','ộ':'o','ổ':'o','ỗ':'o',
+    'ơ':'o','ớ':'o','ờ':'o','ợ':'o','ở':'o','ỡ':'o','ù':'u','ú':'u','ủ':'u','ũ':'u','ụ':'u',
+    'ư':'u','ứ':'u','ừ':'u','ự':'u','ử':'u','ữ':'u','ỳ':'y','ý':'y','ỷ':'y','ỹ':'y','ỵ':'y',
+    'đ':'d','Đ':'D',
+  }
+  return '#' + name.split('').map(c => map[c] ?? c).join('')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+function HashtagStandardTable({ faultConfigs }: { faultConfigs: Record<string, string[]> }) {
+  const [activeStatus, setActiveStatus] = useState('da_sua')
+  const STATUS_LABELS: Record<string, string> = {
+    da_sua: 'Đã sửa', gui_bao_hanh: 'Gửi bảo hành',
+    khong_loi: 'Không lỗi', hong_han: 'Hỏng hẳn', cho_sua: 'Chờ sửa',
+  }
+
+  // Unique fault types for active status
+  const faults = faultConfigs[activeStatus] ?? []
+  const allUniq = Array.from(new Set(Object.values(faultConfigs).flat()))
+
+  function copyAll() {
+    const text = faults.map(f => toHashtagStr(f)).join(' ')
+    navigator.clipboard.writeText(text).catch(()=>{})
+  }
+
+  return (
+    <div className="bg-white border border-indigo-200 rounded-2xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-indigo-100 flex items-center justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-indigo-800">📋 Bảng hashtag chuẩn</h4>
+          <p className="text-xs text-indigo-500 mt-0.5">Kỹ thuật dùng hashtag này khi ghi chú hoàn thành sửa chữa</p>
+        </div>
+        <button onClick={copyAll} className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+          📋 Copy tất cả
+        </button>
+      </div>
+      <div className="flex gap-0 border-b border-indigo-100 overflow-x-auto">
+        {Object.keys(STATUS_LABELS).filter(k => faultConfigs[k]?.length > 0).map(k => (
+          <button key={k} onClick={() => setActiveStatus(k)}
+            className={`px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${activeStatus===k?'border-indigo-600 text-indigo-700 bg-indigo-50':'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {STATUS_LABELS[k]}
+          </button>
+        ))}
+        <button onClick={() => setActiveStatus('all')}
+          className={`px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${activeStatus==='all'?'border-indigo-600 text-indigo-700 bg-indigo-50':'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          Tất cả ({allUniq.length})
+        </button>
+      </div>
+      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+        {(activeStatus === 'all' ? allUniq : faults).map(fault => (
+          <div key={fault} className="flex items-center justify-between bg-indigo-50 rounded-lg px-3 py-2 group">
+            <div className="min-w-0">
+              <p className="text-xs text-gray-600 truncate">{fault}</p>
+              <p className="text-xs font-mono text-indigo-600 font-medium">{toHashtagStr(fault)}</p>
+            </div>
+            <button onClick={() => navigator.clipboard.writeText(toHashtagStr(fault)).catch(()=>{})}
+              className="ml-2 text-indigo-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity text-xs">
+              📋
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function FaultConfigPanel({
   faultConfigs,
   onAdd,
@@ -1620,198 +1692,4 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
             <LoadingSpinner />
           ) : (
             <div>
-              <div className="px-4 py-3 border-b border-gray-100">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-700">{selectedWeek.week_label}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {t.suaChua.kpiBanGiao}: <strong className="text-gray-700">{calcBanGiao(weekData.stats, selectedWeek.id)}</strong> {t.suaChua.kpiDevices}
-                    </p>
-                  </div>
-                  {canWrite && (
-                    <div className="flex gap-2 items-center">
-                      <button onClick={() => setEditingDates(e => !e)} className="text-xs text-blue-500 hover:underline">📅 Sửa ngày</button>
-                      <button onClick={() => handleDelete(selectedWeek.id)} className="text-xs text-red-500 hover:text-red-700">🗑 Xóa</button>
-                    </div>
-                  )}
-                </div>
-                {/* Date edit form */}
-                {editingDates && (
-                  <div className="mt-3 flex gap-2 items-end flex-wrap">
-                    <div>
-                      <label className="text-[10px] text-gray-500 block mb-1">{t.suaChua.fromDate}</label>
-                      <input type="date" value={editDateStart} onChange={e => setEditDateStart(e.target.value)}
-                        className="border border-gray-200 rounded px-2 py-1 text-xs" />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-gray-500 block mb-1">{t.suaChua.toDate}</label>
-                      <input type="date" value={editDateEnd} onChange={e => setEditDateEnd(e.target.value)}
-                        className="border border-gray-200 rounded px-2 py-1 text-xs" />
-                    </div>
-                    <button onClick={handleSaveDates} disabled={savingDates}
-                      className="px-3 py-1 text-xs font-semibold text-white rounded-lg disabled:opacity-50"
-                      style={{ background: '#164d81' }}
-                    >{savingDates ? 'Đang lưu...' : '✓ Lưu ngày'}</button>
-                    <button onClick={() => setEditingDates(false)} className="text-xs text-gray-400 hover:text-gray-600">Huỷ</button>
-                  </div>
-                )}
-                {selectedWeek.date_start && !editingDates && (
-                  <p className="text-xs text-blue-500 mt-1">
-                    📅 {fmtDateStr(selectedWeek.date_start)}{selectedWeek.date_end ? ` – ${fmtDateStr(selectedWeek.date_end)}` : ''}
-                  </p>
-                )}
-              </div>
-
-              {/* Breakdown by device */}
-              <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2">{t.suaChua.byDeviceType}</p>
-                <div className="flex flex-wrap gap-2">
-                  {DEVICE_TYPES.map(dt => {
-                    const qty = calcBanGiao(weekData.stats, selectedWeek.id, dt)
-                    if (qty === 0) return null
-                    return (
-                      <span key={dt} className="text-xs px-2 py-0.5 rounded-full text-white" style={{ background: DEVICE_COLORS[dt] }}>
-                        {dt}: {qty}
-                      </span>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Breakdown by status */}
-              <div className="px-4 py-3">
-                <p className="text-xs font-semibold text-gray-500 mb-2">{t.suaChua.repairResults}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {STATUS_TYPES.map(st => {
-                    const sum = weekData.stats.filter(s => s.week_id === selectedWeek.id && s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
-                    return (
-                      <div key={st.key} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: st.color + '12' }}>
-                        <span className="text-xs font-medium" style={{ color: st.color }}>{getStatusLabel(st.key, t)}</span>
-                        <span className="text-sm font-bold text-gray-800">{sum || '—'}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function LoadingSpinner() {
-  const { t } = useLanguage()
-  return (
-    <div className="flex items-center justify-center h-48 gap-2 text-gray-400">
-      <div className="w-5 h-5 border-2 border-gray-300 border-t-red-600 rounded-full animate-spin" />
-      <span className="text-sm">{t.common.loading}</span>
-    </div>
-  )
-}
-
-function EmptyState({ msg }: { msg: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-      <span className="text-3xl mb-2">📊</span>
-      <p className="text-sm">{msg}</p>
-    </div>
-  )
-}
-
-// ── Main ───────────────────────────────────────────────────────
-export default function RepairDashboard({ userEmail = '', permissions = [] }: { userEmail?: string; permissions?: string[] }) {
-  const { t } = useLanguage()
-  const canWrite = permissions.includes('sua_chua:write') || permissions.includes('admin:users')
-  const [tab, setTab] = useState<'dashboard' | 'entry' | 'history' | 'config' | 'tracking'>('dashboard')
-  const [refreshKey, setRefreshKey] = useState(0)
-
-  // ── Fault configs — fetched from DB, fallback to defaults ──
-  const [faultConfigs, setFaultConfigs] = useState<Record<string, string[]>>(DEFAULT_FAULT_TYPES_BY_STATUS)
-
-  useEffect(() => {
-    fetch('/api/sua-chua/fault-configs')
-      .then(r => r.json())
-      .then(d => { if (d.configs) setFaultConfigs(d.configs) })
-      .catch(() => {}) // keep defaults on error
-  }, [])
-
-  async function handleAddFault(status: string, fault: string) {
-    await fetch('/api/sua-chua/fault-configs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status_type: status, fault_type: fault }),
-    })
-    setFaultConfigs(prev => ({
-      ...prev,
-      [status]: [...(prev[status] ?? []), fault],
-    }))
-  }
-
-  async function handleDeleteFault(status: string, fault: string) {
-    await fetch('/api/sua-chua/fault-configs', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status_type: status, fault_type: fault }),
-    })
-    setFaultConfigs(prev => ({
-      ...prev,
-      [status]: (prev[status] ?? []).filter(f => f !== fault),
-    }))
-  }
-
-  const tabs: Array<{ key: 'dashboard' | 'entry' | 'history' | 'config' | 'tracking'; label: string }> = [
-    { key: 'dashboard', label: `📊 ${t.suaChua.tabDashboard}` },
-    ...(canWrite ? [{ key: 'entry' as const, label: `✏️ ${t.suaChua.tabEntry}` }] : []),
-    { key: 'history',   label: `🗂 ${t.suaChua.tabHistory}` },
-    { key: 'tracking',  label: `📋 Theo dõi` },
-    ...(canWrite ? [{ key: 'config' as const, label: `⚙️ ${t.common.update}` }] : []),
-  ]
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">🔧 {t.suaChua.title}</h1>
-            <p className="text-xs text-gray-400 mt-0.5">{t.suaChua.tabDashboard}</p>
-          </div>
-          {userEmail && (
-            <span className="text-xs text-gray-400">{userEmail}</span>
-          )}
-        </div>
-        <div className="flex gap-1 mt-3 border-b border-gray-100">
-          {tabs.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={`px-4 py-2 text-xs font-medium rounded-t-lg transition ${tab === t.key ? 'bg-white text-[#A70A0A] border border-b-white border-gray-200 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}
-            >{t.label}</button>
-          ))}
-        </div>
-      </div>
-
-      <div className="px-6 py-5">
-        {tab === 'dashboard' && <DashboardTab />}
-        {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} faultConfigs={faultConfigs} />}
-        {tab === 'history'   && <HistoryTab refreshKey={refreshKey} canWrite={canWrite} />}
-        {tab === 'tracking'  && <RepairTrackingDashboard />}
-        {tab === 'config'    && (
-          <div className="space-y-8">
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">📊 Phân tích lỗi theo Hashtag</h2>
-              <HashtagMiniPanel />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">⚙️ Cấu hình loại lỗi</h2>
-              <FaultConfigPanel
-                faultConfigs={faultConfigs}
-                onAdd={handleAddFault}
-                onDelete={handleDeleteFault}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
+              <div className="px-4 py-3 border-b bord

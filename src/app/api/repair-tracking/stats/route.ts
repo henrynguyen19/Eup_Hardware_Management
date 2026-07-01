@@ -30,12 +30,14 @@ export async function GET(req: NextRequest) {
     destination: string | null; finish_reason: string | null
     received_at: string; sent_at: string | null; completed_at: string | null
     repair_warehouse: string | null; crm_repair_id: number | null
+    notes: string | null; receiver_name: string | null
+    sender_name: string | null; completer_name: string | null
   }[] = []
 
   for (let page = 0; ; page++) {
     let q = db
       .from('repair_items')
-      .select('id, imei, product_name, status, destination, finish_reason, received_at, sent_at, completed_at, repair_warehouse, crm_repair_id')
+      .select('id, imei, product_name, status, destination, finish_reason, received_at, sent_at, completed_at, repair_warehouse, crm_repair_id, notes, receiver_name, sender_name, completer_name')
       .order('received_at', { ascending: false })
       .range(page * PAGE, (page + 1) * PAGE - 1)
     if (from) q = q.gte('received_at', from + 'T00:00:00')
@@ -73,7 +75,22 @@ export async function GET(req: NextRequest) {
       product_name: (product_name || 'Unknown').trim(),
       count:        rows.length,
       last_received: rows[0].received_at,
+      repairs: rows.map(r => ({
+        id:              r.id,
+        received_at:     r.received_at,
+        sent_at:         r.sent_at,
+        completed_at:    r.completed_at,
+        status:          r.status,
+        destination:     r.destination,
+        finish_reason:   r.finish_reason,
+        notes:           r.notes,
+        repair_warehouse: r.repair_warehouse,
+        receiver_name:   r.receiver_name,
+        sender_name:     r.sender_name,
+        completer_name:  r.completer_name,
+      })),
     }))
+    .sort((a, b) => b.count - a.count)
 
   // Gom theo loại thiết bị
   const productDupMap = new Map<string, { deviceCount: number; totalRepairs: number; devices: typeof repeatedDevices }>()
@@ -139,23 +156,4 @@ export async function GET(req: NextRequest) {
     w.total++
     if (it.status === 'da_sua_xong') w.completed++
     if (it.destination === 'scrap')    w.scrap++
-    if (it.destination === 'supplier') w.supplier++
-  }
-  const byWarehouse = Array.from(warehouseMap.entries())
-    .map(([warehouse, s]) => ({ warehouse, ...s }))
-    .sort((a, b) => b.total - a.total)
-
-  return NextResponse.json({
-    total, completed, inRepair, waiting,
-    oldDevice, scrap, supplier,
-    uniqueDevices:       duplicateDeviceCount,
-    repeatedDeviceCount,
-    completionRate:  total > 0 ? Math.round(completed / total * 100) : 0,
-    successRate:     completed > 0 ? Math.round(oldDevice / completed * 100) : 0,
-    scrapRate:       completed > 0 ? Math.round(scrap    / completed * 100) : 0,
-    supplierRate:    completed > 0 ? Math.round(supplier / completed * 100) : 0,
-    duplicatesByProduct,
-    byProduct,
-    byWarehouse,
-  })
-}
+    if (it.destination === 'supplier') w.
