@@ -258,18 +258,32 @@ export async function POST(req: NextRequest) {
       errors: selErrors.length > 0 ? selErrors.slice(0, 5) : undefined,
     })
   } else if (body.mode === 'refresh_in_repair') {
-    // Chế độ đặc biệt: query từng thiết bị theo Device_Code
-    // Không dùng date range rộng → tránh timeout, chính xác hơn
-    const { data: pendingDevices } = await db
-      .from('repair_items')
-      .select('imei, crm_repair_id')
-      .in('status', ['cho_gui', 'da_gui'])
-      .not('imei', 'like', 'CRM-%')
-      .order('received_at', { ascending: false })
-      .limit(40)  // max 40 thiết bị / lần để tránh timeout
+    // Cập nhật thiết bị đang chờ/sửa quá 7 ngày — query từng Device_Code
+    const cutoff7 = new Date(now.getTime() - 7 * 86400000).toISOString()
 
-    if (!pendingDevices || pendingDevices.length === 0) {
-      return NextResponse.json({ ok: true, total: 0, upserted: 0, message: 'Không có thiết bị nào đang chờ/sửa' })
+    // cho_gui quá 7 ngày (received_at < cutoff)
+    const { data: choGuiRows } = await db
+      .from('repair_items')
+      .select('imei')
+      .eq('status', 'cho_gui')
+      .lt('received_at', cutoff7)
+      .not('imei', 'like', 'CRM-%')
+
+    // da_gui quá 7 ngày (sent_at < cutoff)
+    const { data: daGuiRows } = await db
+      .from('repair_items')
+      .select('imei')
+      .eq('status', 'da_gui')
+      .lt('sent_at', cutoff7)
+      .not('imei', 'like', 'CRM-%')
+
+    const staleImeis = [...new Set([
+      ...(choGuiRows ?? []).map(r => r.imei),
+      ...(daGuiRows  ?? []).map(r => r.imei),
+    ].filter(Boolean))]
+
+    if (staleImeis.length === 0) {
+      return NextResponse.json({ ok: true, total: 0, upserted: 0, message: 'Không có thiết bị nào quá 7 ngày' })
     }
 
     // Lấy CRM session
@@ -284,7 +298,7 @@ export async function POST(req: NextRequest) {
 
     const FAR_PAST = '1989-12-31 17:00:00'
     const endTimeNow = fmt(now).replace('00:00:00', '23:59:59')
-    const uniqueImeis = [...new Set(pendingDevices.map(d => d.imei).filter(Boolean))]
+    const uniqueImeis = staleImeis
 
     let allRecords: RepairRecord[] = []
     for (const imei of uniqueImeis) {
@@ -336,14 +350,10 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (latestRow?.received_at) {
-      // Incremental nhanh: lùi 7 ngày để bắt record mới + tránh bỏ sót múi giờ
-      // Giới hạn 7 ngày để tránh timeout — thiết bị da_gui cũ dùng mode 'refresh_in_repair'
-      const latestDate = new Date(latestRow.received_at)
-      latestDate.setDate(latestDate.getDate() - 7)
-      // Không lùi quá 14 ngày dù latestRow cũ
+      // Incremental: lùi 14 ngày (2 tuần làm việc)
       const cap14 = new Date(now.getTime() - 14 * 86400000)
-      startTime = fmt(latestDate < cap14 ? cap14 : latestDate)
-      console.log(`[repair/sync-crm] incremental 7d từ ${startTime}`)
+      startTime = fmt(cap14)
+      console.log(`[repair/sync-crm] incremental 14d từ ${startTime}`)
     } else {
       // DB trống — sync 30 ngày gần nhất
       const ago30 = new Date(now.getTime() - 30 * 86400000)

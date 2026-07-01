@@ -102,39 +102,86 @@ function RateBar({ rate, color }: { rate: number; color: string }) {
   )
 }
 
+interface SyncResult {
+  ok: boolean
+  total: number
+  inserted?: number
+  updated?: number
+  skipped?: number
+  upserted?: number
+  imeiChecked?: number
+  startTime?: string
+  errors?: string[]
+  message?: string
+}
+
 function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:string)=>string }) {
   const [from, setFrom]       = useState(monthAgoStr())
   const [to, setTo]           = useState(todayStr())
-  const [loading, setLoading] = useState(false)
-  const [result, setResult]   = useState<{ ok:boolean; total:number; upserted:number; errors?:string[] }|null>(null)
+  const [loading, setLoading] = useState<false | 'new' | 'stale' | 'date'>(false)
+  const [result, setResult]   = useState<SyncResult | null>(null)
   const [err, setErr]         = useState('')
 
-  async function doSync(payload: object) {
-    setLoading(true); setErr(''); setResult(null)
+  async function doSync(payload: object, kind: 'new' | 'stale' | 'date') {
+    setLoading(kind); setErr(''); setResult(null)
     try {
-      const res  = await fetch('/api/repair-tracking/sync-crm', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+      const res = await fetch('/api/repair-tracking/sync-crm', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
       const txt = await res.text()
       if (!txt) { setErr(`Empty response (HTTP ${res.status})`); return }
       let d: Record<string,unknown>
       try { d = JSON.parse(txt) } catch { setErr(`Parse error: ${txt.substring(0,120)}`); return }
       if (!res.ok) { setErr((d.error as string)||'Sync error'); return }
-      setResult(d as { ok:boolean; total:number; upserted:number; errors?:string[] })
+      setResult(d as SyncResult)
       if (d.ok) onSynced()
     } catch(e) { setErr(String(e)) } finally { setLoading(false) }
+  }
+
+  function ResultBadge({ r }: { r: SyncResult }) {
+    const inserted = r.inserted ?? 0
+    const updated  = r.updated  ?? 0
+    const skipped  = r.skipped  ?? 0
+    const isStale  = r.imeiChecked != null
+    return (
+      <div className={`rounded-xl px-4 py-3 space-y-1 ${r.ok ? 'bg-emerald-50 border border-emerald-200' : 'bg-amber-50 border border-amber-200'}`}>
+        <p className={`text-sm font-medium ${r.ok ? 'text-emerald-700' : 'text-amber-700'}`}>
+          {r.ok ? '✅' : '⚠'} {isStale
+            ? t(`Cập nhật ${r.imeiChecked} thiết bị từ CRM`, `Updated ${r.imeiChecked} devices from CRM`)
+            : t(`Đã tải ${r.total} records từ CRM`, `Loaded ${r.total} records from CRM`)}
+        </p>
+        <div className="flex flex-wrap gap-3 text-xs">
+          <span className="text-emerald-600">
+            ➕ {t('Thêm mới','New')}: <strong>{inserted}</strong>
+          </span>
+          <span className="text-blue-600">
+            🔄 {t('Cập nhật','Updated')}: <strong>{updated}</strong>
+          </span>
+          <span className="text-gray-400">
+            ⏭ {t('Không đổi','Unchanged')}: <strong>{skipped}</strong>
+          </span>
+          {r.startTime && (
+            <span className="text-gray-400">
+              📅 {t('Từ','From')}: {r.startTime.substring(0, 10)}
+            </span>
+          )}
+        </div>
+        {r.message && <p className="text-xs text-gray-500">{r.message}</p>}
+        {r.errors   && <p className="text-xs text-red-600 mt-1">⚠ {r.errors[0]}</p>}
+      </div>
+    )
   }
 
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => doSync({})} disabled={loading}
+        <button onClick={() => doSync({}, 'new')} disabled={!!loading}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-sm">
-          {loading ? <><span className="animate-spin">⟳</span> {t('Đang tải...','Loading...')}</> : <>⚡ {t('Sync dữ liệu mới','Sync new data')}</>}
+          {loading === 'new' ? <><span className="animate-spin inline-block">⟳</span> {t('Đang tải...','Loading...')}</> : <>⚡ {t('Sync dữ liệu mới','Sync new data')}</>}
         </button>
-        <button onClick={() => doSync({ mode: 'refresh_in_repair' })} disabled={loading}
+        <button onClick={() => doSync({ mode: 'refresh_in_repair' }, 'stale')} disabled={!!loading}
           className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white text-sm rounded-xl hover:bg-amber-600 disabled:opacity-50 shadow-sm">
-          🔄 {t('Cập nhật thiết bị đang sửa','Refresh in-repair')}
+          {loading === 'stale' ? <><span className="animate-spin inline-block">⟳</span> {t('Đang cập nhật...','Updating...')}</> : <>🔄 {t('Cập nhật thiết bị >7 ngày','Refresh stale >7d')}</>}
         </button>
-        <p className="text-xs text-blue-500">{t('Sync mới: 7 ngày gần nhất • Cập nhật đang sửa: theo ngày gửi','New: last 7 days • Refresh: by sent date')}</p>
+        <p className="text-xs text-blue-500">{t('Sync mới: 14 ngày gần nhất • Cập nhật: thiết bị chờ/sửa quá 7 ngày','New: last 14 days • Refresh: stale devices >7 days')}</p>
       </div>
       <details className="group">
         <summary className="text-xs text-blue-500 cursor-pointer hover:underline list-none">▸ {t('Sync theo khoảng thời gian cụ thể','Sync by date range')}</summary>
@@ -145,19 +192,14 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
           <div><label className="block text-xs font-medium text-blue-700 mb-1">{t('Đến ngày','To')}</label>
             <input type="date" value={to} onChange={e=>setTo(e.target.value)} className="border border-blue-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300" />
           </div>
-          <button onClick={() => doSync({ startTime:`${from} 00:00:00`, endTime:`${to} 23:59:59` })} disabled={loading}
+          <button onClick={() => doSync({ startTime:`${from} 00:00:00`, endTime:`${to} 23:59:59` }, 'date')} disabled={!!loading}
             className="px-4 py-1.5 bg-gray-600 text-white text-sm rounded-xl hover:bg-gray-700 disabled:opacity-50">
-            🔄 {t('Đồng bộ theo ngày','Sync by date')}
+            {loading === 'date' ? <span className="animate-spin inline-block">⟳</span> : '🔄'} {t('Đồng bộ theo ngày','Sync by date')}
           </button>
         </div>
       </details>
-      {err && <p className="text-xs text-red-600">⚠ {err}</p>}
-      {result && (
-        <div className={`text-sm rounded-lg px-3 py-2 ${result.ok?'bg-emerald-50 text-emerald-700 border border-emerald-200':'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-          {result.ok ? `✅ ${t('Đồng bộ xong','Sync complete')}: ${result.total} records → ${t('thêm mới','new')} ${result.upserted}` : `⚠ ${result.upserted}/${result.total} records`}
-          {result.errors && <p className="text-xs mt-1 text-red-600">{result.errors[0]}</p>}
-        </div>
-      )}
+      {err    && <p className="text-xs text-red-600">⚠ {err}</p>}
+      {result && <ResultBadge r={result} />}
     </div>
   )
 }
