@@ -125,12 +125,16 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
 
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => doSync({})} disabled={loading}
-          className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white text-sm rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-sm">
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-sm">
           {loading ? <><span className="animate-spin">⟳</span> {t('Đang tải...','Loading...')}</> : <>⚡ {t('Sync dữ liệu mới','Sync new data')}</>}
         </button>
-        <p className="text-xs text-blue-600">{t('Tự động lấy từ record mới nhất trong DB','Auto-sync from latest DB record')}</p>
+        <button onClick={() => doSync({ mode: 'refresh_in_repair' })} disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white text-sm rounded-xl hover:bg-amber-600 disabled:opacity-50 shadow-sm">
+          🔄 {t('Cập nhật thiết bị đang sửa','Refresh in-repair')}
+        </button>
+        <p className="text-xs text-blue-500">{t('Sync mới: 7 ngày gần nhất • Cập nhật đang sửa: theo ngày gửi','New: last 7 days • Refresh: by sent date')}</p>
       </div>
       <details className="group">
         <summary className="text-xs text-blue-500 cursor-pointer hover:underline list-none">▸ {t('Sync theo khoảng thời gian cụ thể','Sync by date range')}</summary>

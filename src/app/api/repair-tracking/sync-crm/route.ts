@@ -153,7 +153,10 @@ export async function POST(req: NextRequest) {
     startTime?: string
     endTime?:   string
     staffName?: string
-    mode?:      'incremental' | 'full'  // incremental = chỉ từ record mới nhất, full = theo date range
+    mode?:      'incremental' | 'full' | 'refresh_in_repair'
+    // incremental = 7 ngày gần nhất
+    // full        = 30 ngày (theo date range)
+    // refresh_in_repair = chỉ refresh các thiết bị đang da_gui (dùng sent_at range)
   }
 
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -172,6 +175,29 @@ export async function POST(req: NextRequest) {
     endTime   = body.endTime ?? fmt(now).replace('00:00:00', '23:59:59')
   } else if (body.mode === 'full') {
     // Full sync — 30 ngày (dùng default đã set)
+  } else if (body.mode === 'refresh_in_repair') {
+    // Refresh thiết bị đang da_gui: dùng sent_at (Repair_InDate) range
+    // Window nhỏ hơn nhiều so với received_at, tránh timeout
+    const { data: inRepairRows } = await db
+      .from('repair_items')
+      .select('sent_at')
+      .eq('status', 'da_gui')
+      .not('sent_at', 'is', null)
+      .order('sent_at', { ascending: true })
+      .limit(1)
+    const oldestSentAt = inRepairRows?.[0]?.sent_at
+    if (oldestSentAt) {
+      const d = new Date(oldestSentAt)
+      d.setDate(d.getDate() - 1)
+      // Giới hạn không quá 60 ngày để tránh timeout
+      const cap60 = new Date(now.getTime() - 60 * 86400000)
+      startTime = fmt(d < cap60 ? cap60 : d)
+      console.log(`[repair/sync-crm] refresh_in_repair từ sent_at ${startTime}`)
+    } else {
+      // Không có da_gui nào — sync 7 ngày
+      const ago7 = new Date(now.getTime() - 7 * 86400000)
+      startTime = fmt(ago7)
+    }
   } else {
     // Incremental (default): tìm Repair_InsertDate mới nhất trong DB → sync từ đó
     const { data: latestRow } = await db
