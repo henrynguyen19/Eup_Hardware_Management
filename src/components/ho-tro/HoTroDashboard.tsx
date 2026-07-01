@@ -957,6 +957,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     speed_tag: string | null; cs_update_time: string | null
   }
   const [showGroupPending, setShowGroupPending] = useState(false)
+  const [groupPendingFilter, setGroupPendingFilter] = useState<'all'|'hen'|'mai_bao_lai'>('all')
   const [showUnread, setShowUnread] = useState(false)
   const [unreadTickets, setUnreadTickets] = useState<UnreadTicket[]>([])
   const [unreadLoading, setUnreadLoading] = useState(false)
@@ -1639,15 +1640,19 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                         <p className="text-2xl font-bold text-green-600">{grandTotal > 0 ? Math.round(grandFast * 100 / grandTotal) : 0}%</p>
                         <p className="text-xs text-gray-400">{grandFast} yêu cầu</p>
                       </div>
-                      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                      <div className="bg-orange-50 border border-orange-200 rounded-xl shadow-sm p-4 cursor-pointer hover:shadow-md transition-shadow"
+                        onClick={() => { setGroupPendingFilter('hen'); setShowGroupPending(true) }}>
                         <p className="text-xs text-gray-500 mb-1">📅 Hẹn lại</p>
                         <p className="text-2xl font-bold text-orange-500">{grandHen}</p>
                         <p className="text-xs text-gray-400">{grandTotal > 0 ? Math.round(grandHen * 100 / grandTotal) : 0}% tổng</p>
+                        <p className="text-xs text-orange-400 mt-1">Bấm để xem chi tiết</p>
                       </div>
-                      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                      <div className="bg-pink-50 border border-pink-200 rounded-xl shadow-sm p-4 cursor-pointer hover:shadow-md transition-shadow"
+                        onClick={() => { setGroupPendingFilter('mai_bao_lai'); setShowGroupPending(true) }}>
                         <p className="text-xs text-gray-500 mb-1">🔁 Mai báo lại</p>
                         <p className="text-2xl font-bold text-pink-500">{grandMai}</p>
                         <p className="text-xs text-gray-400">{grandTotal > 0 ? Math.round(grandMai * 100 / grandTotal) : 0}% tổng</p>
+                        <p className="text-xs text-pink-400 mt-1">Bấm để xem chi tiết</p>
                       </div>
                     </div>
 
@@ -1960,7 +1965,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 <div className={`grid gap-3 mb-5 ${isAdmin ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
                   <StatCard icon="📞" label={t.hoTro.kpiTotal}   value={totalReq.toLocaleString()} sub={`${days.length} ${t.hoTro.kpiDays}`} color="blue" />
                   <StatCard icon="⚡" label={t.hoTro.kpiFast}    value={`${fastPct}%`} sub={`${totalFastC} ${t.hoTro.kpiRequests}`} color="green" />
-                  <StatCard icon="📅" label={t.hoTro.kpiPending} value={totalPendC} sub={t.hoTro.kpiPendingSub} color="red" onClick={() => setShowGroupPending(true)} />
+                  <StatCard icon="📅" label={t.hoTro.kpiPending} value={totalPendC} sub={t.hoTro.kpiPendingSub} color="red" onClick={() => { setGroupPendingFilter('all'); setShowGroupPending(true) }} />
                   {isAdmin && <StatCard icon="👥" label={t.hoTro.kpiStaff} value={activeStaffCount} color="teal" />}
                 </div>
 
@@ -2315,9 +2320,16 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
               <div>
-                <h2 className="font-bold text-gray-800 text-base">📅 Yêu cầu cần theo dõi</h2>
+                <h2 className="font-bold text-gray-800 text-base">
+                  {groupPendingFilter === 'hen' ? '📅 Danh sách Hẹn lại' : groupPendingFilter === 'mai_bao_lai' ? '🔁 Danh sách Mai báo lại' : '📅 Yêu cầu cần theo dõi'}
+                </h2>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  {statsTickets.filter(tk => tk.speed_tag === 'hen' || tk.speed_tag === 'mai_bao_lai').length} yêu cầu · Hẹn lại &amp; Mai báo lại
+                  {statsTickets.filter(tk =>
+                    groupPendingFilter === 'all'
+                      ? (tk.speed_tag === 'hen' || tk.speed_tag === 'mai_bao_lai')
+                      : tk.speed_tag === groupPendingFilter
+                  ).length} yêu cầu
+                  {groupPendingFilter === 'all' && ' · Hẹn lại & Mai báo lại'}
                 </p>
               </div>
               <button onClick={() => setShowGroupPending(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
@@ -2325,7 +2337,11 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
             <div className="overflow-y-auto flex-1 p-5">
               {(() => {
                 const pendList = statsTickets
-                  .filter(tk => tk.speed_tag === 'hen' || tk.speed_tag === 'mai_bao_lai')
+                  .filter(tk =>
+                    groupPendingFilter === 'all'
+                      ? (tk.speed_tag === 'hen' || tk.speed_tag === 'mai_bao_lai')
+                      : tk.speed_tag === groupPendingFilter
+                  )
                   .sort((a, b) => (b.ticket_date ?? '').localeCompare(a.ticket_date ?? ''))
                 if (!pendList.length) return (
                   <div className="text-center py-12 text-gray-400">
