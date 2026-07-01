@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────
 type RepairStatus = 'cho_gui' | 'da_gui' | 'da_sua_xong'
@@ -34,6 +34,16 @@ interface StatsData {
   duplicatesByProduct: DupProductGroup[]
   byProduct: { product_name: string; total: number; completed: number; oldDevice: number; scrap: number; supplier: number; inRepair: number; waiting: number; successRate: number; scrapRate: number; supplierRate: number }[]
   byWarehouse: { warehouse: string; total: number; completed: number; scrap: number; supplier: number }[]
+}
+
+interface InventoryStats {
+  totalImported: number; totalUniqImei: number; totalRepaired: number; overallRepairRate: number
+  byProduct: {
+    product_name: string; total_imported: number; total_repaired: number
+    total_supplier: number; total_scrap: number
+    repair_rate: number; supplier_rate: number; scrap_rate: number
+  }[]
+  message?: string
 }
 
 // ── Constants ─────────────────────────────────────────────────
@@ -126,7 +136,6 @@ function SyncCRMPanel({ onSynced }: { onSynced: () => void }) {
 
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-3">
-      {/* Nút incremental — sync mặc định */}
       <div className="flex items-center gap-3">
         <button onClick={() => doSync({})} disabled={loading}
           className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white text-sm rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-sm">
@@ -134,8 +143,6 @@ function SyncCRMPanel({ onSynced }: { onSynced: () => void }) {
         </button>
         <p className="text-xs text-blue-600">Tự động lấy từ record mới nhất trong DB</p>
       </div>
-
-      {/* Sync theo khoảng thời gian */}
       <details className="group">
         <summary className="text-xs text-blue-500 cursor-pointer hover:underline list-none">
           ▸ Sync theo khoảng thời gian cụ thể
@@ -157,9 +164,7 @@ function SyncCRMPanel({ onSynced }: { onSynced: () => void }) {
           </button>
         </div>
       </details>
-
       {err && <p className="text-xs text-red-600 mt-2">⚠ {err}</p>}
-
       {result && (
         <div className={`mt-2 text-sm rounded-lg px-3 py-2 ${result.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
           {result.ok
@@ -398,7 +403,7 @@ function RateBar({ rate, color }: { rate: number; color: string }) {
       <div className="flex-1 bg-gray-100 rounded-full h-1.5">
         <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${Math.min(rate, 100)}%` }} />
       </div>
-      <span className="text-xs font-medium w-9 text-right">{rate}%</span>
+      <span className="text-xs font-medium w-12 text-right">{rate}%</span>
     </div>
   )
 }
@@ -429,7 +434,6 @@ function StatsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Bộ lọc thời gian */}
       <div className="flex flex-wrap gap-3 items-end bg-gray-50 border border-gray-200 rounded-xl p-3">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Từ ngày nhận</label>
@@ -451,7 +455,6 @@ function StatsTab() {
         )}
       </div>
 
-      {/* Tổng quan rates */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
           { label: 'Tổng lượt sửa', value: stats.total, sub: `${stats.uniqueDevices} thiết bị riêng`, color: 'text-gray-800', bg: 'bg-gray-50 border-gray-200' },
@@ -467,7 +470,6 @@ function StatsTab() {
         ))}
       </div>
 
-      {/* Tỉ lệ kết quả (trong số đã hoàn thành) */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-4">Tỉ lệ kết quả (trong {stats.completed} thiết bị đã hoàn thành)</h3>
         <div className="space-y-3">
@@ -496,7 +498,6 @@ function StatsTab() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Thiết bị sửa nhiều lần — gom theo loại */}
         <div className="bg-white border border-orange-200 rounded-2xl p-5">
           <div className="mb-4">
             <h3 className="text-sm font-semibold text-gray-700">Thiết bị sửa nhiều lần</h3>
@@ -510,11 +511,9 @@ function StatsTab() {
             <div className="space-y-1">
               {stats.duplicatesByProduct.map(g => (
                 <div key={g.product_name} className="border border-gray-100 rounded-xl overflow-hidden">
-                  {/* Header loại thiết bị */}
                   <button
                     onClick={() => setExpandedProduct(expandedProduct === g.product_name ? null : g.product_name)}
-                    className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-orange-50 transition-colors text-left"
-                  >
+                    className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-orange-50 transition-colors text-left">
                     <div className="flex items-center gap-3">
                       <span className="text-xs font-medium text-gray-800">{g.product_name}</span>
                       <span className="text-xs text-gray-400">{g.deviceCount} thiết bị</span>
@@ -526,7 +525,6 @@ function StatsTab() {
                       <span className="text-gray-400 text-xs">{expandedProduct === g.product_name ? '▲' : '▼'}</span>
                     </div>
                   </button>
-                  {/* Danh sách thiết bị trong loại */}
                   {expandedProduct === g.product_name && (
                     <div className="border-t border-gray-100 bg-gray-50 divide-y divide-gray-100">
                       {g.devices.map(d => (
@@ -548,7 +546,6 @@ function StatsTab() {
           )}
         </div>
 
-        {/* Theo kho sửa */}
         <div className="bg-white border border-gray-200 rounded-2xl p-5">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Theo kho sửa chữa</h3>
           {stats.byWarehouse.length === 0 ? (
@@ -562,9 +559,9 @@ function StatsTab() {
                     <span className="text-gray-400">{w.total} thiết bị</span>
                   </div>
                   <div className="flex gap-1">
-                    <div className="bg-emerald-500 h-2 rounded-l" style={{ width: `${w.total > 0 ? w.completed/w.total*100 : 0}%` }} title={`Hoàn thành: ${w.completed}`} />
-                    <div className="bg-red-400 h-2" style={{ width: `${w.total > 0 ? w.scrap/w.total*100 : 0}%` }} title={`Scrap: ${w.scrap}`} />
-                    <div className="bg-purple-400 h-2 rounded-r" style={{ width: `${w.total > 0 ? w.supplier/w.total*100 : 0}%` }} title={`Supplier: ${w.supplier}`} />
+                    <div className="bg-emerald-500 h-2 rounded-l" style={{ width: `${w.total > 0 ? w.completed/w.total*100 : 0}%` }} />
+                    <div className="bg-red-400 h-2" style={{ width: `${w.total > 0 ? w.scrap/w.total*100 : 0}%` }} />
+                    <div className="bg-purple-400 h-2 rounded-r" style={{ width: `${w.total > 0 ? w.supplier/w.total*100 : 0}%` }} />
                   </div>
                   <div className="flex gap-3 text-xs text-gray-400 mt-0.5">
                     <span className="text-emerald-600">{w.completed} hoàn thành</span>
@@ -578,7 +575,6 @@ function StatsTab() {
         </div>
       </div>
 
-      {/* Theo loại thiết bị */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-700">Thống kê theo loại thiết bị</h3>
@@ -606,9 +602,7 @@ function StatsTab() {
                   <td className="px-4 py-2 text-right text-emerald-600">{p.oldDevice}</td>
                   <td className="px-4 py-2 text-right text-red-500">{p.scrap}</td>
                   <td className="px-4 py-2 text-right text-purple-600">{p.supplier}</td>
-                  <td className="px-4 py-2">
-                    <RateBar rate={p.successRate} color="bg-emerald-500" />
-                  </td>
+                  <td className="px-4 py-2"><RateBar rate={p.successRate} color="bg-emerald-500" /></td>
                 </tr>
               ))}
             </tbody>
@@ -619,22 +613,212 @@ function StatsTab() {
   )
 }
 
+// ── Failure Rate Tab (device inventory vs repair) ─────────────
+function FailureRateTab() {
+  const [stats, setStats]     = useState<InventoryStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [syncLog, setSyncLog] = useState<string[]>([])
+  const [syncDone, setSyncDone] = useState(false)
+  const abortRef = useRef(false)
+
+  async function loadStats() {
+    setLoading(true)
+    const res = await fetch('/api/device-inventory/stats')
+    const d   = await res.json()
+    setStats(d)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadStats() }, [])
+
+  async function startSync() {
+    setSyncing(true); setSyncDone(false); setSyncLog([]); abortRef.current = false
+    let fromDate: string | null = null
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (abortRef.current) { setSyncLog(p => [...p, '⛔ Đã dừng']); break }
+      try {
+        const body: Record<string, string> = {}
+        if (fromDate) body.fromDate = fromDate
+
+        const res  = await fetch('/api/device-inventory/sync-crm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const text = await res.text()
+        let d: Record<string, unknown>
+        try { d = JSON.parse(text) } catch {
+          setSyncLog(p => [...p, `❌ Lỗi parse: ${text.substring(0, 80)}`]); break
+        }
+
+        if (!res.ok || d.error) {
+          setSyncLog(p => [...p, `❌ ${d.error}`]); break
+        }
+
+        if (d.done && !d.month) {
+          setSyncLog(p => [...p, `✅ ${d.message}`]); setSyncDone(true); break
+        }
+
+        const line = `✅ Tháng ${d.month}: ${d.total} thiết bị → lưu ${d.upserted}`
+          + (d.errors ? ` ⚠ ${(d.errors as string[])[0]}` : '')
+        setSyncLog(p => [...p, line])
+
+        if (d.done) { setSyncDone(true); break }
+        fromDate = d.nextFromDate as string | null
+        if (!fromDate) { setSyncDone(true); break }
+
+        // Delay nhỏ tránh rate limit
+        await new Promise(r => setTimeout(r, 500))
+      } catch (e) {
+        setSyncLog(p => [...p, `❌ ${String(e)}`]); break
+      }
+    }
+
+    setSyncing(false)
+    if (syncDone) loadStats()
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Sync panel */}
+      <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-indigo-800">Sync kho thiết bị từ CRM</p>
+            <p className="text-xs text-indigo-600 mt-0.5">Tự động tải từng tháng từ 01/2024 → hiện tại, lưu vào DB</p>
+          </div>
+          <div className="flex gap-2">
+            {syncing ? (
+              <button onClick={() => { abortRef.current = true }}
+                className="px-4 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600">
+                ⛔ Dừng
+              </button>
+            ) : (
+              <button onClick={startSync}
+                className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                🔄 {stats?.totalImported ? 'Sync tiếp' : 'Bắt đầu Sync'}
+              </button>
+            )}
+            <button onClick={loadStats} disabled={loading || syncing}
+              className="px-4 py-1.5 text-sm border border-indigo-200 bg-white rounded-lg hover:bg-indigo-50 disabled:opacity-50">
+              ↻ Reload
+            </button>
+          </div>
+        </div>
+
+        {syncLog.length > 0 && (
+          <div className="bg-white border border-indigo-100 rounded-lg p-3 max-h-36 overflow-y-auto">
+            {syncLog.map((line, i) => (
+              <p key={i} className="text-xs font-mono text-gray-600">{line}</p>
+            ))}
+            {syncing && <p className="text-xs font-mono text-indigo-500 animate-pulse">⏳ Đang xử lý...</p>}
+          </div>
+        )}
+      </div>
+
+      {/* Stats overview */}
+      {loading ? (
+        <div className="py-8 text-center text-sm text-gray-400">Đang tải...</div>
+      ) : !stats || stats.totalImported === 0 ? (
+        <div className="py-8 text-center text-sm text-gray-400">
+          {stats?.message ?? 'Chưa có dữ liệu. Nhấn Sync để tải từ CRM.'}
+        </div>
+      ) : (
+        <>
+          {/* Overview cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'Tổng thiết bị nhập', value: stats.totalImported.toLocaleString(), color: 'text-gray-800', bg: 'bg-gray-50 border-gray-200' },
+              { label: 'Mã thiết bị riêng',  value: stats.totalUniqImei.toLocaleString(), color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
+              { label: 'Đã có sửa chữa',     value: stats.totalRepaired.toLocaleString(), color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' },
+              {
+                label: 'Tỉ lệ lỗi tổng',
+                value: `${stats.overallRepairRate}%`,
+                color: stats.overallRepairRate > 20 ? 'text-red-700' : stats.overallRepairRate > 10 ? 'text-amber-700' : 'text-emerald-700',
+                bg:    stats.overallRepairRate > 20 ? 'bg-red-50 border-red-200' : stats.overallRepairRate > 10 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200',
+              },
+            ].map(s => (
+              <div key={s.label} className={`rounded-xl border p-4 ${s.bg}`}>
+                <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                <p className="text-xs font-medium text-gray-600 mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* By product table */}
+          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-700">Tỉ lệ lỗi theo loại thiết bị</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Chỉ tính thiết bị có trong kho CRM · {stats.byProduct.length} loại
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-2.5 text-left">Loại thiết bị</th>
+                    <th className="px-4 py-2.5 text-right">Tổng nhập</th>
+                    <th className="px-4 py-2.5 text-right">Đã sửa</th>
+                    <th className="px-4 py-2.5 text-right">Gửi hãng</th>
+                    <th className="px-4 py-2.5 text-right">Báo phế</th>
+                    <th className="px-4 py-2.5 text-left w-44">Tỉ lệ lỗi</th>
+                    <th className="px-4 py-2.5 text-left w-40">Gửi hãng</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.byProduct.map(p => (
+                    <tr key={p.product_name} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="px-4 py-2.5 font-medium text-gray-700">{p.product_name}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{p.total_imported.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <span className={p.repair_rate > 20 ? 'text-red-600 font-semibold' : p.repair_rate > 10 ? 'text-amber-600' : 'text-gray-600'}>
+                          {p.total_repaired.toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-purple-600">{p.total_supplier.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right text-red-500">{p.total_scrap.toLocaleString()}</td>
+                      <td className="px-4 py-2.5">
+                        <RateBar rate={p.repair_rate} color={p.repair_rate > 20 ? 'bg-red-500' : p.repair_rate > 10 ? 'bg-amber-400' : 'bg-emerald-500'} />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <RateBar rate={p.supplier_rate} color="bg-purple-400" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Main ──────────────────────────────────────────────────────
 export default function RepairTrackingDashboard() {
-  const [activeTab, setActiveTab]   = useState<'list' | 'stats'>('list')
+  const [activeTab, setActiveTab]   = useState<'list' | 'stats' | 'failure'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
   const [counts, setCounts]         = useState<StatusCounts>({ cho_gui: 0, da_gui: 0, da_sua_xong: 0, old_device: 0, scrap: 0, supplier: 0 })
   const [loading, setLoading]       = useState(true)
   const [filterStatus, setFilter]   = useState<string>('')
   const [filterProduct, setFilterP] = useState('')
+  const [filterImei, setFilterImei] = useState('')
+  const [imeiInput, setImeiInput]   = useState('')  // controlled input, apply on Enter/button
   const [modal, setModal]           = useState<{ type: 'send' | 'complete'; item: RepairItem } | null>(null)
+  const [exporting, setExporting]   = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams()
     if (filterStatus)  params.set('status', filterStatus)
     if (filterProduct) params.set('product', filterProduct)
+    if (filterImei)    params.set('imei', filterImei)
     params.set('limit', '200')
     const res = await fetch('/api/repair-tracking?' + params.toString())
     const d = await res.json()
@@ -642,9 +826,34 @@ export default function RepairTrackingDashboard() {
     setTotal(d.total ?? 0)
     if (d.statusCounts) setCounts(d.statusCounts)
     setLoading(false)
-  }, [filterStatus, filterProduct])
+  }, [filterStatus, filterProduct, filterImei])
 
   useEffect(() => { load() }, [load])
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (filterImei)    params.set('imei', filterImei)
+      if (filterProduct) params.set('product', filterProduct)
+      if (filterStatus)  params.set('status', filterStatus)
+      const res = await fetch('/api/repair-tracking/export?' + params.toString())
+      if (!res.ok) { alert('Lỗi xuất file'); return }
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `lich-su-sua-chua-${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  function applyImeiSearch() {
+    setFilterImei(imeiInput.trim())
+  }
 
   return (
     <div className="space-y-5">
@@ -652,13 +861,17 @@ export default function RepairTrackingDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-gray-800">Theo dõi sửa chữa</h1>
-          <p className="text-xs text-gray-500 mt-0.5">{total} thiết bị</p>
+          <p className="text-xs text-gray-500 mt-0.5">{total.toLocaleString()} thiết bị</p>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {([['list', '📋 Danh sách'], ['stats', '📊 Thống kê']] as const).map(([tab, label]) => (
+        {([
+          ['list',    '📋 Danh sách'],
+          ['stats',   '📊 Thống kê'],
+          ['failure', '⚠️ Tỉ lệ lỗi'],
+        ] as const).map(([tab, label]) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`px-4 py-1.5 text-sm rounded-lg transition-colors font-medium ${
               activeTab === tab ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
@@ -670,14 +883,30 @@ export default function RepairTrackingDashboard() {
 
       {activeTab === 'list' ? (
         <>
-          {/* Sync CRM Panel */}
           <SyncCRMPanel onSynced={load} />
-
-          {/* Stats */}
           <StatsBar counts={counts} />
 
-          {/* Filters */}
-          <div className="flex flex-wrap gap-2">
+          {/* Filters + IMEI search + Export */}
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* IMEI search */}
+            <div className="flex items-center gap-1">
+              <input
+                value={imeiInput}
+                onChange={e => setImeiInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && applyImeiSearch()}
+                placeholder="Tìm mã thiết bị (IMEI)..."
+                className="border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-52 bg-blue-50"
+              />
+              <button onClick={applyImeiSearch}
+                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                🔍
+              </button>
+              {filterImei && (
+                <button onClick={() => { setImeiInput(''); setFilterImei('') }}
+                  className="px-2 py-1.5 text-xs text-gray-400 hover:text-gray-600">✕</button>
+              )}
+            </div>
+
             <select value={filterStatus} onChange={e => setFilter(e.target.value)}
               className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
               <option value="">Tất cả trạng thái</option>
@@ -685,13 +914,31 @@ export default function RepairTrackingDashboard() {
               <option value="da_gui">Đã gửi sửa</option>
               <option value="da_sua_xong">Đã sửa xong</option>
             </select>
+
             <input value={filterProduct} onChange={e => setFilterP(e.target.value)}
               placeholder="Lọc loại thiết bị..."
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 w-48" />
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 w-44" />
+
             <button onClick={load} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
               🔄 Làm mới
             </button>
+
+            {/* Export button */}
+            <button onClick={handleExport} disabled={exporting}
+              className="ml-auto flex items-center gap-2 px-4 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+              {exporting ? '⏳ Đang xuất...' : '⬇ Xuất Excel'}
+            </button>
           </div>
+
+          {/* IMEI filter badge */}
+          {filterImei && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-mono">
+                🔍 IMEI: {filterImei}
+              </span>
+              <span className="text-gray-400">{total} kết quả</span>
+            </div>
+          )}
 
           {/* Table */}
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
@@ -713,7 +960,9 @@ export default function RepairTrackingDashboard() {
                   {loading ? (
                     <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Đang tải...</td></tr>
                   ) : items.length === 0 ? (
-                    <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Chưa có dữ liệu — Đồng bộ từ CRM để bắt đầu</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">
+                      {filterImei ? `Không tìm thấy thiết bị với IMEI "${filterImei}"` : 'Chưa có dữ liệu — Đồng bộ từ CRM để bắt đầu'}
+                    </td></tr>
                   ) : (
                     items.map(item => (
                       <RepairRow key={item.id} item={item} onAction={(i, a) => setModal({ type: a, item: i })} />
@@ -724,11 +973,12 @@ export default function RepairTrackingDashboard() {
             </div>
           </div>
         </>
-      ) : (
+      ) : activeTab === 'stats' ? (
         <StatsTab />
+      ) : (
+        <FailureRateTab />
       )}
 
-      {/* Modals */}
       {modal?.type === 'send' && (
         <SendModal item={modal.item} onClose={() => setModal(null)} onSaved={() => { setModal(null); load() }} />
       )}

@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams
   const status  = sp.get('status')
   const product = sp.get('product')
+  const imei    = sp.get('imei')
   const from    = sp.get('from')
   const to      = sp.get('to')
   const limit   = parseInt(sp.get('limit') ?? '200')
@@ -57,6 +58,7 @@ export async function GET(req: NextRequest) {
 
   if (status)  q = q.eq('status', status)
   if (product) q = q.ilike('product_name', `%${product}%`)
+  if (imei)    q = q.ilike('imei', `%${imei}%`)
   if (from)    q = q.gte('received_at', from)
   if (to)      q = q.lte('received_at', to + 'T23:59:59Z')
 
