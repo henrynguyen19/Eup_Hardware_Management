@@ -156,4 +156,24 @@ export async function GET(req: NextRequest) {
     w.total++
     if (it.status === 'da_sua_xong') w.completed++
     if (it.destination === 'scrap')    w.scrap++
-    if (it.destination === 'supplier') w.
+    if (it.destination === 'supplier') w.supplier++
+  }
+  const byWarehouse = Array.from(warehouseMap.entries())
+    .map(([warehouse, s]) => ({ warehouse, ...s }))
+    .sort((a, b) => b.total - a.total)
+
+  return NextResponse.json({
+    total, completed, inRepair, waiting,
+    oldDevice, scrap, supplier,
+    uniqueDevices:       duplicateDeviceCount,
+    repeatedDeviceCount,
+    completionRate:  total > 0 ? Math.round(completed / total * 100) : 0,
+    successRate:     completed > 0 ? Math.round(oldDevice / completed * 100) : 0,
+    scrapRate:       completed > 0 ? Math.round(scrap    / completed * 100) : 0,
+    supplierRate:    completed > 0 ? Math.round(supplier / completed * 100) : 0,
+    duplicatesByProduct,
+    allRepeatedDevices: repeatedDevices,
+    byProduct,
+    byWarehouse,
+  })
+}
