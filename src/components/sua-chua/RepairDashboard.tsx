@@ -1759,9 +1759,3 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
     </div>
   )
 }
-        )}
-      </div>
-    </div>
-  )
-}
-            
