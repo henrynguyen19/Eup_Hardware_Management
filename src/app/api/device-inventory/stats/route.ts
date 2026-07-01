@@ -1,14 +1,13 @@
 /**
  * GET /api/device-inventory/stats
- * Thống kê tỉ lệ lỗi: tổng nhập vs tổng sửa theo loại thiết bị.
- * Chỉ tính thiết bị CÓ trong inventory (có ngày nhập).
- * Join: device_inventory.device_code = repair_items.imei
+ * Dùng PostgreSQL RPC functions để join device_inventory + repair_items
+ * tại DB thay vì load hết lên RAM (tránh timeout 504).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 
-export const runtime = 'nodejs'
+export const runtime     = 'nodejs'
 export const maxDuration = 60
 
 const sb = () => createClient(
@@ -16,119 +15,71 @@ const sb = () => createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const db = sb()
 
-  // ── 1. Tổng số thiết bị đã nhập — từ device_inventory ─────────
-  const { count: invTotal } = await db
+  // Kiểm tra xem đã có dữ liệu inventory chưa
+  const { count: invCount } = await db
     .from('device_inventory')
     .select('*', { count: 'exact', head: true })
 
-  if (!invTotal) {
+  if (!invCount) {
     return NextResponse.json({
-      totalImported: 0, byProduct: [],
+      totalImported: 0, totalUniqImei: 0, totalRepaired: 0, overallRepairRate: 0,
+      byProduct: [],
       message: 'Chưa có dữ liệu inventory. Chạy Sync CRM trước.',
     })
   }
 
-  // ── 2. Load device_inventory (paginated, chỉ cần device_code + product_name + imported_date) ──
-  const PAGE = 1000
-  const inventory: { device_code: string | null; product_name: string; imported_date: string | null }[] = []
-  for (let page = 0; ; page++) {
-    const { data, error } = await db
-      .from('device_inventory')
-      .select('device_code, product_name, imported_date')
-      .range(page * PAGE, (page + 1) * PAGE - 1)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    if (!data || data.length === 0) break
-    inventory.push(...data)
-    if (data.length < PAGE) break
+  // Gọi 2 RPC functions song song
+  const [overviewRes, byProductRes] = await Promise.all([
+    db.rpc('device_inventory_overview'),
+    db.rpc('device_inventory_failure_stats'),
+  ])
+
+  if (overviewRes.error) {
+    // RPC chưa được tạo → trả về thông báo rõ ràng
+    return NextResponse.json({
+      error: `RPC chưa được tạo: ${overviewRes.error.message}. Chạy migration device_inventory_stats_fn.sql trong Supabase.`,
+    }, { status: 500 })
   }
 
-  // ── 3. Load tất cả repair_items (chỉ imei + destination) ───────
-  const repairItems: { imei: string; destination: string | null }[] = []
-  for (let page = 0; ; page++) {
-    const { data, error } = await db
-      .from('repair_items')
-      .select('imei, destination')
-      .range(page * PAGE, (page + 1) * PAGE - 1)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    if (!data || data.length === 0) break
-    repairItems.push(...data)
-    if (data.length < PAGE) break
+  if (byProductRes.error) {
+    return NextResponse.json({ error: byProductRes.error.message }, { status: 500 })
   }
 
-  // ── 4. Build lookup: imei → Set<destination> ───────────────────
-  // Mỗi thiết bị có thể sửa nhiều lần — chúng ta đếm số IMEI riêng (unique)
-  const imeiDestMap = new Map<string, Set<string>>()
-  for (const r of repairItems) {
-    if (!r.imei) continue
-    if (!imeiDestMap.has(r.imei)) imeiDestMap.set(r.imei, new Set())
-    imeiDestMap.get(r.imei)!.add(r.destination ?? 'unknown')
-  }
+  const overview = (overviewRes.data as {
+    total_imported: number; total_uniq_imei: number; total_repaired: number
+  }[])?.[0] ?? { total_imported: 0, total_uniq_imei: 0, total_repaired: 0 }
 
-  // ── 5. Group inventory theo product_name ────────────────────────
-  const productMap = new Map<string, {
-    imported:  Set<string>  // device_codes nhập vào
-    repaired:  Set<string>  // device_codes đã có ≥1 lần sửa
-    supplier:  Set<string>  // device_codes bị gửi hãng
-    scrap:     Set<string>  // device_codes báo phế
-  }>()
+  const byProduct = (byProductRes.data as {
+    product_name: string
+    total_imported: number; total_repaired: number
+    total_supplier: number; total_scrap: number
+    repair_rate: number; supplier_rate: number; scrap_rate: number
+  }[]) ?? []
 
-  for (const inv of inventory) {
-    const product = (inv.product_name || 'Unknown').trim()
-    if (!productMap.has(product)) {
-      productMap.set(product, { imported: new Set(), repaired: new Set(), supplier: new Set(), scrap: new Set() })
-    }
-    const g = productMap.get(product)!
-    const code = inv.device_code?.trim()
-    if (!code) continue
-
-    g.imported.add(code)
-
-    if (imeiDestMap.has(code)) {
-      g.repaired.add(code)
-      const dests = imeiDestMap.get(code)!
-      if (dests.has('supplier')) g.supplier.add(code)
-      if (dests.has('scrap'))    g.scrap.add(code)
-    }
-  }
-
-  // ── 6. Build result ─────────────────────────────────────────────
-  const byProduct = Array.from(productMap.entries())
-    .map(([product_name, g]) => {
-      const total_imported = g.imported.size
-      const total_repaired = g.repaired.size
-      const total_supplier = g.supplier.size
-      const total_scrap    = g.scrap.size
-      return {
-        product_name,
-        total_imported,
-        total_repaired,
-        total_supplier,
-        total_scrap,
-        repair_rate:    total_imported > 0 ? Math.round(total_repaired / total_imported * 1000) / 10 : 0,
-        supplier_rate:  total_imported > 0 ? Math.round(total_supplier / total_imported * 1000) / 10 : 0,
-        scrap_rate:     total_imported > 0 ? Math.round(total_scrap    / total_imported * 1000) / 10 : 0,
-      }
-    })
-    .sort((a, b) => b.total_imported - a.total_imported)
-
-  const totalImported = inventory.length
-  const totalUniqImei = new Set(inventory.map(i => i.device_code).filter(Boolean)).size
-  const totalRepaired = new Set(
-    inventory.map(i => i.device_code).filter(c => c && imeiDestMap.has(c!))
-  ).size
+  const totalUniq = Number(overview.total_uniq_imei)
+  const totalRep  = Number(overview.total_repaired)
 
   return NextResponse.json({
-    totalImported,
-    totalUniqImei,
-    totalRepaired,
-    overallRepairRate: totalUniqImei > 0 ? Math.round(totalRepaired / totalUniqImei * 1000) / 10 : 0,
-    byProduct,
+    totalImported:     Number(overview.total_imported),
+    totalUniqImei:     totalUniq,
+    totalRepaired:     totalRep,
+    overallRepairRate: totalUniq > 0 ? Math.round(totalRep / totalUniq * 1000) / 10 : 0,
+    byProduct: byProduct.map(p => ({
+      product_name:   p.product_name,
+      total_imported: Number(p.total_imported),
+      total_repaired: Number(p.total_repaired),
+      total_supplier: Number(p.total_supplier),
+      total_scrap:    Number(p.total_scrap),
+      repair_rate:    Number(p.repair_rate)   ?? 0,
+      supplier_rate:  Number(p.supplier_rate) ?? 0,
+      scrap_rate:     Number(p.scrap_rate)    ?? 0,
+    })),
   })
 }
