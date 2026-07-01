@@ -613,6 +613,160 @@ function StatsTab() {
   )
 }
 
+// ── Failure Product Table (có filter + ẩn dòng) ──────────────
+const HIDDEN_KEY = 'failure_hidden_products'
+
+function FailureProductTable({ products }: {
+  products: InventoryStats['byProduct']
+}) {
+  const [search, setSearch]       = useState('')
+  const [minImport, setMinImport] = useState(0)
+  const [hidden, setHidden]       = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(HIDDEN_KEY)
+      return saved ? new Set(JSON.parse(saved)) : new Set()
+    } catch { return new Set() }
+  })
+  const [showHidden, setShowHidden] = useState(false)
+
+  function toggleHide(name: string) {
+    setHidden(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])) } catch { /* */ }
+      return next
+    })
+  }
+
+  function clearHidden() {
+    setHidden(new Set())
+    try { localStorage.removeItem(HIDDEN_KEY) } catch { /* */ }
+  }
+
+  const filtered = products.filter(p => {
+    if (!showHidden && hidden.has(p.product_name)) return false
+    if (search && !p.product_name.toLowerCase().includes(search.toLowerCase())) return false
+    if (minImport > 0 && p.total_imported < minImport) return false
+    return true
+  })
+
+  const hiddenCount = hidden.size
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      {/* Header + filters */}
+      <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">Tỉ lệ lỗi theo loại thiết bị</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Chỉ tính thiết bị có trong kho CRM · hiển thị {filtered.length}/{products.length} loại
+            </p>
+          </div>
+          {hiddenCount > 0 && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowHidden(s => !s)}
+                className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-2 py-1">
+                {showHidden ? '👁 Ẩn đã ẩn' : `👁 Xem ${hiddenCount} đã ẩn`}
+              </button>
+              <button onClick={clearHidden}
+                className="text-xs text-red-400 hover:text-red-600 border border-red-200 rounded-lg px-2 py-1">
+                Bỏ ẩn tất cả
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Filter controls */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="🔍 Tìm loại thiết bị..."
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs w-52 focus:outline-none focus:ring-2 focus:ring-blue-200"
+          />
+          <div className="flex items-center gap-1.5 text-xs text-gray-600">
+            <span>Tổng nhập ≥</span>
+            <input
+              type="number" min={0} step={100} value={minImport || ''}
+              onChange={e => setMinImport(Number(e.target.value) || 0)}
+              placeholder="0"
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs w-24 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+          </div>
+          {(search || minImport > 0) && (
+            <button onClick={() => { setSearch(''); setMinImport(0) }}
+              className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 border border-gray-200 rounded-lg">
+              Xóa lọc
+            </button>
+          )}
+          {/* Quick filters */}
+          <div className="flex gap-1 ml-auto">
+            {[500, 1000, 5000].map(n => (
+              <button key={n} onClick={() => setMinImport(minImport === n ? 0 : n)}
+                className={`text-xs px-2 py-1 rounded-lg border transition-colors ${minImport === n ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+                &gt;{n >= 1000 ? `${n/1000}k` : n}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 uppercase tracking-wide">
+              <th className="px-4 py-2.5 text-left">Loại thiết bị</th>
+              <th className="px-4 py-2.5 text-right">Tổng nhập</th>
+              <th className="px-4 py-2.5 text-right">Đã sửa</th>
+              <th className="px-4 py-2.5 text-right">Gửi hãng</th>
+              <th className="px-4 py-2.5 text-right">Báo phế</th>
+              <th className="px-4 py-2.5 text-left w-44">Tỉ lệ lỗi</th>
+              <th className="px-4 py-2.5 text-left w-40">Gửi hãng</th>
+              <th className="px-4 py-2.5 w-8"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Không có kết quả</td></tr>
+            ) : filtered.map(p => {
+              const isHidden = hidden.has(p.product_name)
+              return (
+                <tr key={p.product_name}
+                  className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${isHidden ? 'opacity-40' : ''}`}>
+                  <td className="px-4 py-2.5 font-medium text-gray-700">{p.product_name}</td>
+                  <td className="px-4 py-2.5 text-right text-gray-600">{p.total_imported.toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    <span className={p.repair_rate > 20 ? 'text-red-600 font-semibold' : p.repair_rate > 10 ? 'text-amber-600' : 'text-gray-600'}>
+                      {p.total_repaired.toLocaleString()}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-purple-600">{p.total_supplier.toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-right text-red-500">{p.total_scrap.toLocaleString()}</td>
+                  <td className="px-4 py-2.5">
+                    <RateBar rate={p.repair_rate} color={p.repair_rate > 20 ? 'bg-red-500' : p.repair_rate > 10 ? 'bg-amber-400' : 'bg-emerald-500'} />
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <RateBar rate={p.supplier_rate} color="bg-purple-400" />
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <button onClick={() => toggleHide(p.product_name)}
+                      title={isHidden ? 'Bỏ ẩn' : 'Ẩn dòng này'}
+                      className="text-gray-300 hover:text-gray-500 transition-colors text-base leading-none">
+                      {isHidden ? '👁' : '✕'}
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ── Failure Rate Tab (device inventory vs repair) ─────────────
 function FailureRateTab() {
   const [stats, setStats]     = useState<InventoryStats | null>(null)
@@ -777,50 +931,7 @@ function FailureRateTab() {
           </div>
 
           {/* By product table */}
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-700">Tỉ lệ lỗi theo loại thiết bị</h3>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Chỉ tính thiết bị có trong kho CRM · {stats.byProduct.length} loại
-              </p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 uppercase tracking-wide">
-                    <th className="px-4 py-2.5 text-left">Loại thiết bị</th>
-                    <th className="px-4 py-2.5 text-right">Tổng nhập</th>
-                    <th className="px-4 py-2.5 text-right">Đã sửa</th>
-                    <th className="px-4 py-2.5 text-right">Gửi hãng</th>
-                    <th className="px-4 py-2.5 text-right">Báo phế</th>
-                    <th className="px-4 py-2.5 text-left w-44">Tỉ lệ lỗi</th>
-                    <th className="px-4 py-2.5 text-left w-40">Gửi hãng</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stats.byProduct.map(p => (
-                    <tr key={p.product_name} className="border-b border-gray-50 hover:bg-gray-50">
-                      <td className="px-4 py-2.5 font-medium text-gray-700">{p.product_name}</td>
-                      <td className="px-4 py-2.5 text-right text-gray-600">{p.total_imported.toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-right">
-                        <span className={p.repair_rate > 20 ? 'text-red-600 font-semibold' : p.repair_rate > 10 ? 'text-amber-600' : 'text-gray-600'}>
-                          {p.total_repaired.toLocaleString()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-purple-600">{p.total_supplier.toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-right text-red-500">{p.total_scrap.toLocaleString()}</td>
-                      <td className="px-4 py-2.5">
-                        <RateBar rate={p.repair_rate} color={p.repair_rate > 20 ? 'bg-red-500' : p.repair_rate > 10 ? 'bg-amber-400' : 'bg-emerald-500'} />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <RateBar rate={p.supplier_rate} color="bg-purple-400" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <FailureProductTable products={stats.byProduct} />
         </>
       )}
     </div>
