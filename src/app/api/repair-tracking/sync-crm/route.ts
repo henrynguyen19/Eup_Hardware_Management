@@ -313,4 +313,31 @@ export async function POST(req: NextRequest) {
           completed_at:     row.completed_at,
           finish_reason:    row.finish_reason,
           destination:      row.destination,
-          notes:            row
+          notes:            row.notes,
+          repair_warehouse: row.repair_warehouse,
+          sender_name:      row.sender_name,
+          completer_name:   row.completer_name,
+        })
+        .eq('crm_repair_id', row.crm_repair_id)
+      if (error) errors.push(`update ${row.crm_repair_id}: ${error.message}`)
+      else upserted++
+    }
+    console.log(`[repair/sync-crm] fallback: ${toInsert.length} insert, ${toUpdate.length} update / ${rows.length} total`)
+  } else {
+    console.log(`[repair/sync-crm] upsert OK: ${upserted}/${rows.length}`)
+  }
+
+  return NextResponse.json({
+    ok:        errors.length === 0,
+    total:     records.length,
+    upserted,
+    startTime,
+    endTime,
+    errors:    errors.length > 0 ? errors.slice(0, 5) : undefined,
+  })
+
+  } catch (err) {
+    console.error('[repair/sync-crm] Unhandled error:', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}
