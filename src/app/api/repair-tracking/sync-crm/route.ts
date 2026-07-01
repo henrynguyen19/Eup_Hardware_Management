@@ -233,6 +233,7 @@ export async function POST(req: NextRequest) {
       if (!dbStatus)                                          selInsert.push(row)
       else if (dbStatus === row.status)                       selSkipped++
       else if (dbStatus === 'cho_gui' || dbStatus === 'da_gui') selUpdate.push(row)
+      else if (dbStatus === 'da_sua_xong' && (row.status === 'cho_gui' || row.status === 'da_gui')) selInsert.push(row)
       else selSkipped++
     }
 
@@ -430,9 +431,15 @@ export async function POST(req: NextRequest) {
       // Đang chờ/sửa + trạng thái thay đổi → cập nhật tiến trình
       toUpdate.push(row)
     } else {
-      // DB đã ở da_sua_xong → đây sẽ là vòng đời mới (Repair_ID mới từ CRM)
-      // Trường hợp này không xảy ra vì cùng crm_repair_id, bỏ qua
-      skipped++
+      // DB đã da_sua_xong: kiểm tra trạng thái mới từ CRM
+      if (row.status === 'cho_gui' || row.status === 'da_gui') {
+        // Thiết bị đã sửa xong nhưng CRM lại có trạng thái đang chờ/sửa
+        // → đây là vòng đời sửa chữa mới, thêm record mới
+        toInsert.push(row)
+      } else {
+        // Cả hai đều đã sửa xong → bỏ qua
+        skipped++
+      }
     }
   }
 
