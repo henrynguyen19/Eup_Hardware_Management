@@ -617,16 +617,29 @@ function StatsTab() {
 function FailureRateTab() {
   const [stats, setStats]     = useState<InventoryStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [apiErr, setApiErr]   = useState<string>('')
   const [syncing, setSyncing] = useState(false)
   const [syncLog, setSyncLog] = useState<string[]>([])
   const [syncDone, setSyncDone] = useState(false)
   const abortRef = useRef(false)
 
   async function loadStats() {
-    setLoading(true)
-    const res = await fetch('/api/device-inventory/stats')
-    const d   = await res.json()
-    setStats(d)
+    setLoading(true); setApiErr('')
+    try {
+      const res = await fetch('/api/device-inventory/stats')
+      const text = await res.text()
+      let d: Record<string, unknown>
+      try { d = JSON.parse(text) } catch {
+        setApiErr(`Lỗi parse response: ${text.substring(0, 120)}`); setLoading(false); return
+      }
+      if (!res.ok || d.error) {
+        setApiErr(String(d.error ?? 'Lỗi tải thống kê')); setStats(null)
+      } else {
+        setStats(d as unknown as InventoryStats)
+      }
+    } catch (e) {
+      setApiErr(String(e))
+    }
     setLoading(false)
   }
 
@@ -727,6 +740,16 @@ function FailureRateTab() {
       {/* Stats overview */}
       {loading ? (
         <div className="py-8 text-center text-sm text-gray-400">Đang tải...</div>
+      ) : apiErr ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 space-y-1">
+          <p className="font-semibold">⚠ Lỗi tải thống kê</p>
+          <p className="text-xs font-mono">{apiErr}</p>
+          {apiErr.includes('RPC') && (
+            <p className="text-xs text-red-600 mt-2">
+              👉 Cần chạy migration <strong>device_inventory_stats_fn.sql</strong> trong Supabase SQL Editor trước.
+            </p>
+          )}
+        </div>
       ) : !stats || stats.totalImported === 0 ? (
         <div className="py-8 text-center text-sm text-gray-400">
           {stats?.message ?? 'Chưa có dữ liệu. Nhấn Sync để tải từ CRM.'}
