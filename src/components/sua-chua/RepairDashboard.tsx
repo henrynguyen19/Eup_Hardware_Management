@@ -1686,4 +1686,132 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
                     const sum = weekData.stats.filter(s => s.week_id === selectedWeek.id && s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
                     return (
                       <div key={st.key} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: st.color + '12' }}>
-                        <span className="text-xs font-medium" style={{ color:
+                        <span className="text-xs font-medium" style={{ color: st.color }}>{getStatusLabel(st.key, t)}</span>
+                        <span className="text-sm font-bold text-gray-800">{sum || '—'}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LoadingSpinner() {
+  const { t } = useLanguage()
+  return (
+    <div className="flex items-center justify-center h-48 gap-2 text-gray-400">
+      <div className="w-5 h-5 border-2 border-gray-300 border-t-red-600 rounded-full animate-spin" />
+      <span className="text-sm">{t.common.loading}</span>
+    </div>
+  )
+}
+
+function EmptyState({ msg }: { msg: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+      <span className="text-3xl mb-2">📊</span>
+      <p className="text-sm">{msg}</p>
+    </div>
+  )
+}
+
+// ── Main ───────────────────────────────────────────────────────
+export default function RepairDashboard({ userEmail = '', permissions = [] }: { userEmail?: string; permissions?: string[] }) {
+  const { t } = useLanguage()
+  const canWrite = permissions.includes('sua_chua:write') || permissions.includes('admin:users')
+  const [tab, setTab] = useState<'dashboard' | 'entry' | 'history' | 'config' | 'tracking'>('dashboard')
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // ── Fault configs — fetched from DB, fallback to defaults ──
+  const [faultConfigs, setFaultConfigs] = useState<Record<string, string[]>>(DEFAULT_FAULT_TYPES_BY_STATUS)
+
+  useEffect(() => {
+    fetch('/api/sua-chua/fault-configs')
+      .then(r => r.json())
+      .then(d => { if (d.configs) setFaultConfigs(d.configs) })
+      .catch(() => {}) // keep defaults on error
+  }, [])
+
+  async function handleAddFault(status: string, fault: string) {
+    await fetch('/api/sua-chua/fault-configs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status_type: status, fault_type: fault }),
+    })
+    setFaultConfigs(prev => ({
+      ...prev,
+      [status]: [...(prev[status] ?? []), fault],
+    }))
+  }
+
+  async function handleDeleteFault(status: string, fault: string) {
+    await fetch('/api/sua-chua/fault-configs', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status_type: status, fault_type: fault }),
+    })
+    setFaultConfigs(prev => ({
+      ...prev,
+      [status]: (prev[status] ?? []).filter(f => f !== fault),
+    }))
+  }
+
+  const tabs: Array<{ key: 'dashboard' | 'entry' | 'history' | 'config' | 'tracking'; label: string }> = [
+    { key: 'dashboard', label: `📊 ${t.suaChua.tabDashboard}` },
+    ...(canWrite ? [{ key: 'entry' as const, label: `✏️ ${t.suaChua.tabEntry}` }] : []),
+    { key: 'history',   label: `🗂 ${t.suaChua.tabHistory}` },
+    { key: 'tracking',  label: `📋 Theo dõi` },
+    ...(canWrite ? [{ key: 'config' as const, label: `⚙️ ${t.common.update}` }] : []),
+  ]
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">🔧 {t.suaChua.title}</h1>
+            <p className="text-xs text-gray-400 mt-0.5">{t.suaChua.tabDashboard}</p>
+          </div>
+          {userEmail && (
+            <span className="text-xs text-gray-400">{userEmail}</span>
+          )}
+        </div>
+        <div className="flex gap-1 mt-3 border-b border-gray-100">
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`px-4 py-2 text-xs font-medium rounded-t-lg transition ${tab === t.key ? 'bg-white text-[#A70A0A] border border-b-white border-gray-200 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}
+            >{t.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-6 py-5">
+        {tab === 'dashboard' && <DashboardTab />}
+        {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} faultConfigs={faultConfigs} />}
+        {tab === 'history'   && <HistoryTab refreshKey={refreshKey} canWrite={canWrite} />}
+        {tab === 'tracking'  && <RepairTrackingDashboard />}
+        {tab === 'config'    && (
+          <div className="space-y-8">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">📊 Phân tích lỗi theo Hashtag</h2>
+              <HashtagMiniPanel />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">⚙️ Cấu hình loại lỗi</h2>
+              <FaultConfigPanel
+                faultConfigs={faultConfigs}
+                onAdd={handleAddFault}
+                onDelete={handleDeleteFault}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
