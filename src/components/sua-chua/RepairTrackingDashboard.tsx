@@ -929,8 +929,11 @@ function StatsTab({ t, onFilterByTag }: { t:(vi:string,en:string)=>string; onFil
   )
 }
 
-export default function RepairTrackingDashboard() {
-  const { lang, toggle, t } = useLang()
+export default function RepairTrackingDashboard({ externalLang }: { externalLang?: 'vi' | 'en' }) {
+  const internal = useLang()
+  const lang  = externalLang ?? internal.lang
+  const toggle = internal.toggle
+  const t = (vi: string, en: string) => lang === 'vi' ? vi : en
   const [activeTab, setActiveTab]   = useState<'list'|'stats'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
@@ -985,4 +988,106 @@ export default function RepairTrackingDashboard() {
 
   return (
     <div className="space-y-5">
- 
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-semibold text-gray-800">{t('Theo dõi sửa chữa','Repair Tracking')}</h1>
+          <p className="text-xs text-gray-500 mt-0.5">{total.toLocaleString()} {t('thiết bị','devices')}</p>
+        </div>
+        {!externalLang && (
+          <button onClick={toggle} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
+            🌐 {lang === 'vi' ? 'VI | EN' : 'EN | VI'}
+          </button>
+        )}
+      </div>
+
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+        {([['list', t('📋 Danh sách','📋 List')], ['stats', t('📊 Thống kê','📊 Statistics')]] as const).map(([tab,label])=>(
+          <button key={tab} onClick={()=>setActiveTab(tab)}
+            className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${activeTab===tab?'bg-white text-gray-800 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab==='list' ? (
+        <>
+          <SyncCRMPanel onSynced={load} t={t} />
+          <StatsBar counts={counts} t={t} />
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex items-center gap-1">
+              <input value={imeiInput} onChange={e=>setImeiInput(e.target.value)}
+                onKeyDown={e=>{ if(e.key==='Enter') setFilterImei(imeiInput.trim()) }}
+                placeholder={t('Tìm mã thiết bị (IMEI)...','Search IMEI...')}
+                className="border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-52 bg-blue-50" />
+              <button onClick={()=>setFilterImei(imeiInput.trim())} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">🔍</button>
+              {filterImei && <button onClick={()=>{setImeiInput('');setFilterImei('')}} className="px-2 py-1.5 text-xs text-gray-400 hover:text-gray-600">✕</button>}
+            </div>
+            <select value={filterStatus} onChange={e=>setFilter(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+              <option value="">{t('Tất cả trạng thái','All statuses')}</option>
+              <option value="cho_gui">{t('Chờ gửi sửa','Pending Send')}</option>
+              <option value="da_gui">{t('Đã gửi sửa','In Repair')}</option>
+              <option value="da_sua_xong">{t('Đã sửa xong','Completed')}</option>
+            </select>
+            <input value={filterProduct} onChange={e=>setFilterP(e.target.value)}
+              placeholder={t('Lọc loại thiết bị...','Filter device type...')}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 w-44" />
+            <button onClick={load} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">🔄</button>
+            <button onClick={handleExport} disabled={exporting}
+              className="ml-auto flex items-center gap-2 px-4 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+              {exporting ? t('Đang xuất...','Exporting...') : `⬇ ${t('Xuất Excel','Export Excel')}`}
+            </button>
+          </div>
+          {(filterImei || filterTag) && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {filterImei && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-mono">🔍 IMEI: {filterImei}</span>}
+              {filterTag  && (
+                <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                  🏷 #{filterTag}
+                  <button onClick={()=>setFilterTag('')} className="text-indigo-400 hover:text-indigo-700 ml-0.5">✕</button>
+                </span>
+              )}
+              <span className="text-gray-400">{displayItems.length} {t('kết quả','results')}</span>
+            </div>
+          )}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-3">{t('Thiết bị / IMEI','Device / IMEI')}</th>
+                    <th className="px-4 py-3">{t('Trạng thái','Status')}</th>
+                    <th className="px-4 py-3">{t('Nhận về kho','Received')}</th>
+                    <th className="px-4 py-3">{t('Gửi sửa','Sent')}</th>
+                    <th className="px-4 py-3">{t('Hoàn thành','Completed')}</th>
+                    <th className="px-4 py-3">{t('Kết quả','Result')}</th>
+                    <th className="px-4 py-3">{t('Ghi chú / Tags','Notes / Tags')}</th>
+                    <th className="px-4 py-3">{t('Thao tác','Action')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading
+                    ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">{t('Đang tải...','Loading...')}</td></tr>
+                    : displayItems.length===0
+                      ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">
+                          {filterImei ? t(`Không tìm thấy IMEI "${filterImei}"`,`No device with IMEI "${filterImei}"`)
+                           : filterTag ? t(`Không có ghi chú chứa #${filterTag}`,`No notes with #${filterTag}`)
+                           : t('Chưa có dữ liệu','No data')}
+                        </td></tr>
+                      : displayItems.map(item=>(
+                          <RepairRow key={item.id} item={item} onAction={(i,a)=>setModal({type:a,item:i})} t={t} />
+                        ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : (
+        <StatsTab t={t} onFilterByTag={handleFilterByTag} />
+      )}
+
+      {modal?.type==='send'     && <SendModal    item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
+      {modal?.type==='complete' && <CompleteModal item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
+    </div>
+  )
+}
