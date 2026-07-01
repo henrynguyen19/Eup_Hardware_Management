@@ -182,28 +182,14 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (latestRow?.received_at) {
-      // Lùi 1 ngày để tránh bỏ sót do chênh lệch múi giờ
+      // Incremental nhanh: lùi 7 ngày để bắt record mới + tránh bỏ sót múi giờ
+      // Giới hạn 7 ngày để tránh timeout — thiết bị da_gui cũ dùng mode 'refresh_in_repair'
       const latestDate = new Date(latestRow.received_at)
-      latestDate.setDate(latestDate.getDate() - 1)
-
-      // Cũng cover các thiết bị đang da_gui (nhận sớm hơn nhưng chưa cập nhật)
-      const { data: oldestInRepair } = await db
-        .from('repair_items')
-        .select('received_at')
-        .eq('status', 'da_gui')
-        .order('received_at', { ascending: true })
-        .limit(1)
-        .single()
-
-      if (oldestInRepair?.received_at) {
-        const inRepairDate = new Date(oldestInRepair.received_at)
-        inRepairDate.setDate(inRepairDate.getDate() - 1)
-        startTime = fmt(inRepairDate < latestDate ? inRepairDate : latestDate)
-        console.log(`[repair/sync-crm] incremental: cover da_gui từ ${startTime}`)
-      } else {
-        startTime = fmt(latestDate)
-        console.log(`[repair/sync-crm] incremental từ ${startTime} (latest DB: ${latestRow.received_at})`)
-      }
+      latestDate.setDate(latestDate.getDate() - 7)
+      // Không lùi quá 14 ngày dù latestRow cũ
+      const cap14 = new Date(now.getTime() - 14 * 86400000)
+      startTime = fmt(latestDate < cap14 ? cap14 : latestDate)
+      console.log(`[repair/sync-crm] incremental 7d từ ${startTime}`)
     } else {
       // DB trống — sync 30 ngày gần nhất
       const ago30 = new Date(now.getTime() - 30 * 86400000)
