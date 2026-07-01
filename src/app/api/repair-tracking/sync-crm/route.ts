@@ -102,18 +102,21 @@ function mapRecord(r: RepairRecord) {
 
 // ── Gọi CRM SOAP ─────────────────────────────────────────────
 async function callGetDeviceRepair(
-  sessionId: string,
-  identity:  string,
-  startTime: string,
-  endTime:   string,
+  sessionId:  string,
+  identity:   string,
+  startTime:  string,
+  endTime:    string,
+  deviceCode?: string,
 ): Promise<{ records: RepairRecord[]; rawJson: unknown }> {
   const form = new URLSearchParams()
   form.append('MethodName', 'GetDeviceRepair')
-  form.append('Param', JSON.stringify({
+  const param: Record<string, string> = {
     StartTime:  startTime,
     EndTime:    endTime,
     searchType: '0',
-  }))
+  }
+  if (deviceCode) param['Device_Code'] = deviceCode
+  form.append('Param', JSON.stringify(param))
   form.append('SESSION_ID', sessionId)
   form.append('IDENTITY',   identity)
 
@@ -176,28 +179,74 @@ export async function POST(req: NextRequest) {
   } else if (body.mode === 'full') {
     // Full sync — 30 ngày (dùng default đã set)
   } else if (body.mode === 'refresh_in_repair') {
-    // Refresh thiết bị đang da_gui: dùng sent_at (Repair_InDate) range
-    // Window nhỏ hơn nhiều so với received_at, tránh timeout
-    const { data: inRepairRows } = await db
+    // Chế độ đặc biệt: query từng thiết bị theo Device_Code
+    // Không dùng date range rộng → tránh timeout, chính xác hơn
+    const { data: pendingDevices } = await db
       .from('repair_items')
-      .select('sent_at')
-      .eq('status', 'da_gui')
-      .not('sent_at', 'is', null)
-      .order('sent_at', { ascending: true })
-      .limit(1)
-    const oldestSentAt = inRepairRows?.[0]?.sent_at
-    if (oldestSentAt) {
-      const d = new Date(oldestSentAt)
-      d.setDate(d.getDate() - 1)
-      // Giới hạn không quá 60 ngày để tránh timeout
-      const cap60 = new Date(now.getTime() - 60 * 86400000)
-      startTime = fmt(d < cap60 ? cap60 : d)
-      console.log(`[repair/sync-crm] refresh_in_repair từ sent_at ${startTime}`)
-    } else {
-      // Không có da_gui nào — sync 7 ngày
-      const ago7 = new Date(now.getTime() - 7 * 86400000)
-      startTime = fmt(ago7)
+      .select('imei, crm_repair_id')
+      .in('status', ['cho_gui', 'da_gui'])
+      .not('imei', 'like', 'CRM-%')
+      .order('received_at', { ascending: false })
+      .limit(40)  // max 40 thiết bị / lần để tránh timeout
+
+    if (!pendingDevices || pendingDevices.length === 0) {
+      return NextResponse.json({ ok: true, total: 0, upserted: 0, message: 'Không có thiết bị nào đang chờ/sửa' })
     }
+
+    // Lấy CRM session
+    let sessionId: string, identity: string
+    try {
+      const session = await getCRMSessionForUser(user.id)
+      sessionId = session.sessionId
+      identity  = session.identity
+    } catch (e) {
+      return NextResponse.json({ error: `Lỗi CRM session: ${String(e)}` }, { status: 400 })
+    }
+
+    const FAR_PAST = '1989-12-31 17:00:00'
+    const endTimeNow = fmt(now).replace('00:00:00', '23:59:59')
+    const uniqueImeis = [...new Set(pendingDevices.map(d => d.imei).filter(Boolean))]
+
+    let allRecords: RepairRecord[] = []
+    for (const imei of uniqueImeis) {
+      try {
+        const res = await callGetDeviceRepair(sessionId, identity, FAR_PAST, endTimeNow, imei)
+        allRecords = allRecords.concat(res.records)
+      } catch (e) {
+        console.warn(`[repair/sync-crm] refresh skip ${imei}:`, e)
+      }
+    }
+
+    if (allRecords.length === 0) {
+      return NextResponse.json({ ok: true, total: 0, upserted: 0, message: 'CRM không trả về dữ liệu' })
+    }
+
+    const rows = allRecords.map(mapRecord)
+    const crmIds = rows.map(r => r.crm_repair_id) as number[]
+    let upserted = 0
+    const errors: string[] = []
+
+    // Upsert
+    for (let i = 0; i < rows.length; i += 100) {
+      const batch = rows.slice(i, i + 100)
+      const { error } = await db.from('repair_items').upsert(batch, { onConflict: 'crm_repair_id', ignoreDuplicates: false })
+      if (error) {
+        // Fallback: update từng record
+        for (const row of batch) {
+          const { error: e2 } = await db.from('repair_items')
+            .update({ status: row.status, sent_at: row.sent_at, completed_at: row.completed_at,
+                      finish_reason: row.finish_reason, destination: row.destination,
+                      notes: row.notes, repair_warehouse: row.repair_warehouse,
+                      sender_name: row.sender_name, completer_name: row.completer_name })
+            .eq('crm_repair_id', row.crm_repair_id)
+          if (e2) errors.push(`${row.crm_repair_id}: ${e2.message}`)
+          else upserted++
+        }
+      } else { upserted += batch.length }
+    }
+
+    return NextResponse.json({ ok: errors.length === 0, total: allRecords.length, upserted,
+      imeiChecked: uniqueImeis.length, errors: errors.length > 0 ? errors.slice(0,5) : undefined })
   } else {
     // Incremental (default): tìm Repair_InsertDate mới nhất trong DB → sync từ đó
     const { data: latestRow } = await db
