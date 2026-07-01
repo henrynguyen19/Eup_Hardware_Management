@@ -208,12 +208,18 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
 interface StaleDevice { id: string; imei: string; product_name: string; status: string; received_at: string|null; sent_at: string|null; repair_warehouse: string|null; notes: string|null }
 
 function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi:string,en:string)=>string }) {
-  const [items, setItems]         = useState<StaleDevice[]>([])
-  const [loading, setLoading]     = useState(false)
-  const [refreshing, setRefresh]  = useState<string|null>(null) // 'all' | imei
-  const [loaded, setLoaded]       = useState(false)
-  const [result, setResult]       = useState<string>('')
-  const [err, setErr]             = useState('')
+  const [items, setItems]        = useState<StaleDevice[]>([])
+  const [loading, setLoading]    = useState(false)
+  const [refreshing, setRefresh] = useState<string|null>(null)
+  const [loaded, setLoaded]      = useState(false)
+  const [result, setResult]      = useState<string>('')
+  const [err, setErr]            = useState('')
+  // Filters
+  const [fStatus,    setFStatus]    = useState('')
+  const [fProduct,   setFProduct]   = useState('')
+  const [fWarehouse, setFWarehouse] = useState('')
+  const [fRepairWh,  setFRepairWh]  = useState('')
+  const [fMinDays,   setFMinDays]   = useState('')
 
   async function loadStale() {
     setLoading(true); setErr(''); setResult('')
@@ -239,7 +245,6 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
         `✅ CRM: ${d.total} record → cập nhật ${d.updated ?? 0}, thêm mới ${d.inserted ?? 0}, bỏ qua ${d.skipped ?? 0}`,
         `✅ CRM: ${d.total} records → updated ${d.updated ?? 0}, new ${d.inserted ?? 0}, skip ${d.skipped ?? 0}`,
       ))
-      // reload stale list
       await loadStale()
       onRefreshed()
     } catch(e) { setErr(String(e)) } finally { setRefresh(null) }
@@ -250,6 +255,24 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
     return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
   }
 
+  // Derived filter options from loaded data
+  const products   = [...new Set(items.map(i => i.product_name).filter(Boolean))].sort()
+  const warehouses = [...new Set(items.map(i => i.repair_warehouse).filter(Boolean))].sort() as string[]
+
+  // Apply filters
+  const displayed = items.filter(item => {
+    const refDate = item.status === 'da_gui' ? item.sent_at : item.received_at
+    const days    = daysSince(refDate) ?? 0
+    if (fStatus    && item.status !== fStatus)                              return false
+    if (fProduct   && item.product_name !== fProduct)                       return false
+    if (fWarehouse && (item.repair_warehouse ?? '') !== fWarehouse)         return false
+    if (fRepairWh  && (item.repair_warehouse ?? '').toLowerCase().indexOf(fRepairWh.toLowerCase()) < 0) return false
+    if (fMinDays   && days < Number(fMinDays))                              return false
+    return true
+  })
+
+  const hasFilter = !!(fStatus || fProduct || fWarehouse || fRepairWh || fMinDays)
+
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
       <button
@@ -257,33 +280,82 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
         className="w-full px-4 py-3 flex items-center justify-between text-sm font-medium text-amber-800 hover:bg-amber-100 transition-colors"
       >
         <span>⚠️ {t('Thiết bị chờ/sửa quá 7 ngày','Devices pending/in-repair >7 days')}
-          {loaded && items.length > 0 && <span className="ml-2 bg-amber-200 text-amber-900 text-xs px-2 py-0.5 rounded-full">{items.length}</span>}
+          {loaded && items.length > 0 && (
+            <span className="ml-2 bg-amber-200 text-amber-900 text-xs px-2 py-0.5 rounded-full">
+              {hasFilter ? `${displayed.length}/${items.length}` : items.length}
+            </span>
+          )}
         </span>
         <span className="text-amber-500">{loading ? '⟳' : loaded ? '▾' : '▸'}</span>
       </button>
 
       {loaded && (
         <div className="px-4 pb-4 space-y-3">
+          {/* Actions */}
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={loadStale} disabled={loading}
               className="px-3 py-1.5 text-xs border border-amber-300 rounded-lg text-amber-700 hover:bg-amber-100 disabled:opacity-50">
               🔄 {t('Tải lại','Reload')}
             </button>
-            {items.length > 0 && (
+            {displayed.length > 0 && (
               <button
-                onClick={() => refreshImeis(items.map(i => i.imei).filter(Boolean), 'all')}
+                onClick={() => refreshImeis(displayed.map(i => i.imei).filter(Boolean), 'all')}
                 disabled={!!refreshing}
                 className="px-3 py-1.5 text-xs bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1">
-                {refreshing === 'all' ? <><span className="animate-spin">⟳</span> {t('Đang cập nhật...','Updating...')}</> : `⚡ ${t('Cập nhật tất cả từ CRM','Refresh all from CRM')}`}
+                {refreshing === 'all'
+                  ? <><span className="animate-spin inline-block">⟳</span> {t('Đang cập nhật...','Updating...')}</>
+                  : `⚡ ${t(`Cập nhật ${displayed.length} thiết bị từ CRM`, `Refresh ${displayed.length} devices from CRM`)}`}
               </button>
             )}
+            {hasFilter && (
+              <button onClick={() => { setFStatus(''); setFProduct(''); setFWarehouse(''); setFRepairWh(''); setFMinDays('') }}
+                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50">
+                ✕ {t('Xoá lọc','Clear filters')}
+              </button>
+            )}
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2">
+            {/* Trạng thái */}
+            <select value={fStatus} onChange={e => setFStatus(e.target.value)}
+              className="border border-amber-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-300">
+              <option value="">{t('Tất cả trạng thái','All statuses')}</option>
+              <option value="cho_gui">{t('Chờ gửi sửa','Pending Send')}</option>
+              <option value="da_gui">{t('Đang sửa','In Repair')}</option>
+            </select>
+            {/* Loại thiết bị */}
+            <select value={fProduct} onChange={e => setFProduct(e.target.value)}
+              className="border border-amber-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-300 max-w-[160px]">
+              <option value="">{t('Tất cả loại TB','All devices')}</option>
+              {products.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            {/* Kho sửa */}
+            <select value={fWarehouse} onChange={e => setFWarehouse(e.target.value)}
+              className="border border-amber-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-300 max-w-[160px]">
+              <option value="">{t('Tất cả kho sửa','All repair wh.')}</option>
+              {warehouses.map(w => <option key={w} value={w}>{w}</option>)}
+            </select>
+            {/* Số ngày tối thiểu */}
+            <select value={fMinDays} onChange={e => setFMinDays(e.target.value)}
+              className="border border-amber-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-300">
+              <option value="">{t('Mọi số ngày','Any days')}</option>
+              <option value="7">{t('> 7 ngày','> 7 days')}</option>
+              <option value="14">{t('> 14 ngày','> 14 days')}</option>
+              <option value="30">{t('> 30 ngày','> 30 days')}</option>
+              <option value="60">{t('> 60 ngày','> 60 days')}</option>
+            </select>
           </div>
 
           {err    && <p className="text-xs text-red-600">⚠ {err}</p>}
           {result && <p className="text-xs text-emerald-700">{result}</p>}
 
-          {items.length === 0 ? (
-            <p className="text-xs text-amber-600 py-2">{t('Không có thiết bị nào chờ/sửa quá 7 ngày 👍','No devices pending/in-repair for over 7 days 👍')}</p>
+          {displayed.length === 0 ? (
+            <p className="text-xs text-amber-600 py-2">
+              {hasFilter
+                ? t('Không có thiết bị nào khớp bộ lọc','No devices match the filters')
+                : t('Không có thiết bị nào chờ/sửa quá 7 ngày 👍','No devices pending/in-repair for over 7 days 👍')}
+            </p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-amber-200 bg-white">
               <table className="w-full text-left text-xs">
@@ -292,16 +364,16 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
                     <th className="px-3 py-2">{t('IMEI','IMEI')}</th>
                     <th className="px-3 py-2">{t('Thiết bị','Device')}</th>
                     <th className="px-3 py-2">{t('Trạng thái','Status')}</th>
-                    <th className="px-3 py-2">{t('Ngày nhận','Received')}</th>
+                    <th className="px-3 py-2">{t('Ngày tham chiếu','Ref. Date')}</th>
                     <th className="px-3 py-2">{t('Số ngày','Days')}</th>
-                    <th className="px-3 py-2">{t('Kho sửa','Warehouse')}</th>
+                    <th className="px-3 py-2">{t('Kho sửa','Repair Wh.')}</th>
                     <th className="px-3 py-2">{t('CRM','CRM')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map(item => {
-                    const refDate  = item.status === 'da_gui' ? item.sent_at : item.received_at
-                    const days     = daysSince(refDate)
+                  {displayed.map(item => {
+                    const refDate      = item.status === 'da_gui' ? item.sent_at : item.received_at
+                    const days         = daysSince(refDate)
                     const isRefreshing = refreshing === item.imei
                     return (
                       <tr key={item.id} className="border-b border-amber-50 hover:bg-amber-50">
@@ -316,9 +388,14 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
                             {item.status === 'cho_gui' ? t('Chờ gửi','Pending') : t('Đang sửa','In Repair')}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-gray-500">{refDate ? new Date(refDate).toLocaleDateString('vi-VN') : '—'}</td>
+                        <td className="px-3 py-2 text-gray-500">
+                          <span className="text-gray-400 text-xs mr-1">
+                            {item.status === 'da_gui' ? t('Gửi:','Sent:') : t('Nhận:','Rcv:')}
+                          </span>
+                          {refDate ? new Date(refDate).toLocaleDateString('vi-VN') : '—'}
+                        </td>
                         <td className="px-3 py-2">
-                          <span className={`font-semibold ${(days??0) > 14 ? 'text-red-600' : 'text-amber-700'}`}>
+                          <span className={`font-semibold ${(days??0) > 30 ? 'text-red-600' : (days??0) > 14 ? 'text-orange-500' : 'text-amber-700'}`}>
                             {days != null ? `${days}d` : '—'}
                           </span>
                         </td>
@@ -328,8 +405,8 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
                             onClick={() => refreshImeis([item.imei], item.imei)}
                             disabled={!!refreshing}
                             className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-200 disabled:opacity-50 flex items-center gap-1">
-                            {isRefreshing ? <span className="animate-spin">⟳</span> : '🔄'}
-                            {t('Sync','Sync')}
+                            {isRefreshing ? <span className="animate-spin inline-block">⟳</span> : '🔄'}
+                            Sync
                           </button>
                         </td>
                       </tr>
