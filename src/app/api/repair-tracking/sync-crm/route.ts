@@ -294,6 +294,7 @@ export async function POST(req: NextRequest) {
         if (row.crm_repair_id) existingIds.add(row.crm_repair_id as number)
       }
     }
+    // Insert mới
     const toInsert = rows.filter(r => !existingIds.has(r.crm_repair_id))
     for (let i = 0; i < toInsert.length; i += 100) {
       const batch = toInsert.slice(i, i + 100)
@@ -301,22 +302,15 @@ export async function POST(req: NextRequest) {
       if (error) errors.push(`insert: ${error.message}`)
       else upserted += batch.length
     }
-    console.log(`[repair/sync-crm] fallback insert-only: ${toInsert.length} mới / ${rows.length} total`)
-  } else {
-    console.log(`[repair/sync-crm] upsert OK: ${upserted}/${rows.length}`)
-  }
-
-  return NextResponse.json({
-    ok:        errors.length === 0,
-    total:     records.length,
-    upserted,
-    startTime,
-    endTime,
-    errors:    errors.length > 0 ? errors.slice(0, 5) : undefined,
-  })
-
-  } catch (err) {
-    console.error('[repair/sync-crm] Unhandled error:', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
-  }
-}
+    // Update các record đã tồn tại — chỉ cập nhật các field thay đổi theo vòng đời
+    const toUpdate = rows.filter(r => existingIds.has(r.crm_repair_id))
+    for (const row of toUpdate) {
+      const { error } = await db
+        .from('repair_items')
+        .update({
+          status:           row.status,
+          sent_at:          row.sent_at,
+          completed_at:     row.completed_at,
+          finish_reason:    row.finish_reason,
+          destination:      row.destination,
+          notes:            row
