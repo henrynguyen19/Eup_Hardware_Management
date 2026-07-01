@@ -162,6 +162,147 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
   )
 }
 
+// ── Stale Devices Panel ──────────────────────────────────────
+interface StaleDevice { id: string; imei: string; product_name: string; status: string; received_at: string|null; sent_at: string|null; repair_warehouse: string|null; notes: string|null }
+
+function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi:string,en:string)=>string }) {
+  const [items, setItems]         = useState<StaleDevice[]>([])
+  const [loading, setLoading]     = useState(false)
+  const [refreshing, setRefresh]  = useState<string|null>(null) // 'all' | imei
+  const [loaded, setLoaded]       = useState(false)
+  const [result, setResult]       = useState<string>('')
+  const [err, setErr]             = useState('')
+
+  async function loadStale() {
+    setLoading(true); setErr(''); setResult('')
+    try {
+      const res = await fetch('/api/repair-tracking/stale-devices')
+      const d   = await res.json()
+      if (!res.ok) { setErr(d.error||'Lỗi tải dữ liệu'); return }
+      setItems(d.items ?? [])
+      setLoaded(true)
+    } catch(e) { setErr(String(e)) } finally { setLoading(false) }
+  }
+
+  async function refreshImeis(imeis: string[], label: string) {
+    setRefresh(label); setErr(''); setResult('')
+    try {
+      const res = await fetch('/api/repair-tracking/sync-crm', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ mode: 'refresh_selected', imeis }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setErr(d.error||'Sync lỗi'); return }
+      setResult(t(
+        `✅ CRM: ${d.total} record → cập nhật ${d.updated ?? 0}, thêm mới ${d.inserted ?? 0}, bỏ qua ${d.skipped ?? 0}`,
+        `✅ CRM: ${d.total} records → updated ${d.updated ?? 0}, new ${d.inserted ?? 0}, skip ${d.skipped ?? 0}`,
+      ))
+      // reload stale list
+      await loadStale()
+      onRefreshed()
+    } catch(e) { setErr(String(e)) } finally { setRefresh(null) }
+  }
+
+  const daysSince = (iso: string|null) => {
+    if (!iso) return null
+    return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+  }
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+      <button
+        onClick={() => { if (!loaded) loadStale(); else setLoaded(l => !l as unknown as boolean) }}
+        className="w-full px-4 py-3 flex items-center justify-between text-sm font-medium text-amber-800 hover:bg-amber-100 transition-colors"
+      >
+        <span>⚠️ {t('Thiết bị chờ/sửa quá 7 ngày','Devices pending/in-repair >7 days')}
+          {loaded && items.length > 0 && <span className="ml-2 bg-amber-200 text-amber-900 text-xs px-2 py-0.5 rounded-full">{items.length}</span>}
+        </span>
+        <span className="text-amber-500">{loading ? '⟳' : loaded ? '▾' : '▸'}</span>
+      </button>
+
+      {loaded && (
+        <div className="px-4 pb-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={loadStale} disabled={loading}
+              className="px-3 py-1.5 text-xs border border-amber-300 rounded-lg text-amber-700 hover:bg-amber-100 disabled:opacity-50">
+              🔄 {t('Tải lại','Reload')}
+            </button>
+            {items.length > 0 && (
+              <button
+                onClick={() => refreshImeis(items.map(i => i.imei).filter(Boolean), 'all')}
+                disabled={!!refreshing}
+                className="px-3 py-1.5 text-xs bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1">
+                {refreshing === 'all' ? <><span className="animate-spin">⟳</span> {t('Đang cập nhật...','Updating...')}</> : `⚡ ${t('Cập nhật tất cả từ CRM','Refresh all from CRM')}`}
+              </button>
+            )}
+          </div>
+
+          {err    && <p className="text-xs text-red-600">⚠ {err}</p>}
+          {result && <p className="text-xs text-emerald-700">{result}</p>}
+
+          {items.length === 0 ? (
+            <p className="text-xs text-amber-600 py-2">{t('Không có thiết bị nào chờ/sửa quá 7 ngày 👍','No devices pending/in-repair for over 7 days 👍')}</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-amber-200 bg-white">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-amber-100 bg-amber-50 text-amber-700 uppercase tracking-wide">
+                    <th className="px-3 py-2">{t('IMEI','IMEI')}</th>
+                    <th className="px-3 py-2">{t('Thiết bị','Device')}</th>
+                    <th className="px-3 py-2">{t('Trạng thái','Status')}</th>
+                    <th className="px-3 py-2">{t('Ngày nhận','Received')}</th>
+                    <th className="px-3 py-2">{t('Số ngày','Days')}</th>
+                    <th className="px-3 py-2">{t('Kho sửa','Warehouse')}</th>
+                    <th className="px-3 py-2">{t('CRM','CRM')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(item => {
+                    const refDate  = item.status === 'da_gui' ? item.sent_at : item.received_at
+                    const days     = daysSince(refDate)
+                    const isRefreshing = refreshing === item.imei
+                    return (
+                      <tr key={item.id} className="border-b border-amber-50 hover:bg-amber-50">
+                        <td className="px-3 py-2 font-mono text-gray-700">{item.imei}</td>
+                        <td className="px-3 py-2 text-gray-600">{item.product_name}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-2 py-0.5 rounded-full text-xs border ${
+                            item.status === 'cho_gui'
+                              ? 'bg-amber-100 text-amber-800 border-amber-300'
+                              : 'bg-blue-100 text-blue-800 border-blue-300'
+                          }`}>
+                            {item.status === 'cho_gui' ? t('Chờ gửi','Pending') : t('Đang sửa','In Repair')}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-gray-500">{refDate ? new Date(refDate).toLocaleDateString('vi-VN') : '—'}</td>
+                        <td className="px-3 py-2">
+                          <span className={`font-semibold ${(days??0) > 14 ? 'text-red-600' : 'text-amber-700'}`}>
+                            {days != null ? `${days}d` : '—'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-gray-500">{item.repair_warehouse ?? '—'}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            onClick={() => refreshImeis([item.imei], item.imei)}
+                            disabled={!!refreshing}
+                            className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-200 disabled:opacity-50 flex items-center gap-1">
+                            {isRefreshing ? <span className="animate-spin">⟳</span> : '🔄'}
+                            {t('Sync','Sync')}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SendModal({ item, onClose, onSaved, t }: { item:RepairItem; onClose:()=>void; onSaved:()=>void; t:(vi:string,en:string)=>string }) {
   const [warehouse, setWarehouse] = useState(REPAIR_WAREHOUSES[0])
   const [loading, setLoading] = useState(false)
@@ -1016,6 +1157,7 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
       {activeTab==='list' ? (
         <>
           <SyncCRMPanel onSynced={load} t={t} />
+          <StaleDevicesPanel onRefreshed={load} t={t} />
           <StatsBar counts={counts} t={t} />
           <div className="flex flex-wrap gap-2 items-center">
             <div className="flex items-center gap-1">

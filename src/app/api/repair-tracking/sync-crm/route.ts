@@ -156,10 +156,12 @@ export async function POST(req: NextRequest) {
     startTime?: string
     endTime?:   string
     staffName?: string
-    mode?:      'incremental' | 'full' | 'refresh_in_repair'
-    // incremental = 7 ngày gần nhất
-    // full        = 30 ngày (theo date range)
+    mode?:      'incremental' | 'full' | 'refresh_in_repair' | 'refresh_selected'
+    imeis?:     string[]   // dùng cho refresh_selected
+    // incremental      = 7 ngày gần nhất
+    // full             = 30 ngày (theo date range)
     // refresh_in_repair = chỉ refresh các thiết bị đang da_gui (dùng sent_at range)
+    // refresh_selected  = refresh danh sách IMEI cụ thể (stale devices)
   }
 
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -178,6 +180,82 @@ export async function POST(req: NextRequest) {
     endTime   = body.endTime ?? fmt(now).replace('00:00:00', '23:59:59')
   } else if (body.mode === 'full') {
     // Full sync — 30 ngày (dùng default đã set)
+  } else if (body.mode === 'refresh_selected') {
+    // Refresh danh sách IMEI cụ thể (thiết bị quá 7 ngày chờ/sửa)
+    const imeis = (body.imeis ?? []).filter(Boolean).slice(0, 50)
+    if (imeis.length === 0) {
+      return NextResponse.json({ ok: true, total: 0, upserted: 0, message: 'Không có IMEI nào được chọn' })
+    }
+
+    let sessionId: string, identity: string
+    try {
+      const session = await getCRMSessionForUser(user.id)
+      sessionId = session.sessionId
+      identity  = session.identity
+    } catch (e) {
+      return NextResponse.json({ error: `Lỗi CRM session: ${String(e)}` }, { status: 400 })
+    }
+
+    const FAR_PAST   = '1989-12-31 17:00:00'
+    const endTimeNow = fmt(now).replace('00:00:00', '23:59:59')
+
+    let allRecords: RepairRecord[] = []
+    const failedImeis: string[] = []
+    for (const imei of imeis) {
+      try {
+        const res = await callGetDeviceRepair(sessionId, identity, FAR_PAST, endTimeNow, imei)
+        allRecords = allRecords.concat(res.records)
+      } catch (e) {
+        console.warn(`[repair/sync-crm] refresh_selected skip ${imei}:`, e)
+        failedImeis.push(imei)
+      }
+    }
+
+    if (allRecords.length === 0) {
+      return NextResponse.json({ ok: true, total: 0, upserted: 0, message: 'CRM không trả về dữ liệu', failed: failedImeis })
+    }
+
+    const selRows  = allRecords.map(mapRecord)
+    const selCrmIds = selRows.map(r => r.crm_repair_id) as number[]
+    const selDbMap  = new Map<number, string>()
+    for (let i = 0; i < selCrmIds.length; i += 500) {
+      const { data } = await db.from('repair_items').select('crm_repair_id, status')
+        .in('crm_repair_id', selCrmIds.slice(i, i + 500))
+      for (const row of (data ?? [])) if (row.crm_repair_id) selDbMap.set(row.crm_repair_id as number, row.status as string)
+    }
+
+    let selInserted = 0, selUpdated = 0, selSkipped = 0
+    const selErrors: string[] = []
+    const selInsert: typeof selRows = [], selUpdate: typeof selRows = []
+
+    for (const row of selRows) {
+      const dbStatus = selDbMap.get(row.crm_repair_id)
+      if (!dbStatus)                                          selInsert.push(row)
+      else if (dbStatus === row.status)                       selSkipped++
+      else if (dbStatus === 'cho_gui' || dbStatus === 'da_gui') selUpdate.push(row)
+      else selSkipped++
+    }
+
+    for (let i = 0; i < selInsert.length; i += 100) {
+      const { error } = await db.from('repair_items').insert(selInsert.slice(i, i + 100))
+      if (error) { const { error: e2 } = await db.from('repair_items').upsert(selInsert.slice(i, i + 100), { onConflict: 'crm_repair_id', ignoreDuplicates: true }); if (e2) selErrors.push(e2.message); else selInserted += selInsert.slice(i,i+100).length } else selInserted += selInsert.slice(i,i+100).length
+    }
+    for (const row of selUpdate) {
+      const { error } = await db.from('repair_items').update({
+        status: row.status, sent_at: row.sent_at, completed_at: row.completed_at,
+        finish_reason: row.finish_reason, destination: row.destination, notes: row.notes,
+        repair_warehouse: row.repair_warehouse, sender_name: row.sender_name, completer_name: row.completer_name,
+      }).eq('crm_repair_id', row.crm_repair_id)
+      if (error) selErrors.push(`update ${row.crm_repair_id}: ${error.message}`); else selUpdated++
+    }
+
+    return NextResponse.json({
+      ok: selErrors.length === 0, total: allRecords.length,
+      inserted: selInserted, updated: selUpdated, skipped: selSkipped,
+      upserted: selInserted + selUpdated, imeiChecked: imeis.length,
+      failed: failedImeis.length > 0 ? failedImeis : undefined,
+      errors: selErrors.length > 0 ? selErrors.slice(0, 5) : undefined,
+    })
   } else if (body.mode === 'refresh_in_repair') {
     // Chế độ đặc biệt: query từng thiết bị theo Device_Code
     // Không dùng date range rộng → tránh timeout, chính xác hơn
@@ -320,81 +398,91 @@ export async function POST(req: NextRequest) {
   const rows = records.map(mapRecord)
   const crmIds = rows.map(r => r.crm_repair_id) as number[]
 
-  let upserted = 0
+  let inserted = 0, updated = 0, skipped = 0
   const errors: string[] = []
 
-  // ── Thử upsert (nếu unique index đã được tạo) ────────────────
-  let upsertSupported = true
-  for (let i = 0; i < rows.length; i += 100) {
-    const batch = rows.slice(i, i + 100)
+  // ── Lấy trạng thái hiện tại trong DB cho tất cả crm_repair_id ──
+  const dbStatusMap = new Map<number, string>()
+  for (let i = 0; i < crmIds.length; i += 500) {
+    const { data } = await db
+      .from('repair_items')
+      .select('crm_repair_id, status')
+      .in('crm_repair_id', crmIds.slice(i, i + 500))
+    for (const row of (data ?? [])) {
+      if (row.crm_repair_id) dbStatusMap.set(row.crm_repair_id as number, row.status as string)
+    }
+  }
+
+  // ── Smart merge: phân loại từng record ────────────────────────
+  const toInsert: typeof rows = []
+  const toUpdate: typeof rows = []
+
+  for (const row of rows) {
+    const dbStatus = dbStatusMap.get(row.crm_repair_id)
+
+    if (!dbStatus) {
+      // Chưa có trong DB → insert mới
+      toInsert.push(row)
+    } else if (dbStatus === row.status) {
+      // Trạng thái giống nhau → bỏ qua
+      skipped++
+    } else if (dbStatus === 'cho_gui' || dbStatus === 'da_gui') {
+      // Đang chờ/sửa + trạng thái thay đổi → cập nhật tiến trình
+      toUpdate.push(row)
+    } else {
+      // DB đã ở da_sua_xong → đây sẽ là vòng đời mới (Repair_ID mới từ CRM)
+      // Trường hợp này không xảy ra vì cùng crm_repair_id, bỏ qua
+      skipped++
+    }
+  }
+
+  // ── Insert record mới ──────────────────────────────────────────
+  for (let i = 0; i < toInsert.length; i += 100) {
+    const batch = toInsert.slice(i, i + 100)
+    const { error } = await db.from('repair_items').insert(batch)
+    if (error) {
+      // Thử upsert nếu insert bị conflict (unique index tồn tại)
+      const { error: e2 } = await db.from('repair_items')
+        .upsert(batch, { onConflict: 'crm_repair_id', ignoreDuplicates: true })
+      if (e2) errors.push(`insert: ${e2.message}`)
+      else inserted += batch.length
+    } else {
+      inserted += batch.length
+    }
+  }
+
+  // ── Update record đang tiến triển ─────────────────────────────
+  for (const row of toUpdate) {
     const { error } = await db
       .from('repair_items')
-      .upsert(batch, { onConflict: 'crm_repair_id', ignoreDuplicates: false })
-    if (error) {
-      if (error.message.includes('no unique') || error.message.includes('ON CONFLICT')) {
-        // Unique index chưa tạo — fallback về insert-only
-        upsertSupported = false
-        console.warn('[repair/sync-crm] Unique index chưa có, fallback insert-only')
-        break
-      }
-      errors.push(error.message)
-    } else {
-      upserted += batch.length
-    }
+      .update({
+        status:           row.status,
+        sent_at:          row.sent_at,
+        completed_at:     row.completed_at,
+        finish_reason:    row.finish_reason,
+        destination:      row.destination,
+        notes:            row.notes,
+        repair_warehouse: row.repair_warehouse,
+        sender_name:      row.sender_name,
+        completer_name:   row.completer_name,
+      })
+      .eq('crm_repair_id', row.crm_repair_id)
+    if (error) errors.push(`update ${row.crm_repair_id}: ${error.message}`)
+    else updated++
   }
 
-  // ── Fallback: chỉ insert record mới (skip update để tránh timeout) ──
-  if (!upsertSupported) {
-    const existingIds = new Set<number>()
-    for (let i = 0; i < crmIds.length; i += 500) {
-      const { data } = await db
-        .from('repair_items')
-        .select('crm_repair_id')
-        .in('crm_repair_id', crmIds.slice(i, i + 500))
-      for (const row of (data ?? [])) {
-        if (row.crm_repair_id) existingIds.add(row.crm_repair_id as number)
-      }
-    }
-    // Insert mới
-    const toInsert = rows.filter(r => !existingIds.has(r.crm_repair_id))
-    for (let i = 0; i < toInsert.length; i += 100) {
-      const batch = toInsert.slice(i, i + 100)
-      const { error } = await db.from('repair_items').insert(batch)
-      if (error) errors.push(`insert: ${error.message}`)
-      else upserted += batch.length
-    }
-    // Update các record đã tồn tại — chỉ cập nhật các field thay đổi theo vòng đời
-    const toUpdate = rows.filter(r => existingIds.has(r.crm_repair_id))
-    for (const row of toUpdate) {
-      const { error } = await db
-        .from('repair_items')
-        .update({
-          status:           row.status,
-          sent_at:          row.sent_at,
-          completed_at:     row.completed_at,
-          finish_reason:    row.finish_reason,
-          destination:      row.destination,
-          notes:            row.notes,
-          repair_warehouse: row.repair_warehouse,
-          sender_name:      row.sender_name,
-          completer_name:   row.completer_name,
-        })
-        .eq('crm_repair_id', row.crm_repair_id)
-      if (error) errors.push(`update ${row.crm_repair_id}: ${error.message}`)
-      else upserted++
-    }
-    console.log(`[repair/sync-crm] fallback: ${toInsert.length} insert, ${toUpdate.length} update / ${rows.length} total`)
-  } else {
-    console.log(`[repair/sync-crm] upsert OK: ${upserted}/${rows.length}`)
-  }
+  console.log(`[repair/sync-crm] insert=${inserted} update=${updated} skip=${skipped} errors=${errors.length}`)
 
   return NextResponse.json({
-    ok:        errors.length === 0,
-    total:     records.length,
-    upserted,
+    ok:       errors.length === 0,
+    total:    records.length,
+    inserted,
+    updated,
+    skipped,
+    upserted: inserted + updated,
     startTime,
     endTime,
-    errors:    errors.length > 0 ? errors.slice(0, 5) : undefined,
+    errors:   errors.length > 0 ? errors.slice(0, 5) : undefined,
   })
 
   } catch (err) {
