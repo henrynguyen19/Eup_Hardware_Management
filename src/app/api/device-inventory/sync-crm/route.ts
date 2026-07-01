@@ -174,26 +174,31 @@ export async function POST(req: NextRequest) {
 
     console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} records từ CRM`)
 
-    // Map + upsert
+    // Map + dedupe theo device_id (giữ record cuối cùng nếu trùng)
     let upserted = 0
     const errors: string[] = []
 
     if (records.length > 0) {
-      const rows = records.map(r => ({
-        device_id:       r.Device_ID,
-        device_code:     (r.Device_Code || '').trim() || null,
-        product_name:    getProductName(r),
-        vendor_name:     r.Device_VendorName || null,
-        imported_date:   getImportedDate(r),
-        source_stock:    r.Device_SourceStockName || null,
-        dest_stock:      r.Device_DestStockName || null,
-        transfer_action: r.Device_TransferActionName || null,
-        firmware_ver:    r.Device_FirewareVer || null,
-        hardware_memo:   r.Device_HardwareMemo || null,
-        memo:            r.Device_Memo || null,
-        crm_raw:         r,
-        synced_at:       new Date().toISOString(),
-      }))
+      const rowMap = new Map<number, Record<string, unknown>>()
+      for (const r of records) {
+        rowMap.set(r.Device_ID, {
+          device_id:       r.Device_ID,
+          device_code:     (r.Device_Code || '').trim() || null,
+          product_name:    getProductName(r),
+          vendor_name:     r.Device_VendorName || null,
+          imported_date:   getImportedDate(r),
+          source_stock:    r.Device_SourceStockName || null,
+          dest_stock:      r.Device_DestStockName || null,
+          transfer_action: r.Device_TransferActionName || null,
+          firmware_ver:    r.Device_FirewareVer || null,
+          hardware_memo:   r.Device_HardwareMemo || null,
+          memo:            r.Device_Memo || null,
+          crm_raw:         r,
+          synced_at:       new Date().toISOString(),
+        })
+      }
+      const rows = Array.from(rowMap.values())
+      console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} raw → ${rows.length} sau dedupe`)
 
       for (let i = 0; i < rows.length; i += 200) {
         const batch = rows.slice(i, i + 200)
