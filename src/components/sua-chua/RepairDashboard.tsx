@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
+import RepairTrackingDashboard from '@/components/sua-chua/RepairTrackingDashboard'
 import {
   LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
@@ -973,6 +974,93 @@ function DashboardTab() {
 }
 
 // ── Fault config management panel ────────────────────────────
+// ── Hashtag Mini Panel (dùng trong tab Cập nhật) ──────────────
+interface HashtagEntry { tag: string; count: number; deviceCount: number; topProducts: { product_name: string; count: number }[] }
+
+function HashtagMiniPanel() {
+  const [data, setData]       = useState<{ tags: HashtagEntry[]; totalWithNotes: number } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/repair-tracking/hashtags')
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="py-6 text-center text-sm text-gray-400">Đang tải hashtag...</div>
+  if (!data || data.tags.length === 0) return (
+    <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">
+      <p className="text-2xl mb-1">🏷</p>
+      <p>Chưa có hashtag nào</p>
+      <p className="text-xs mt-1 text-gray-300">Kỹ thuật ghi #tag vào ghi chú khi hoàn thành sửa chữa tại tab Theo dõi</p>
+    </div>
+  )
+
+  const maxCount = data.tags[0]?.count ?? 1
+  const selectedEntry = selected ? data.tags.find(x => x.tag === selected) : null
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h4 className="text-sm font-semibold text-indigo-800">🏷 Phân tích lỗi theo Hashtag</h4>
+            <p className="text-xs text-indigo-500 mt-0.5">{data.tags.length} loại lỗi · {data.totalWithNotes.toLocaleString()} thiết bị có ghi chú</p>
+          </div>
+          {selected && <button onClick={() => setSelected(null)} className="text-xs text-indigo-400 hover:text-indigo-600">✕ Bỏ chọn</button>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {data.tags.map(entry => {
+            const size = 0.75 + (entry.count / maxCount) * 0.45
+            const isActive = selected === entry.tag
+            return (
+              <button key={entry.tag} onClick={() => setSelected(isActive ? null : entry.tag)}
+                style={{ fontSize: `${size}rem` }}
+                className={`px-2 py-0.5 rounded-lg border transition-all ${isActive ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
+                #{entry.tag}<span className="ml-1 text-xs opacity-60">{entry.count}</span>
+              </button>
+            )
+          })}
+        </div>
+        {selectedEntry && (
+          <div className="mt-4 pt-4 border-t border-indigo-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs font-medium text-indigo-700 mb-2">Thiết bị hay gặp</p>
+              {selectedEntry.topProducts.map(p => (
+                <div key={p.product_name} className="flex justify-between text-xs py-0.5">
+                  <span className="text-gray-700 truncate">{p.product_name}</span>
+                  <span className="text-indigo-600 font-medium ml-2">{p.count}</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <p className="text-xs font-medium text-indigo-700 mb-2">Tổng quan</p>
+              <p className="text-xs text-gray-600">{selectedEntry.count} lần xuất hiện</p>
+              <p className="text-xs text-gray-600">{selectedEntry.deviceCount} thiết bị khác nhau</p>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="bg-white border border-gray-200 rounded-2xl p-4">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Top 10 lỗi phổ biến</h4>
+        <div className="space-y-2">
+          {data.tags.slice(0, 10).map(entry => (
+            <div key={entry.tag} className="flex items-center gap-3">
+              <span className="text-xs text-indigo-600 font-mono w-32 truncate">#{entry.tag}</span>
+              <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${entry.count / maxCount * 100}%` }} />
+              </div>
+              <span className="text-xs text-gray-500 w-10 text-right">{entry.count}×</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function FaultConfigPanel({
   faultConfigs,
   onAdd,
@@ -1598,121 +1686,4 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
                     const sum = weekData.stats.filter(s => s.week_id === selectedWeek.id && s.status_type === st.key).reduce((a, s) => a + s.quantity, 0)
                     return (
                       <div key={st.key} className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: st.color + '12' }}>
-                        <span className="text-xs font-medium" style={{ color: st.color }}>{getStatusLabel(st.key, t)}</span>
-                        <span className="text-sm font-bold text-gray-800">{sum || '—'}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function LoadingSpinner() {
-  const { t } = useLanguage()
-  return (
-    <div className="flex items-center justify-center h-48 gap-2 text-gray-400">
-      <div className="w-5 h-5 border-2 border-gray-300 border-t-red-600 rounded-full animate-spin" />
-      <span className="text-sm">{t.common.loading}</span>
-    </div>
-  )
-}
-
-function EmptyState({ msg }: { msg: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-      <span className="text-3xl mb-2">📊</span>
-      <p className="text-sm">{msg}</p>
-    </div>
-  )
-}
-
-// ── Main ───────────────────────────────────────────────────────
-export default function RepairDashboard({ userEmail = '', permissions = [] }: { userEmail?: string; permissions?: string[] }) {
-  const { t } = useLanguage()
-  const canWrite = permissions.includes('sua_chua:write') || permissions.includes('admin:users')
-  const [tab, setTab] = useState<'dashboard' | 'entry' | 'history' | 'config'>('dashboard')
-  const [refreshKey, setRefreshKey] = useState(0)
-
-  // ── Fault configs — fetched from DB, fallback to defaults ──
-  const [faultConfigs, setFaultConfigs] = useState<Record<string, string[]>>(DEFAULT_FAULT_TYPES_BY_STATUS)
-
-  useEffect(() => {
-    fetch('/api/sua-chua/fault-configs')
-      .then(r => r.json())
-      .then(d => { if (d.configs) setFaultConfigs(d.configs) })
-      .catch(() => {}) // keep defaults on error
-  }, [])
-
-  async function handleAddFault(status: string, fault: string) {
-    await fetch('/api/sua-chua/fault-configs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status_type: status, fault_type: fault }),
-    })
-    setFaultConfigs(prev => ({
-      ...prev,
-      [status]: [...(prev[status] ?? []), fault],
-    }))
-  }
-
-  async function handleDeleteFault(status: string, fault: string) {
-    await fetch('/api/sua-chua/fault-configs', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status_type: status, fault_type: fault }),
-    })
-    setFaultConfigs(prev => ({
-      ...prev,
-      [status]: (prev[status] ?? []).filter(f => f !== fault),
-    }))
-  }
-
-  const tabs: Array<{ key: 'dashboard' | 'entry' | 'history' | 'config'; label: string }> = [
-    { key: 'dashboard', label: `📊 ${t.suaChua.tabDashboard}` },
-    ...(canWrite ? [{ key: 'entry' as const, label: `✏️ ${t.suaChua.tabEntry}` }] : []),
-    { key: 'history',   label: `🗂 ${t.suaChua.tabHistory}` },
-    ...(canWrite ? [{ key: 'config' as const, label: `⚙️ ${t.common.update}` }] : []),
-  ]
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">🔧 {t.suaChua.title}</h1>
-            <p className="text-xs text-gray-400 mt-0.5">{t.suaChua.tabDashboard}</p>
-          </div>
-          {userEmail && (
-            <span className="text-xs text-gray-400">{userEmail}</span>
-          )}
-        </div>
-        <div className="flex gap-1 mt-3 border-b border-gray-100">
-          {tabs.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={`px-4 py-2 text-xs font-medium rounded-t-lg transition ${tab === t.key ? 'bg-white text-[#A70A0A] border border-b-white border-gray-200 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}
-            >{t.label}</button>
-          ))}
-        </div>
-      </div>
-
-      <div className="px-6 py-5">
-        {tab === 'dashboard' && <DashboardTab />}
-        {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} faultConfigs={faultConfigs} />}
-        {tab === 'history'   && <HistoryTab refreshKey={refreshKey} canWrite={canWrite} />}
-        {tab === 'config'    && (
-          <FaultConfigPanel
-            faultConfigs={faultConfigs}
-            onAdd={handleAddFault}
-            onDelete={handleDeleteFault}
-          />
-        )}
-      </div>
-    </div>
-  )
-}
+                        <span className="text-xs font-medium" style={{ color:
