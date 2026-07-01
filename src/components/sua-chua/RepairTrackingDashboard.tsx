@@ -214,6 +214,7 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
   const [loaded, setLoaded]      = useState(false)
   const [result, setResult]      = useState<string>('')
   const [err, setErr]            = useState('')
+  const [exporting, setExporting]  = useState(false)
   // Filters
   const [fStatus,    setFStatus]    = useState('')
   const [fProduct,   setFProduct]   = useState('')
@@ -248,6 +249,25 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
       await loadStale()
       onRefreshed()
     } catch(e) { setErr(String(e)) } finally { setRefresh(null) }
+  }
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams({ stale: 'true' })
+      if (fProduct)   params.set('product', fProduct)
+      if (fStatus)    params.set('status', fStatus)
+      if (fMinDays)   params.set('minDays', fMinDays)
+      const res  = await fetch('/api/repair-tracking/export?' + params.toString())
+      if (!res.ok) { setErr(t('Lỗi xuất file','Export error')); return }
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url
+      a.download = `thiet-bi-cho-sua-tre-${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch(e) { setErr(String(e)) } finally { setExporting(false) }
   }
 
   const daysSince = (iso: string|null) => {
@@ -313,6 +333,12 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
                 ✕ {t('Xoá lọc','Clear filters')}
               </button>
             )}
+            <button onClick={handleExport} disabled={exporting || displayed.length === 0}
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+              {exporting
+                ? <><span className="animate-spin inline-block">⟳</span> {t('Đang xuất...','Exporting...')}</>
+                : <>⬇ {t(`Xuất Excel (${displayed.length})`, `Export Excel (${displayed.length})`)}</>}
+            </button>
           </div>
 
           {/* Filters */}
