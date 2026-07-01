@@ -287,6 +287,71 @@ function SummaryView({
         <StatCard icon="👥" label="Nhân viên hoạt động" value={activeStaff} color="teal" />
       </div>
 
+      {showGroupPending && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowGroupPending(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div>
+                <h2 className="font-bold text-gray-800 text-base">📅 Yêu cầu cần theo dõi</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {statsTickets.filter(tk => tk.speed_tag === 'hen' || tk.speed_tag === 'mai_bao_lai').length} yêu cầu · Hẹn lại &amp; Mai báo lại
+                </p>
+              </div>
+              <button onClick={() => setShowGroupPending(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-5">
+              {(() => {
+                const pendList = statsTickets
+                  .filter(tk => tk.speed_tag === 'hen' || tk.speed_tag === 'mai_bao_lai')
+                  .sort((a, b) => (b.ticket_date ?? '').localeCompare(a.ticket_date ?? ''))
+                if (!pendList.length) return (
+                  <div className="text-center py-12 text-gray-400">
+                    <p className="text-3xl mb-2">✅</p>
+                    <p className="text-sm">Không có yêu cầu nào cần theo dõi</p>
+                  </div>
+                )
+                return (
+                  <div className="space-y-2">
+                    {pendList.map((tk, i) => {
+                      const isHen = tk.speed_tag === 'hen'
+                      return (
+                        <div key={String(tk.id ?? i)} className={`border rounded-xl p-4 ${isHen ? 'bg-purple-50 border-purple-100' : 'bg-pink-50 border-pink-100'}`}>
+                          <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded">
+                                {String(tk.code || tk.id || '-')}
+                              </span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isHen ? 'bg-purple-100 text-purple-700' : 'bg-pink-100 text-pink-700'}`}>
+                                {isHen ? '📅 Hẹn lại' : '🔁 Mai báo lại'}
+                              </span>
+                              {tk.staff_name && (
+                                <span className="text-xs text-teal-600">{tk.staff_name}</span>
+                              )}
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {tk.ticket_date ? new Date(tk.ticket_date).toLocaleDateString('vi-VN') : ''}
+                            </span>
+                          </div>
+                          {tk.company && (
+                            <p className="text-sm font-medium text-gray-700 mb-1">{tk.company}</p>
+                          )}
+                          {tk.content && (
+                            <p className="text-xs text-gray-600 line-clamp-2 mb-1">{tk.content}</p>
+                          )}
+                          {tk.reply && (
+                            <p className="text-xs text-gray-500 italic line-clamp-2 bg-white/60 rounded px-2 py-1">{tk.reply}</p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPendingPanel && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end" onClick={() => setShowPendingPanel(false)}>
           <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -956,6 +1021,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     content: string | null; reply: string | null; staff_name: string
     speed_tag: string | null; cs_update_time: string | null
   }
+  const [showGroupPending, setShowGroupPending] = useState(false)
   const [showUnread, setShowUnread] = useState(false)
   const [unreadTickets, setUnreadTickets] = useState<UnreadTicket[]>([])
   const [unreadLoading, setUnreadLoading] = useState(false)
@@ -1959,7 +2025,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 <div className={`grid gap-3 mb-5 ${isAdmin ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
                   <StatCard icon="📞" label={t.hoTro.kpiTotal}   value={totalReq.toLocaleString()} sub={`${days.length} ${t.hoTro.kpiDays}`} color="blue" />
                   <StatCard icon="⚡" label={t.hoTro.kpiFast}    value={`${fastPct}%`} sub={`${totalFastC} ${t.hoTro.kpiRequests}`} color="green" />
-                  <StatCard icon="📅" label={t.hoTro.kpiPending} value={totalPendC} sub={t.hoTro.kpiPendingSub} color="red" />
+                  <StatCard icon="📅" label={t.hoTro.kpiPending} value={totalPendC} sub={t.hoTro.kpiPendingSub} color="red" onClick={() => setShowGroupPending(true)} />
                   {isAdmin && <StatCard icon="👥" label={t.hoTro.kpiStaff} value={activeStaffCount} color="teal" />}
                 </div>
 
