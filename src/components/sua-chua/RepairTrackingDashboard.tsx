@@ -215,6 +215,7 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
   const [result, setResult]      = useState<string>('')
   const [err, setErr]            = useState('')
   const [exporting, setExporting]  = useState(false)
+  const [detailImei, setDetailImei] = useState<string|null>(null)
   // Filters
   const [fStatus,    setFStatus]    = useState('')
   const [fProduct,   setFProduct]   = useState('')
@@ -402,7 +403,8 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
                     const days         = daysSince(refDate)
                     const isRefreshing = refreshing === item.imei
                     return (
-                      <tr key={item.id} className="border-b border-amber-50 hover:bg-amber-50">
+                      <tr key={item.id} onClick={() => setDetailImei(item.imei)}
+                        className="border-b border-amber-50 hover:bg-amber-100 cursor-pointer">
                         <td className="px-3 py-2 font-mono text-gray-700">{item.imei}</td>
                         <td className="px-3 py-2 text-gray-600">{item.product_name}</td>
                         <td className="px-3 py-2">
@@ -428,7 +430,7 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
                         <td className="px-3 py-2 text-gray-500">{item.repair_warehouse ?? '—'}</td>
                         <td className="px-3 py-2">
                           <button
-                            onClick={() => refreshImeis([item.imei], item.imei)}
+                            onClick={e => { e.stopPropagation(); refreshImeis([item.imei], item.imei) }}
                             disabled={!!refreshing}
                             className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-200 disabled:opacity-50 flex items-center gap-1">
                             {isRefreshing ? <span className="animate-spin inline-block">⟳</span> : '🔄'}
@@ -444,6 +446,93 @@ function StaleDevicesPanel({ onRefreshed, t }: { onRefreshed: () => void; t: (vi
           )}
         </div>
       )}
+      {detailImei && (
+        <StaleDeviceDetailModal imei={detailImei} onClose={() => setDetailImei(null)} t={t} />
+      )}
+    </div>
+  )
+}
+
+function StaleDeviceDetailModal({ imei, onClose, t }: { imei: string; onClose: () => void; t: (vi:string,en:string)=>string }) {
+  const [records, setRecords] = useState<RepairItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr]         = useState('')
+
+  useEffect(() => {
+    fetch(`/api/repair-tracking?imei=${encodeURIComponent(imei)}&limit=50`)
+      .then(r => r.json())
+      .then(d => { setRecords(d.items ?? []); setLoading(false) })
+      .catch(e => { setErr(String(e)); setLoading(false) })
+  }, [imei])
+
+  const fmtDate = (iso: string|null) => {
+    if (!iso) return '—'
+    const d = new Date(iso)
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
+  }
+
+  const STATUS_LABEL: Record<string,string> = {
+    cho_gui: t('Chờ gửi','Pending'), da_gui: t('Đang sửa','In Repair'), da_sua_xong: t('Đã sửa xong','Completed')
+  }
+  const STATUS_COLOR: Record<string,string> = {
+    cho_gui: 'bg-amber-100 text-amber-800 border-amber-300',
+    da_gui: 'bg-blue-100 text-blue-800 border-blue-300',
+    da_sua_xong: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="text-base font-semibold text-gray-800">
+              🔧 {t('Lịch sử sửa chữa','Repair History')}
+            </h2>
+            <p className="text-xs text-gray-400 font-mono mt-0.5">{imei}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 px-6 py-4">
+          {loading && <p className="text-sm text-gray-400 text-center py-8">{t('Đang tải...','Loading...')}</p>}
+          {err     && <p className="text-sm text-red-500 text-center py-8">⚠ {err}</p>}
+          {!loading && records.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-8">{t('Không có lịch sử','No history found')}</p>
+          )}
+          {records.length > 0 && (
+            <div className="space-y-3">
+              {records.map((r, idx) => (
+                <div key={r.id} className="border border-gray-100 rounded-xl p-4 space-y-2 hover:border-gray-200 transition-colors">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-xs font-medium text-gray-500">
+                      {t('Lần','Repair')} #{records.length - idx}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs border ${STATUS_COLOR[r.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                      {STATUS_LABEL[r.status] ?? r.status}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div><span className="text-gray-400">{t('Nhận về kho','Received')}: </span><span className="text-gray-700">{fmtDate(r.received_at)}</span></div>
+                    <div><span className="text-gray-400">{t('Gửi sửa','Sent')}: </span><span className="text-gray-700">{fmtDate(r.sent_at)}</span></div>
+                    <div><span className="text-gray-400">{t('Hoàn thành','Completed')}: </span><span className="text-gray-700">{fmtDate(r.completed_at)}</span></div>
+                    <div><span className="text-gray-400">{t('Kho sửa','Warehouse')}: </span><span className="text-gray-700">{r.repair_warehouse ?? '—'}</span></div>
+                    {r.sender_name    && <div><span className="text-gray-400">{t('Người gửi','Sent by')}: </span><span className="text-gray-700">{r.sender_name}</span></div>}
+                    {r.completer_name && <div><span className="text-gray-400">{t('Người hoàn thành','Completed by')}: </span><span className="text-gray-700">{r.completer_name}</span></div>}
+                    {r.finish_reason  && <div className="col-span-2"><span className="text-gray-400">{t('Kết quả','Result')}: </span><span className="text-gray-700">{r.finish_reason}</span></div>}
+                  </div>
+                  {r.notes && (
+                    <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+                      📝 {r.notes}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
