@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 
-// ── Language ──────────────────────────────────────────────────
 type Lang = 'vi' | 'en'
 function useLang() {
   const [lang, setLang] = useState<Lang>(() => {
@@ -18,7 +17,6 @@ function useLang() {
   return { lang, toggle, t }
 }
 
-// ── Types ─────────────────────────────────────────────────────
 type RepairStatus = 'cho_gui' | 'da_gui' | 'da_sua_xong'
 type FinishReason = 'sua_xong' | 'khong_loi_bt' | 'loai_bo' | 'loai_bo_bo_mach' | 'send_supplier'
 type Destination  = 'old_device' | 'scrap' | 'supplier'
@@ -54,7 +52,6 @@ interface HashtagEntry {
 }
 interface StatusCounts { cho_gui: number; da_gui: number; da_sua_xong: number; old_device: number; scrap: number; supplier: number }
 
-// ── Constants ─────────────────────────────────────────────────
 const STATUS_LABEL_VI: Record<RepairStatus, string> = { cho_gui:'Chờ gửi sửa', da_gui:'Đã gửi sửa', da_sua_xong:'Đã sửa xong' }
 const STATUS_LABEL_EN: Record<RepairStatus, string> = { cho_gui:'Pending Send', da_gui:'In Repair',   da_sua_xong:'Completed' }
 const STATUS_COLOR: Record<RepairStatus, string> = {
@@ -75,7 +72,6 @@ const FINISH_REASON_DEST: Record<FinishReason, string> = {
 }
 const HIDDEN_KEY = 'failure_hidden_products'
 
-// ── Helpers ───────────────────────────────────────────────────
 function fmtDate(iso: string | null) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -85,10 +81,9 @@ function daysBetween(a: string | null, b: string | null) {
   if (!a || !b) return null
   return Math.round(((new Date(b).getTime()-new Date(a).getTime())/86400000)*10)/10
 }
-function todayStr()     { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
-function monthAgoStr()  { const d=new Date(); d.setDate(d.getDate()-30); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+function todayStr()    { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+function monthAgoStr() { const d=new Date(); d.setDate(d.getDate()-30); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 
-// ── Rate Bar ──────────────────────────────────────────────────
 function RateBar({ rate, color }: { rate: number; color: string }) {
   return (
     <div className="flex items-center gap-2">
@@ -100,7 +95,6 @@ function RateBar({ rate, color }: { rate: number; color: string }) {
   )
 }
 
-// ── Sync CRM Panel ────────────────────────────────────────────
 function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:string)=>string }) {
   const [from, setFrom]       = useState(monthAgoStr())
   const [to, setTo]           = useState(todayStr())
@@ -112,10 +106,10 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
     setLoading(true); setErr(''); setResult(null)
     try {
       const res  = await fetch('/api/repair-tracking/sync-crm', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
-      const text = await res.text()
-      if (!text) { setErr(`Empty response (HTTP ${res.status})`); return }
+      const txt = await res.text()
+      if (!txt) { setErr(`Empty response (HTTP ${res.status})`); return }
       let d: Record<string,unknown>
-      try { d = JSON.parse(text) } catch { setErr(`Parse error: ${text.substring(0,120)}`); return }
+      try { d = JSON.parse(txt) } catch { setErr(`Parse error: ${txt.substring(0,120)}`); return }
       if (!res.ok) { setErr((d.error as string)||'Sync error'); return }
       setResult(d as { ok:boolean; total:number; upserted:number; errors?:string[] })
       if (d.ok) onSynced()
@@ -157,7 +151,6 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
   )
 }
 
-// ── Modal: Send for repair ────────────────────────────────────
 function SendModal({ item, onClose, onSaved, t }: { item:RepairItem; onClose:()=>void; onSaved:()=>void; t:(vi:string,en:string)=>string }) {
   const [warehouse, setWarehouse] = useState(REPAIR_WAREHOUSES[0])
   const [loading, setLoading] = useState(false)
@@ -199,7 +192,6 @@ function SendModal({ item, onClose, onSaved, t }: { item:RepairItem; onClose:()=
   )
 }
 
-// ── Modal: Complete ───────────────────────────────────────────
 function CompleteModal({ item, onClose, onSaved, t }: { item:RepairItem; onClose:()=>void; onSaved:()=>void; t:(vi:string,en:string)=>string }) {
   const [reason, setReason] = useState<FinishReason>('sua_xong')
   const [notes, setNotes]   = useState(item.notes??'')
@@ -235,7 +227,8 @@ function CompleteModal({ item, onClose, onSaved, t }: { item:RepairItem; onClose
             <label className="block text-xs font-medium text-gray-600 mb-1">
               {t('Ghi chú (dùng #hashtag để phân loại lỗi)','Notes (use #hashtag to categorize errors)')}
             </label>
-            <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={3} placeholder="#man_hinh #pin_yeu #camera_loi ..."
+            <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={3}
+              placeholder="#gsm #power #config ..."
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 resize-none" />
           </div>
           {err && <p className="text-xs text-red-500">{err}</p>}
@@ -251,7 +244,6 @@ function CompleteModal({ item, onClose, onSaved, t }: { item:RepairItem; onClose
   )
 }
 
-// ── Stats Bar ─────────────────────────────────────────────────
 function StatsBar({ counts, t }: { counts: StatusCounts; t:(vi:string,en:string)=>string }) {
   const stats = [
     { label: t('Chờ gửi sửa','Pending'),   value: counts.cho_gui,     color:'bg-amber-50 border-amber-200 text-amber-800' },
@@ -273,15 +265,11 @@ function StatsBar({ counts, t }: { counts: StatusCounts; t:(vi:string,en:string)
   )
 }
 
-// ── Repair Table Row ──────────────────────────────────────────
 function RepairRow({ item, onAction, t }: { item:RepairItem; onAction:(item:RepairItem,act:'send'|'complete')=>void; t:(vi:string,en:string)=>string }) {
   const repairDays = daysBetween(item.sent_at, item.completed_at)
   const waitDays   = daysBetween(item.received_at, item.sent_at)
   const statusLabel = t(STATUS_LABEL_VI[item.status], STATUS_LABEL_EN[item.status])
-
-  // Extract hashtags from notes for display
   const tags = item.notes?.match(/#([^\s#,;.!?()[\]{}"']+)/g) ?? []
-
   return (
     <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
       <td className="px-4 py-3">
@@ -290,37 +278,29 @@ function RepairRow({ item, onAction, t }: { item:RepairItem; onAction:(item:Repa
         {item.crm_repair_id && <p className="text-xs text-blue-400">CRM#{item.crm_repair_id}</p>}
       </td>
       <td className="px-4 py-3">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLOR[item.status]}`}>
-          {statusLabel}
-        </span>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLOR[item.status]}`}>{statusLabel}</span>
       </td>
       <td className="px-4 py-3 text-xs text-gray-600">
         <div>{fmtDate(item.received_at)}</div>
         {item.receiver_name && <div className="text-gray-400">{item.receiver_name}</div>}
       </td>
       <td className="px-4 py-3 text-xs text-gray-600">
-        {item.sent_at ? (
-          <><div>{fmtDate(item.sent_at)}</div>
-            {item.sender_name && <div className="text-gray-400">{item.sender_name}</div>}
-            {item.repair_warehouse && <div className="text-blue-500">{item.repair_warehouse}</div>}
-            {waitDays!==null && <div className="text-amber-500">{waitDays}d {t('chờ','wait')}</div>}
-          </>
-        ) : '—'}
+        {item.sent_at ? (<><div>{fmtDate(item.sent_at)}</div>
+          {item.sender_name && <div className="text-gray-400">{item.sender_name}</div>}
+          {item.repair_warehouse && <div className="text-blue-500">{item.repair_warehouse}</div>}
+          {waitDays!==null && <div className="text-amber-500">{waitDays}d {t('chờ','wait')}</div>}
+        </>) : '—'}
       </td>
       <td className="px-4 py-3 text-xs text-gray-600">
-        {item.completed_at ? (
-          <><div>{fmtDate(item.completed_at)}</div>
-            {item.completer_name && <div className="text-gray-400">{item.completer_name}</div>}
-            {repairDays!==null && <div className="text-purple-500">{repairDays}d {t('sửa','repair')}</div>}
-          </>
-        ) : '—'}
+        {item.completed_at ? (<><div>{fmtDate(item.completed_at)}</div>
+          {item.completer_name && <div className="text-gray-400">{item.completer_name}</div>}
+          {repairDays!==null && <div className="text-purple-500">{repairDays}d {t('sửa','repair')}</div>}
+        </>) : '—'}
       </td>
       <td className="px-4 py-3 text-xs">
-        {item.finish_reason && (
-          <><p className="text-gray-700">{FINISH_REASON_LABEL[item.finish_reason]}</p>
-            {item.destination && <p className={`font-medium ${DEST_COLOR[item.destination]}`}>{DEST_LABEL[item.destination]}</p>}
-          </>
-        )}
+        {item.finish_reason && (<><p className="text-gray-700">{FINISH_REASON_LABEL[item.finish_reason]}</p>
+          {item.destination && <p className={`font-medium ${DEST_COLOR[item.destination]}`}>{DEST_LABEL[item.destination]}</p>}
+        </>)}
       </td>
       <td className="px-4 py-3 text-xs text-gray-500 max-w-[160px]">
         {tags.length > 0 ? (
@@ -340,10 +320,9 @@ function RepairRow({ item, onAction, t }: { item:RepairItem; onAction:(item:Repa
   )
 }
 
-// ── Hashtag Section ───────────────────────────────────────────
 function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void }) {
-  const [data, setData]       = useState<{ tags: HashtagEntry[]; totalWithNotes: number }|null>(null)
-  const [loading, setLoading] = useState(true)
+  const [data, setData]         = useState<{ tags: HashtagEntry[]; totalWithNotes: number }|null>(null)
+  const [loading, setLoading]   = useState(true)
   const [selected, setSelected] = useState<string|null>(null)
 
   useEffect(() => {
@@ -360,7 +339,7 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
   )
 
   const maxCount = data.tags[0]?.count ?? 1
-  const selectedEntry = selected ? data.tags.find(t=>t.tag===selected) : null
+  const selectedEntry = selected ? data.tags.find(x=>x.tag===selected) : null
 
   return (
     <div className="space-y-4">
@@ -371,31 +350,21 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
             {data.tags.length} {t('loại lỗi','error types')} · {data.totalWithNotes.toLocaleString()} {t('thiết bị có ghi chú','records with notes')}
           </p>
         </div>
-
-        {/* Tag cloud */}
         <div className="p-5">
           <div className="flex flex-wrap gap-2">
             {data.tags.map(entry => {
               const size = 0.75 + (entry.count / maxCount) * 0.5
               const isActive = selected === entry.tag
               return (
-                <button key={entry.tag}
-                  onClick={() => { setSelected(isActive ? null : entry.tag) }}
+                <button key={entry.tag} onClick={() => { setSelected(isActive ? null : entry.tag) }}
                   style={{ fontSize: `${size}rem` }}
-                  className={`px-2 py-0.5 rounded-lg border transition-all ${
-                    isActive
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
-                      : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                  }`}>
-                  #{entry.tag}
-                  <span className="ml-1 text-xs opacity-70">{entry.count}</span>
+                  className={`px-2 py-0.5 rounded-lg border transition-all ${isActive?'bg-indigo-600 text-white border-indigo-600 shadow-md':'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
+                  #{entry.tag}<span className="ml-1 text-xs opacity-70">{entry.count}</span>
                 </button>
               )
             })}
           </div>
         </div>
-
-        {/* Selected tag detail */}
         {selectedEntry && (
           <div className="border-t border-gray-100 bg-indigo-50 p-5">
             <div className="flex items-center justify-between mb-3">
@@ -435,8 +404,6 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
           </div>
         )}
       </div>
-
-      {/* Top hashtags bar chart */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5">
         <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">{t('Top 10 lỗi phổ biến','Top 10 Common Errors')}</h4>
         <div className="space-y-2">
@@ -456,7 +423,6 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
   )
 }
 
-// ── Failure Product Table ─────────────────────────────────────
 function FailureProductTable({ products, t }: { products: InventoryStats['byProduct']; t:(vi:string,en:string)=>string }) {
   const [search, setSearch]       = useState('')
   const [minImport, setMinImport] = useState(0)
@@ -487,7 +453,7 @@ function FailureProductTable({ products, t }: { products: InventoryStats['byProd
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-gray-700">{t('Tỉ lệ lỗi theo loại thiết bị','Failure Rate by Device Type')}</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{t('Chỉ tính thiết bị có trong kho CRM','Only devices tracked in CRM inventory')} · {t('hiển thị','showing')} {filtered.length}/{products.length} {t('loại','types')}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{t('hiển thị','showing')} {filtered.length}/{products.length} {t('loại','types')}</p>
           </div>
           {hidden.size>0 && (
             <div className="flex items-center gap-2">
@@ -536,7 +502,7 @@ function FailureProductTable({ products, t }: { products: InventoryStats['byProd
             : filtered.map(p=>{
               const isHidden = hidden.has(p.product_name)
               return (
-                <tr key={p.product_name} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${isHidden?'opacity-40':''}`}>
+                <tr key={p.product_name} className={`border-b border-gray-50 hover:bg-gray-50 ${isHidden?'opacity-40':''}`}>
                   <td className="px-4 py-2.5 font-medium text-gray-700">{p.product_name}</td>
                   <td className="px-4 py-2.5 text-right text-gray-600">{p.total_imported.toLocaleString()}</td>
                   <td className="px-4 py-2.5 text-right">
@@ -547,9 +513,7 @@ function FailureProductTable({ products, t }: { products: InventoryStats['byProd
                   <td className="px-4 py-2.5"><RateBar rate={p.repair_rate} color={p.repair_rate>20?'bg-red-500':p.repair_rate>10?'bg-amber-400':'bg-emerald-500'} /></td>
                   <td className="px-4 py-2.5"><RateBar rate={p.supplier_rate} color="bg-purple-400" /></td>
                   <td className="px-4 py-2.5 text-right">
-                    <button onClick={()=>toggleHide(p.product_name)} title={isHidden?t('Bỏ ẩn','Show'):t('Ẩn','Hide')} className="text-gray-300 hover:text-gray-500 transition-colors text-base leading-none">
-                      {isHidden?'👁':'✕'}
-                    </button>
+                    <button onClick={()=>toggleHide(p.product_name)} className="text-gray-300 hover:text-gray-500 text-base leading-none">{isHidden?'👁':'✕'}</button>
                   </td>
                 </tr>
               )
@@ -561,7 +525,6 @@ function FailureProductTable({ products, t }: { products: InventoryStats['byProd
   )
 }
 
-// ── Inventory Sync Panel ──────────────────────────────────────
 function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; onDone:()=>void }) {
   const [syncing, setSyncing]   = useState(false)
   const [syncLog, setSyncLog]   = useState<string[]>([])
@@ -577,4 +540,432 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
         const body: Record<string,string> = {}
         if (fromDate) body.fromDate = fromDate
         const res  = await fetch('/api/device-inventory/sync-crm', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })
-        const text = await res.text()
+        const txt = await res.text()
+        let d: Record<string,unknown>
+        try { d=JSON.parse(txt) } catch { setSyncLog(p=>[...p,`❌ ${txt.substring(0,80)}`]); break }
+        if (!res.ok||d.error) { setSyncLog(p=>[...p,`❌ ${d.error}`]); break }
+        if (d.done&&!d.month) { setSyncLog(p=>[...p,`✅ ${d.message}`]); finalDone=true; break }
+        const progress = (d.syncedMonths&&d.totalMonths) ? ` [${d.syncedMonths}/${d.totalMonths}]` : ''
+        setSyncLog(p=>[...p,`${d.ok?'✅':'⚠'} ${t('Tháng','Month')} ${d.month}: ${d.total} ${t('thiết bị → lưu','devices → saved')} ${d.upserted}${progress}`])
+        if (d.done) { finalDone=true; break }
+        fromDate = d.nextFromDate as string|null
+        if (!fromDate) { finalDone=true; break }
+        await new Promise(r=>setTimeout(r,300))
+      } catch(e) { setSyncLog(p=>[...p,`❌ ${String(e)}`]); break }
+    }
+    setSyncing(false); setSyncDone(finalDone)
+    if (finalDone) onDone()
+  }
+
+  return (
+    <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-indigo-800">{t('Sync kho thiết bị từ CRM','Sync Device Inventory from CRM')}</p>
+          <p className="text-xs text-indigo-600 mt-0.5">{t('Tự động tải từng tháng từ 01/2024 → hiện tại','Auto-load month by month from 01/2024 → present')}</p>
+        </div>
+        <div className="flex gap-2">
+          {syncing
+            ? <button onClick={()=>{abortRef.current=true}} className="px-4 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600">⛔ {t('Dừng','Stop')}</button>
+            : <button onClick={startSync} className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">🔄 {syncDone?t('Sync lại','Re-sync'):t('Bắt đầu Sync','Start Sync')}</button>}
+        </div>
+      </div>
+      {syncLog.length>0 && (
+        <div className="bg-white border border-indigo-100 rounded-lg p-3 max-h-36 overflow-y-auto">
+          {syncLog.map((line,i)=><p key={i} className="text-xs font-mono text-gray-600">{line}</p>)}
+          {syncing && <p className="text-xs font-mono text-indigo-500 animate-pulse">⏳ {t('Đang xử lý...','Processing...')}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatsTab({ t, onFilterByTag }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void }) {
+  const [section, setSection] = useState<'repair'|'failure'|'hashtag'>('repair')
+  const [stats, setStats]     = useState<StatsData|null>(null)
+  const [loadingS, setLoadingS] = useState(true)
+  const [from, setFrom]       = useState('')
+  const [to, setTo]           = useState('')
+  const [expandedProduct, setExpandedProduct] = useState<string|null>(null)
+
+  const loadStats = useCallback(async()=>{
+    setLoadingS(true)
+    const params = new URLSearchParams()
+    if (from) params.set('from',from)
+    if (to)   params.set('to',to)
+    const res = await fetch('/api/repair-tracking/stats?'+params.toString())
+    const d   = await res.json()
+    setStats(d); setLoadingS(false)
+  },[from,to])
+  useEffect(()=>{loadStats()},[loadStats])
+
+  const [invStats, setInvStats]   = useState<InventoryStats|null>(null)
+  const [loadingI, setLoadingI]   = useState(true)
+  const [invErr, setInvErr]       = useState('')
+  const [invLoaded, setInvLoaded] = useState(false)
+
+  async function loadInv() {
+    setLoadingI(true); setInvErr('')
+    try {
+      const res  = await fetch('/api/device-inventory/stats')
+      const txt  = await res.text()
+      let d: Record<string,unknown>
+      try { d=JSON.parse(txt) } catch { setInvErr(`Parse error: ${txt.substring(0,120)}`); setLoadingI(false); return }
+      if (!res.ok||d.error) { setInvErr(String(d.error??'Error')); setInvStats(null) }
+      else { setInvStats(d as unknown as InventoryStats) }
+    } catch(e) { setInvErr(String(e)) }
+    setLoadingI(false)
+  }
+
+  useEffect(()=>{
+    if (section==='failure'&&!invLoaded) { setInvLoaded(true); loadInv() }
+  },[section])
+
+  const sections = [
+    { id:'repair',  label: t('📊 Sửa chữa','📊 Repairs') },
+    { id:'failure', label: t('⚠️ Tỉ lệ lỗi','⚠️ Failure Rate') },
+    { id:'hashtag', label: t('🏷 Phân tích lỗi','🏷 Error Tags') },
+  ] as const
+
+  return (
+    <div className="space-y-5">
+      <div className="flex gap-1 border-b border-gray-200">
+        {sections.map(s=>(
+          <button key={s.id} onClick={()=>setSection(s.id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${section===s.id?'border-blue-600 text-blue-700':'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {section==='repair' && (
+        loadingS ? <div className="py-12 text-center text-sm text-gray-400">{t('Đang tải...','Loading...')}</div>
+        : !stats  ? <div className="py-12 text-center text-sm text-red-400">{t('Lỗi tải dữ liệu','Load error')}</div>
+        : (
+          <div className="space-y-5">
+            <div className="flex flex-wrap gap-3 items-end bg-gray-50 border border-gray-200 rounded-xl p-3">
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">{t('Từ ngày nhận','From date')}</label>
+                <input type="date" value={from} onChange={e=>setFrom(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200" /></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">{t('Đến ngày','To date')}</label>
+                <input type="date" value={to} onChange={e=>setTo(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200" /></div>
+              <button onClick={loadStats} className="px-4 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 bg-white">🔄 {t('Cập nhật','Update')}</button>
+              {(from||to) && <button onClick={()=>{setFrom('');setTo('')}} className="px-3 py-1.5 text-xs text-gray-400">{t('Xoá lọc','Clear')}</button>}
+            </div>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {[
+                { label:t('Tổng lượt sửa','Total repairs'), value:stats.total, sub:`${stats.uniqueDevices} ${t('thiết bị riêng','unique')}`, color:'text-gray-800', bg:'bg-gray-50 border-gray-200' },
+                { label:t('Hoàn thành','Completed'), value:`${stats.completionRate}%`, sub:`${stats.completed}/${stats.total}`, color:'text-emerald-700', bg:'bg-emerald-50 border-emerald-200' },
+                { label:t('TB lặp lại','Repeat devices'), value:stats.repeatedDeviceCount, sub:t('sửa ≥ 2 lần','repaired ≥2x'), color:'text-orange-700', bg:'bg-orange-50 border-orange-200' },
+                { label:t('Gửi Supplier','Sent to Supplier'), value:`${stats.supplierRate}%`, sub:`${stats.supplier} ${t('thiết bị','devices')}`, color:'text-purple-700', bg:'bg-purple-50 border-purple-200' },
+              ].map(s=>(
+                <div key={s.label} className={`rounded-xl border p-4 ${s.bg}`}>
+                  <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                  <p className="text-xs font-medium text-gray-600 mt-0.5">{s.label}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{s.sub}</p>
+                </div>
+              ))}
+            </div>
+            <div className="bg-white border border-gray-200 rounded-2xl p-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">{t(`Tỉ lệ kết quả (${stats.completed} hoàn thành)`,`Result rates (${stats.completed} completed)`)}</h3>
+              <div className="space-y-3">
+                {[
+                  { label:`✅ ${t('Sửa thành công (Old Device)','Repaired (Old Device)')}`, count:stats.oldDevice, rate:stats.successRate, color:'bg-emerald-500', tc:'text-emerald-600' },
+                  { label:`🗑 ${t('Báo phế (Scrap)','Scrapped')}`, count:stats.scrap, rate:stats.scrapRate, color:'bg-red-400', tc:'text-red-600' },
+                  { label:`🏭 ${t('Gửi bảo hành (Supplier)','Sent to Supplier')}`, count:stats.supplier, rate:stats.supplierRate, color:'bg-purple-400', tc:'text-purple-600' },
+                ].map(r=>(
+                  <div key={r.label}>
+                    <div className="flex justify-between text-xs text-gray-600 mb-1">
+                      <span>{r.label}</span><span className={`font-medium ${r.tc}`}>{r.count} {t('thiết bị','devices')}</span>
+                    </div>
+                    <RateBar rate={r.rate} color={r.color} />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="bg-white border border-orange-200 rounded-2xl p-5">
+                <h3 className="text-sm font-semibold text-gray-700 mb-1">{t('Thiết bị sửa nhiều lần','Repeat Repair Devices')}</h3>
+                <p className="text-xs text-gray-400 mb-4">{stats.repeatedDeviceCount} {t('thiết bị','devices')}</p>
+                {stats.duplicatesByProduct.length===0 ? <p className="text-xs text-gray-400 py-4 text-center">{t('Không có','None')}</p>
+                : <div className="space-y-1">
+                    {stats.duplicatesByProduct.map(g=>(
+                      <div key={g.product_name} className="border border-gray-100 rounded-xl overflow-hidden">
+                        <button onClick={()=>setExpandedProduct(expandedProduct===g.product_name?null:g.product_name)}
+                          className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-orange-50 text-left">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-medium text-gray-800">{g.product_name}</span>
+                            <span className="text-xs text-gray-400">{g.deviceCount} {t('thiết bị','devices')}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">{g.totalRepairs} {t('lượt','×')}</span>
+                            <span className="text-gray-400 text-xs">{expandedProduct===g.product_name?'▲':'▼'}</span>
+                          </div>
+                        </button>
+                        {expandedProduct===g.product_name && (
+                          <div className="border-t border-gray-100 bg-gray-50 divide-y divide-gray-100">
+                            {g.devices.map(d=>(
+                              <div key={d.imei} className="flex items-center justify-between px-5 py-2">
+                                <div><p className="text-xs font-mono text-gray-600">{d.imei}</p><p className="text-xs text-gray-400">{t('Lần cuối','Last')}: {fmtDate(d.last_received)}</p></div>
+                                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">{d.count}×</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>}
+              </div>
+              <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                <h3 className="text-sm font-semibold text-gray-700 mb-4">{t('Theo kho sửa chữa','By Repair Warehouse')}</h3>
+                {stats.byWarehouse.length===0 ? <p className="text-xs text-gray-400 py-4 text-center">{t('Chưa có dữ liệu','No data')}</p>
+                : <div className="space-y-3">
+                    {stats.byWarehouse.map(w=>(
+                      <div key={w.warehouse}>
+                        <div className="flex justify-between text-xs mb-1"><span className="font-medium text-gray-700">{w.warehouse}</span><span className="text-gray-400">{w.total}</span></div>
+                        <div className="flex gap-1">
+                          <div className="bg-emerald-500 h-2 rounded-l" style={{width:`${w.total>0?w.completed/w.total*100:0}%`}} />
+                          <div className="bg-red-400 h-2" style={{width:`${w.total>0?w.scrap/w.total*100:0}%`}} />
+                          <div className="bg-purple-400 h-2 rounded-r" style={{width:`${w.total>0?w.supplier/w.total*100:0}%`}} />
+                        </div>
+                        <div className="flex gap-3 text-xs text-gray-400 mt-0.5">
+                          <span className="text-emerald-600">{w.completed} {t('hoàn thành','done')}</span>
+                          <span className="text-red-500">{w.scrap} scrap</span>
+                          <span className="text-purple-500">{w.supplier} supplier</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>}
+              </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100">
+                <h3 className="text-sm font-semibold text-gray-700">{t('Thống kê theo loại thiết bị','Statistics by Device Type')}</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="bg-gray-50 border-b border-gray-100 text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-2 text-left">{t('Loại thiết bị','Device Type')}</th>
+                    <th className="px-4 py-2 text-right">{t('Tổng','Total')}</th>
+                    <th className="px-4 py-2 text-right">{t('Đang sửa','In Repair')}</th>
+                    <th className="px-4 py-2 text-right">Old Device</th>
+                    <th className="px-4 py-2 text-right">Scrap</th>
+                    <th className="px-4 py-2 text-right">Supplier</th>
+                    <th className="px-4 py-2 text-left w-40">{t('Tỉ lệ thành công','Success rate')}</th>
+                  </tr></thead>
+                  <tbody>
+                    {stats.byProduct.map(p=>(
+                      <tr key={p.product_name} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="px-4 py-2 font-medium text-gray-700">{p.product_name}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">{p.total}</td>
+                        <td className="px-4 py-2 text-right text-blue-600">{p.inRepair}</td>
+                        <td className="px-4 py-2 text-right text-emerald-600">{p.oldDevice}</td>
+                        <td className="px-4 py-2 text-right text-red-500">{p.scrap}</td>
+                        <td className="px-4 py-2 text-right text-purple-600">{p.supplier}</td>
+                        <td className="px-4 py-2"><RateBar rate={p.successRate} color="bg-emerald-500" /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )
+      )}
+
+      {section==='failure' && (
+        <div className="space-y-5">
+          <InventorySyncPanel t={t} onDone={loadInv} />
+          {loadingI ? <div className="py-8 text-center text-sm text-gray-400">{t('Đang tải...','Loading...')}</div>
+          : invErr ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              <p className="font-semibold">⚠ {t('Lỗi tải thống kê','Stats load error')}</p>
+              <p className="text-xs font-mono mt-1">{invErr}</p>
+              {invErr.includes('RPC') && <p className="text-xs mt-2">👉 {t('Cần chạy migration','Run migration')} <strong>device_inventory_stats_fn.sql</strong></p>}
+            </div>
+          ) : !invStats||invStats.totalImported===0 ? (
+            <div className="py-8 text-center text-sm text-gray-400">{invStats?.message??t('Chưa có dữ liệu. Nhấn Sync để tải từ CRM.','No data. Click Sync to load from CRM.')}</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {[
+                  { label:t('Tổng thiết bị nhập','Total Imported'), value:invStats.totalImported.toLocaleString(), color:'text-gray-800', bg:'bg-gray-50 border-gray-200' },
+                  { label:t('Mã thiết bị riêng','Unique Devices'), value:invStats.totalUniqImei.toLocaleString(), color:'text-blue-700', bg:'bg-blue-50 border-blue-200' },
+                  { label:t('Đã có sửa chữa','Had Repairs'), value:invStats.totalRepaired.toLocaleString(), color:'text-orange-700', bg:'bg-orange-50 border-orange-200' },
+                  { label:t('Tỉ lệ lỗi tổng','Overall Failure Rate'), value:`${invStats.overallRepairRate}%`,
+                    color:invStats.overallRepairRate>20?'text-red-700':invStats.overallRepairRate>10?'text-amber-700':'text-emerald-700',
+                    bg:invStats.overallRepairRate>20?'bg-red-50 border-red-200':invStats.overallRepairRate>10?'bg-amber-50 border-amber-200':'bg-emerald-50 border-emerald-200' },
+                ].map(s=>(
+                  <div key={s.label} className={`rounded-xl border p-4 ${s.bg}`}>
+                    <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                    <p className="text-xs font-medium text-gray-600 mt-0.5">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+              <FailureProductTable products={invStats.byProduct} t={t} />
+            </>
+          )}
+        </div>
+      )}
+
+      {section==='hashtag' && <HashtagSection t={t} onFilterByTag={onFilterByTag} />}
+    </div>
+  )
+}
+
+export default function RepairTrackingDashboard() {
+  const { lang, toggle, t } = useLang()
+  const [activeTab, setActiveTab]   = useState<'list'|'stats'>('list')
+  const [items, setItems]           = useState<RepairItem[]>([])
+  const [total, setTotal]           = useState(0)
+  const [counts, setCounts]         = useState<StatusCounts>({ cho_gui:0, da_gui:0, da_sua_xong:0, old_device:0, scrap:0, supplier:0 })
+  const [loading, setLoading]       = useState(true)
+  const [filterStatus, setFilter]   = useState<string>('')
+  const [filterProduct, setFilterP] = useState('')
+  const [filterImei, setFilterImei] = useState('')
+  const [imeiInput, setImeiInput]   = useState('')
+  const [filterTag, setFilterTag]   = useState('')
+  const [modal, setModal]           = useState<{ type:'send'|'complete'; item:RepairItem }|null>(null)
+  const [exporting, setExporting]   = useState(false)
+
+  const load = useCallback(async()=>{
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (filterStatus)  params.set('status',filterStatus)
+    if (filterProduct) params.set('product',filterProduct)
+    if (filterImei)    params.set('imei',filterImei)
+    params.set('limit','200')
+    const res = await fetch('/api/repair-tracking?'+params.toString())
+    const d   = await res.json()
+    setItems(d.items??[]); setTotal(d.total??0)
+    if (d.statusCounts) setCounts(d.statusCounts)
+    setLoading(false)
+  },[filterStatus,filterProduct,filterImei])
+
+  useEffect(()=>{ load() },[load])
+
+  const displayItems = filterTag
+    ? items.filter(i => i.notes?.toLowerCase().includes(`#${filterTag.toLowerCase()}`))
+    : items
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (filterImei)    params.set('imei',filterImei)
+      if (filterProduct) params.set('product',filterProduct)
+      if (filterStatus)  params.set('status',filterStatus)
+      const res  = await fetch('/api/repair-tracking/export?'+params.toString())
+      if (!res.ok) { alert(t('Lỗi xuất file','Export error')); return }
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href=url; a.download=`repair-history-${new Date().toISOString().split('T')[0]}.xlsx`; a.click()
+      URL.revokeObjectURL(url)
+    } finally { setExporting(false) }
+  }
+
+  function handleFilterByTag(tag: string) { setFilterTag(tag); setActiveTab('list') }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-semibold text-gray-800">{t('Theo dõi sửa chữa','Repair Tracking')}</h1>
+          <p className="text-xs text-gray-500 mt-0.5">{total.toLocaleString()} {t('thiết bị','devices')}</p>
+        </div>
+        <button onClick={toggle} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
+          🌐 {lang === 'vi' ? 'VI | EN' : 'EN | VI'}
+        </button>
+      </div>
+
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+        {([['list', t('📋 Danh sách','📋 List')], ['stats', t('📊 Thống kê','📊 Statistics')]] as const).map(([tab,label])=>(
+          <button key={tab} onClick={()=>setActiveTab(tab)}
+            className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${activeTab===tab?'bg-white text-gray-800 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab==='list' ? (
+        <>
+          <SyncCRMPanel onSynced={load} t={t} />
+          <StatsBar counts={counts} t={t} />
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex items-center gap-1">
+              <input value={imeiInput} onChange={e=>setImeiInput(e.target.value)}
+                onKeyDown={e=>{ if(e.key==='Enter') setFilterImei(imeiInput.trim()) }}
+                placeholder={t('Tìm mã thiết bị (IMEI)...','Search IMEI...')}
+                className="border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-52 bg-blue-50" />
+              <button onClick={()=>setFilterImei(imeiInput.trim())} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">🔍</button>
+              {filterImei && <button onClick={()=>{setImeiInput('');setFilterImei('')}} className="px-2 py-1.5 text-xs text-gray-400 hover:text-gray-600">✕</button>}
+            </div>
+            <select value={filterStatus} onChange={e=>setFilter(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+              <option value="">{t('Tất cả trạng thái','All statuses')}</option>
+              <option value="cho_gui">{t('Chờ gửi sửa','Pending Send')}</option>
+              <option value="da_gui">{t('Đã gửi sửa','In Repair')}</option>
+              <option value="da_sua_xong">{t('Đã sửa xong','Completed')}</option>
+            </select>
+            <input value={filterProduct} onChange={e=>setFilterP(e.target.value)}
+              placeholder={t('Lọc loại thiết bị...','Filter device type...')}
+              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 w-44" />
+            <button onClick={load} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">🔄</button>
+            <button onClick={handleExport} disabled={exporting}
+              className="ml-auto flex items-center gap-2 px-4 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+              {exporting ? t('Đang xuất...','Exporting...') : `⬇ ${t('Xuất Excel','Export Excel')}`}
+            </button>
+          </div>
+          {(filterImei || filterTag) && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {filterImei && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-mono">🔍 IMEI: {filterImei}</span>}
+              {filterTag  && (
+                <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                  🏷 #{filterTag}
+                  <button onClick={()=>setFilterTag('')} className="text-indigo-400 hover:text-indigo-700 ml-0.5">✕</button>
+                </span>
+              )}
+              <span className="text-gray-400">{displayItems.length} {t('kết quả','results')}</span>
+            </div>
+          )}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-3">{t('Thiết bị / IMEI','Device / IMEI')}</th>
+                    <th className="px-4 py-3">{t('Trạng thái','Status')}</th>
+                    <th className="px-4 py-3">{t('Nhận về kho','Received')}</th>
+                    <th className="px-4 py-3">{t('Gửi sửa','Sent')}</th>
+                    <th className="px-4 py-3">{t('Hoàn thành','Completed')}</th>
+                    <th className="px-4 py-3">{t('Kết quả','Result')}</th>
+                    <th className="px-4 py-3">{t('Ghi chú / Tags','Notes / Tags')}</th>
+                    <th className="px-4 py-3">{t('Thao tác','Action')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading
+                    ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">{t('Đang tải...','Loading...')}</td></tr>
+                    : displayItems.length===0
+                      ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">
+                          {filterImei ? t(`Không tìm thấy IMEI "${filterImei}"`,`No device with IMEI "${filterImei}"`)
+                           : filterTag ? t(`Không có ghi chú chứa #${filterTag}`,`No notes with #${filterTag}`)
+                           : t('Chưa có dữ liệu','No data')}
+                        </td></tr>
+                      : displayItems.map(item=>(
+                          <RepairRow key={item.id} item={item} onAction={(i,a)=>setModal({type:a,item:i})} t={t} />
+                        ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : (
+        <StatsTab t={t} onFilterByTag={handleFilterByTag} />
+      )}
+
+      {modal?.type==='send'     && <SendModal    item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
+      {modal?.type==='complete' && <CompleteModal item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
+    </div>
+  )
+}
