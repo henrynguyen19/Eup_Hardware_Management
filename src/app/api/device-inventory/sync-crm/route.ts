@@ -197,15 +197,16 @@ export async function POST(req: NextRequest) {
           firmware_ver:    r.Device_FirewareVer || null,
           hardware_memo:   r.Device_HardwareMemo || null,
           memo:            r.Device_Memo || null,
-          crm_raw:         r,
+          // crm_raw bị bỏ để giảm payload (48MB+ với tháng lớn → timeout)
           synced_at:       new Date().toISOString(),
         })
       }
       const rows = Array.from(rowMap.values())
       console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} raw → ${rows.length} sau dedupe`)
 
-      for (let i = 0; i < rows.length; i += 200) {
-        const batch = rows.slice(i, i + 200)
+      // Batch 500 thay vì 200 để giảm số DB round-trips
+      for (let i = 0; i < rows.length; i += 500) {
+        const batch = rows.slice(i, i + 500)
         const { error } = await db
           .from('device_inventory')
           .upsert(batch, { onConflict: 'device_id', ignoreDuplicates: false })
