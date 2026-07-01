@@ -1,5 +1,4 @@
 'use client'
-
 import { useEffect, useState, useCallback } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
 import RepairTrackingDashboard from '@/components/sua-chua/RepairTrackingDashboard'
@@ -7,14 +6,12 @@ import {
   LineChart, Line, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
-
 // ── Constants ─────────────────────────────────────────────────
 const DEVICE_TYPES = [
   '4G', '4GH', 'GO', 'SBOX', 'MT99', 'Temp sensor',
   'FS100', 'SOJI', 'SW sensor', 'SINET sensor', 'Collision sensor',
   'DVR88', 'C43', 'H5', 'Bewin', 'Camera'
 ]
-
 const DEVICE_COLORS: Record<string, string> = {
   '4G': '#A70A0A', '4GH': '#c0392b', 'GO': '#e67e22', 'SBOX': '#f39c12',
   'MT99': '#27ae60', 'Temp sensor': '#16a085', 'FS100': '#2980b9',
@@ -22,7 +19,6 @@ const DEVICE_COLORS: Record<string, string> = {
   'Collision sensor': '#d35400', 'DVR88': '#1abc9c', 'C43': '#3498db',
   'H5': '#9b59b6', 'Bewin': '#e91e63', 'Camera': '#607d8b'
 }
-
 // 5 trạng thái — Bàn giao = tổng tất cả
 const STATUS_TYPES = [
   { key: 'da_sua',       label: 'Đã sửa',       color: '#00AF50' },
@@ -31,7 +27,6 @@ const STATUS_TYPES = [
   { key: 'hong_han',     label: 'Hỏng hẳn',      color: '#ef4444' },
   { key: 'cho_sua',      label: 'Chờ sửa',       color: '#8b5cf6' },
 ]
-
 // Helper to get translated status label
 function getStatusLabel(key: string, t: { suaChua: { statusDaSua: string; statusGuiBaoHanh: string; statusKhongLoi: string; statusHongHan: string; statusChoSua: string } }): string {
   const map: Record<string, string> = {
@@ -43,7 +38,6 @@ function getStatusLabel(key: string, t: { suaChua: { statusDaSua: string; status
   }
   return map[key] ?? key
 }
-
 // Per-status fault types — canonical defaults matching Google Sheets
 const DEFAULT_FAULT_TYPES_BY_STATUS: Record<string, string[]> = {
   da_sua: [
@@ -75,7 +69,6 @@ const DEFAULT_FAULT_TYPES_BY_STATUS: Record<string, string[]> = {
     'Lỗi màn hình hiển thị', 'Lost camera signal', 'Không xác định',
   ],
 }
-
 // ── Types ─────────────────────────────────────────────────────
 interface RepairWeek {
   id: string
@@ -85,7 +78,6 @@ interface RepairWeek {
   date_start: string | null
   date_end: string | null
 }
-
 interface RepairStat {
   week_id: string
   status_type: string
@@ -95,13 +87,11 @@ interface RepairStat {
   submitted_by?: string | null
   submitted_at?: string | null
 }
-
 interface RepairTotal {
   week_id: string
   device_type: string
   total_received: number
 }
-
 // ── Helpers ───────────────────────────────────────────────────
 function getWeekNumber(date: Date): number {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
@@ -109,21 +99,17 @@ function getWeekNumber(date: Date): number {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
 }
-
 // Tính tổng bàn giao = sum 4 trạng thái (không dùng repair_totals vì có thể thiếu)
 function calcBanGiao(stats: RepairStat[], weekId: string, deviceType?: string): number {
   return stats
     .filter(s => s.week_id === weekId && (deviceType ? s.device_type === deviceType : true))
     .reduce((a, s) => a + s.quantity, 0)
 }
-
 // ── Period helpers ────────────────────────────────────────────
 type PeriodMode = 'tuan' | 'thang' | 'range' | 'nam'
-
 function toISODate(d: Date): string {
   return d.toISOString().split('T')[0]
 }
-
 function dashMondayOfWeek(d: Date): Date {
   const day = d.getDay() || 7
   const mon = new Date(d)
@@ -131,7 +117,6 @@ function dashMondayOfWeek(d: Date): Date {
   mon.setHours(0, 0, 0, 0)
   return mon
 }
-
 function getISOWeekYear(date: Date): { week: number; year: number } {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
   d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
@@ -140,27 +125,23 @@ function getISOWeekYear(date: Date): { week: number; year: number } {
   const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
   return { week, year: isoYear }
 }
-
 function navigateWeek(year: number, week: number, delta: number): { year: number; week: number } {
   // Jan 4 is always in ISO week 1; offset to target week then apply delta
   const jan4 = new Date(year, 0, 4)
   jan4.setDate(jan4.getDate() + (week - 1) * 7 + delta * 7)
   return getISOWeekYear(jan4)
 }
-
 function navigateMonth(year: number, month: number, delta: number): { year: number; month: number } {
   let m = month + delta, y = year
   if (m > 12) { m -= 12; y++ }
   if (m < 1)  { m += 12; y-- }
   return { year: y, month: m }
 }
-
 function fmtDateStr(s: string | null | undefined): string {
   if (!s) return ''
   const [y, m, d] = s.split('-')
   return `${d}/${m}/${y}`
 }
-
 // ── Single-week breakdown view ─────────────────────────────────
 function SingleWeekView({
   week, stats, deviceFilter = 'all'
@@ -194,7 +175,6 @@ function SingleWeekView({
           )
         })}
       </div>
-
       {/* Status × Device table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -270,7 +250,6 @@ function SingleWeekView({
           </table>
         </div>
       </div>
-
       {/* Status bar chart */}
       {banGiao > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -297,7 +276,6 @@ function SingleWeekView({
     </div>
   )
 }
-
 // ── Analytics: status breakdown by device & fault type ────────
 function AnalyticsSection({
   stats,
@@ -308,21 +286,17 @@ function AnalyticsSection({
 }) {
   const { t } = useLanguage()
   const [tab, setTab] = useState('da_sua')
-
   // Apply device filter
   const devStats = selectedDevice === 'all' ? stats : stats.filter(s => s.device_type === selectedDevice)
   const grandTotal = devStats.reduce((a, s) => a + s.quantity, 0)
-
   const stInfo = STATUS_TYPES.find(s => s.key === tab) ?? STATUS_TYPES[0]
   const tabStats  = devStats.filter(s => s.status_type === tab)
   const tabTotal  = tabStats.reduce((a, s) => a + s.quantity, 0)
-
   // By device (meaningful only when showing all)
   const byDevice = DEVICE_TYPES
     .map(dt => ({ name: dt, qty: tabStats.filter(s => s.device_type === dt).reduce((a, s) => a + s.quantity, 0), color: DEVICE_COLORS[dt] }))
     .filter(d => d.qty > 0)
     .sort((a, b) => b.qty - a.qty)
-
   // By fault type — derived from actual data so all real fault types appear
   const byFault = Object.entries(
     tabStats.reduce((acc, s) => {
@@ -333,17 +307,14 @@ function AnalyticsSection({
     .filter(([, qty]) => qty > 0)
     .sort(([, a], [, b]) => b - a)
     .map(([name, qty]) => ({ name, qty }))
-
   // Hỏng hẳn matrix
   const hhStats   = devStats.filter(s => s.status_type === 'hong_han')
   const hhTotal   = hhStats.reduce((a, s) => a + s.quantity, 0)
   const hhDevices = DEVICE_TYPES.filter(dt => hhStats.some(s => s.device_type === dt && s.quantity > 0))
   // Derive hỏng hẳn fault types from actual data
   const hhFaults  = [...new Set(hhStats.filter(s => s.quantity > 0).map(s => s.fault_type))]
-
   const pct = (n: number) => grandTotal > 0 ? `${Math.round(n / grandTotal * 100)}%` : '0%'
   const pctOf = (n: number, base: number) => base > 0 ? `${Math.round(n / base * 100)}%` : '—'
-
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
@@ -355,7 +326,6 @@ function AnalyticsSection({
           </span>
         )}
       </div>
-
       {/* Status tabs */}
       <div className="flex border-b border-gray-100 overflow-x-auto">
         {STATUS_TYPES.map(st => {
@@ -371,7 +341,6 @@ function AnalyticsSection({
           )
         })}
       </div>
-
       <div className="p-4">
         {/* Đã sửa / Gửi BH / Không lỗi / Chờ sửa → device + fault breakdown */}
         {tab !== 'hong_han' && (
@@ -403,7 +372,6 @@ function AnalyticsSection({
                     </ResponsiveContainer>
                   </div>
                 )}
-
                 {/* By fault type */}
                 {byFault.length > 0 && (
                   <div>
@@ -431,7 +399,6 @@ function AnalyticsSection({
             )}
           </>
         )}
-
         {/* Hỏng hẳn → fault × device matrix */}
         {tab === 'hong_han' && (
           hhTotal === 0 ? (
@@ -490,13 +457,11 @@ function AnalyticsSection({
     </div>
   )
 }
-
 // ── Tab: Dashboard ────────────────────────────────────────────
 function DashboardTab() {
   const { t } = useLanguage()
   const now = new Date()
   const todayISO = getISOWeekYear(now)
-
   // ── Period state ──
   const [periodMode, setPeriodMode] = useState<PeriodMode>('tuan')
   const [weekYear, setWeekYear] = useState(todayISO.year)
@@ -506,18 +471,14 @@ function DashboardTab() {
   const [rangeStart, setRangeStart] = useState(toISODate(dashMondayOfWeek(now)))
   const [rangeEnd, setRangeEnd]     = useState(toISODate(now))
   const [nam, setNam] = useState(now.getFullYear())
-
   // ── Device filter ──
   const [selectedDevice, setSelectedDevice] = useState<string>('all')
-
   // ── Chart state (multi-week) ──
   const [chartMode, setChartMode] = useState<'table' | 'line' | 'bar'>('table')
   const [selectedDevices, setSelectedDevices] = useState<string[]>(['4G', '4GH', 'GO', 'SBOX'])
-
   // ── Data cache ──
   const [cache, setCache] = useState<Record<number, { weeks: RepairWeek[]; stats: RepairStat[] }>>({})
   const [loading, setLoading] = useState(true)
-
   // Determine years to fetch
   // Luôn load năm hiện tại + năm trước để navigation có đủ tuần
   const baseYears = Array.from(new Set([now.getFullYear(), now.getFullYear() - 1]))
@@ -535,7 +496,6 @@ function DashboardTab() {
     }
   })()
   const yearsKey = [...yearsNeeded].sort().join(',')
-
   useEffect(() => {
     const missing = yearsNeeded.filter(y => !(y in cache))
     if (missing.length === 0) { setLoading(false); return }
@@ -556,12 +516,10 @@ function DashboardTab() {
     }).catch(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yearsKey])
-
   // Combine from cache
   const allWeeks  = yearsNeeded.flatMap(y => cache[y]?.weeks ?? [])
   const allStats  = yearsNeeded.flatMap(y => cache[y]?.stats ?? [])
   const dataReady = yearsNeeded.every(y => y in cache)
-
   // Khi data load lần đầu và tuần hiện tại không có data,
   // tự động nhảy đến tuần gần nhất có data trong DB
   const [autoNavigated, setAutoNavigated] = useState(false)
@@ -583,7 +541,6 @@ function DashboardTab() {
     setAutoNavigated(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataReady])
-
   // Helper: get Mon–Sun bounds of an ISO week
   const isoWeekBounds = (year: number, week: number): [Date, Date] => {
     // Jan 4 is always in ISO week 1
@@ -597,7 +554,6 @@ function DashboardTab() {
     sunday.setUTCDate(monday.getUTCDate() + 6)
     return [monday, sunday]
   }
-
   // Filter weeks to selected period
   const filteredWeeks: RepairWeek[] = dataReady ? (() => {
     switch (periodMode) {
@@ -637,15 +593,12 @@ function DashboardTab() {
         return allWeeks.filter(w => w.year === nam)
     }
   })() : []
-
   const filteredWeekIds = new Set(filteredWeeks.map(w => w.id))
   const filteredStats   = allStats.filter(s => filteredWeekIds.has(s.week_id))
-
   // Tất cả tuần từ cache (mọi năm), sắp xếp tăng dần theo thời gian
   const allKnownWeeks = Object.values(cache)
     .flatMap(c => c.weeks)
     .sort((a, b) => a.year !== b.year ? a.year - b.year : a.week_number - b.week_number)
-
   // Navigation tuần: nhảy theo danh sách tuần thực sự có trong DB
   function navToStoredWeek(delta: -1 | 1) {
     if (allKnownWeeks.length === 0) return
@@ -656,20 +609,17 @@ function DashboardTab() {
     const target = allKnownWeeks[nextIdx]
     setWeekYear(target.year); setWeekNum(target.week_number)
   }
-
   function goToLatestWeek() {
     if (allKnownWeeks.length === 0) return
     const latest = allKnownWeeks[allKnownWeeks.length - 1]
     setWeekYear(latest.year); setWeekNum(latest.week_number)
   }
-
   // Format date_start / date_end thành "dd/mm"
   function fmtShortDate(s: string | null | undefined): string {
     if (!s) return ''
     const [, m, d] = s.split('-')
     return `${d}/${m}`
   }
-
   // Period label
   const periodLabel = (() => {
     switch (periodMode) {
@@ -691,7 +641,6 @@ function DashboardTab() {
       case 'nam':   return `Năm ${nam}`
     }
   })()
-
   // Multi-week chart data
   const weekDeviceTotals: Array<{ week: RepairWeek } & Record<string, number>> = filteredWeeks.map(week => {
     const row: Record<string, number> = { total: 0 }
@@ -701,12 +650,10 @@ function DashboardTab() {
     })
     return { week, ...row } as { week: RepairWeek } & Record<string, number>
   })
-
   const lineChartData = weekDeviceTotals.map(r => ({
     name: `T${r.week.week_number}`,
     ...Object.fromEntries(selectedDevices.map(dt => [dt, (r as Record<string, unknown>)[dt] as number ?? 0]))
   }))
-
   const barChartData = filteredWeeks.map(week => {
     const entry: Record<string, unknown> = { name: `T${week.week_number}` }
     STATUS_TYPES.forEach(st => {
@@ -716,13 +663,10 @@ function DashboardTab() {
     })
     return entry
   })
-
   // Nav button style
   const navBtn = 'w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-100 text-gray-600 text-sm font-bold'
-
   return (
     <div className="space-y-5">
-
       {/* ── Period selector ── */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
@@ -739,7 +683,6 @@ function DashboardTab() {
               >{m.label}</button>
             ))}
           </div>
-
           {/* Navigator */}
           <div className="flex items-center gap-2 flex-wrap">
             {periodMode === 'tuan' && (
@@ -780,7 +723,6 @@ function DashboardTab() {
             )}
           </div>
         </div>
-
         {/* Device filter pills */}
         <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-100">
           <span className="text-xs text-gray-500 shrink-0">{t.suaChua.deviceLabel}</span>
@@ -797,20 +739,16 @@ function DashboardTab() {
           ))}
         </div>
       </div>
-
       {/* ── Loading ── */}
       {(loading || !dataReady) && <LoadingSpinner />}
-
       {/* ── Empty ── */}
       {!loading && dataReady && filteredWeeks.length === 0 && (
         <EmptyState msg={`${t.suaChua.noDataFor} ${periodLabel}`} />
       )}
-
       {/* ── Single-week view ── */}
       {!loading && dataReady && filteredWeeks.length === 1 && (
         <SingleWeekView week={filteredWeeks[0]} stats={filteredStats} deviceFilter={selectedDevice} />
       )}
-
       {/* ── Multi-week view ── */}
       {!loading && dataReady && filteredWeeks.length > 1 && (
         <div className="space-y-5">
@@ -826,7 +764,6 @@ function DashboardTab() {
               >{m.label}</button>
             ))}
           </div>
-
           {/* TABLE */}
           {chartMode === 'table' && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -887,7 +824,6 @@ function DashboardTab() {
               </div>
             </div>
           )}
-
           {/* LINE CHART */}
           {chartMode === 'line' && (
             <>
@@ -917,7 +853,6 @@ function DashboardTab() {
               </div>
             </>
           )}
-
           {/* BAR CHART */}
           {chartMode === 'bar' && (
             <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -936,7 +871,6 @@ function DashboardTab() {
               </ResponsiveContainer>
             </div>
           )}
-
           {/* Summary KPI cards */}
           {(() => {
             const devFilteredStats = selectedDevice === 'all' ? filteredStats : filteredStats.filter(s => s.device_type === selectedDevice)
@@ -964,7 +898,6 @@ function DashboardTab() {
           })()}
         </div>
       )}
-
       {/* ── Analytics section (always shown when data exists) ── */}
       {!loading && dataReady && filteredWeeks.length > 0 && (
         <AnalyticsSection stats={filteredStats} selectedDevice={selectedDevice} />
@@ -972,23 +905,19 @@ function DashboardTab() {
     </div>
   )
 }
-
 // ── Fault config management panel ────────────────────────────
 // ── Hashtag Mini Panel (dùng trong tab Cập nhật) ──────────────
 interface HashtagEntry { tag: string; count: number; deviceCount: number; topProducts: { product_name: string; count: number }[] }
-
 function HashtagMiniPanel() {
   const [data, setData]       = useState<{ tags: HashtagEntry[]; totalWithNotes: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
-
   useEffect(() => {
     fetch('/api/repair-tracking/hashtags')
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
-
   if (loading) return <div className="py-6 text-center text-sm text-gray-400">Đang tải hashtag...</div>
   if (!data || data.tags.length === 0) return (
     <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">
@@ -997,10 +926,8 @@ function HashtagMiniPanel() {
       <p className="text-xs mt-1 text-gray-300">Kỹ thuật ghi #tag vào ghi chú khi hoàn thành sửa chữa tại tab Theo dõi</p>
     </div>
   )
-
   const maxCount = data.tags[0]?.count ?? 1
   const selectedEntry = selected ? data.tags.find(x => x.tag === selected) : null
-
   return (
     <div className="space-y-4">
       <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5">
@@ -1060,7 +987,6 @@ function HashtagMiniPanel() {
     </div>
   )
 }
-
 // ── Hashtag Standard Table ─────────────────────────────────────
 function toHashtagStr(name: string): string {
   const map: Record<string,string> = {
@@ -1075,23 +1001,19 @@ function toHashtagStr(name: string): string {
   return '#' + name.split('').map(c => map[c] ?? c).join('')
     .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }
-
 function HashtagStandardTable({ faultConfigs }: { faultConfigs: Record<string, string[]> }) {
   const [activeStatus, setActiveStatus] = useState('da_sua')
   const STATUS_LABELS: Record<string, string> = {
     da_sua: 'Đã sửa', gui_bao_hanh: 'Gửi bảo hành',
     khong_loi: 'Không lỗi', hong_han: 'Hỏng hẳn', cho_sua: 'Chờ sửa',
   }
-
   // Unique fault types for active status
   const faults = faultConfigs[activeStatus] ?? []
   const allUniq = Array.from(new Set(Object.values(faultConfigs).flat()))
-
   function copyAll() {
     const text = faults.map(f => toHashtagStr(f)).join(' ')
     navigator.clipboard.writeText(text).catch(()=>{})
   }
-
   return (
     <div className="bg-white border border-indigo-200 rounded-2xl overflow-hidden">
       <div className="px-5 py-4 border-b border-indigo-100 flex items-center justify-between">
@@ -1132,7 +1054,6 @@ function HashtagStandardTable({ faultConfigs }: { faultConfigs: Record<string, s
     </div>
   )
 }
-
 function FaultConfigPanel({
   faultConfigs,
   onAdd,
@@ -1147,7 +1068,6 @@ function FaultConfigPanel({
   const [newFault, setNewFault] = useState('')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
-
   async function handleAdd() {
     if (!newFault.trim()) return
     setSaving(true)
@@ -1159,7 +1079,6 @@ function FaultConfigPanel({
     setSaving(false)
     setTimeout(() => setMsg(''), 2000)
   }
-
   async function handleDelete(fault: string) {
     if (!confirm(`Xóa "${fault}" khỏi "${STATUS_TYPES.find(s => s.key === activeStatus)?.label}"?`)) return
     try {
@@ -1168,9 +1087,7 @@ function FaultConfigPanel({
     } catch { setMsg('Lỗi khi xóa') }
     setTimeout(() => setMsg(''), 2000)
   }
-
   const faults = faultConfigs[activeStatus] ?? []
-
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -1178,7 +1095,6 @@ function FaultConfigPanel({
           <h3 className="text-sm font-semibold text-gray-700">{t.suaChua.faultConfigTitle}</h3>
           <p className="text-xs text-gray-400 mt-0.5">{t.suaChua.faultConfigDesc}</p>
         </div>
-
         {/* Status tabs */}
         <div className="flex border-b border-gray-100 overflow-x-auto">
           {STATUS_TYPES.map(st => (
@@ -1191,7 +1107,6 @@ function FaultConfigPanel({
             </button>
           ))}
         </div>
-
         <div className="p-4">
           {/* Fault list */}
           <div className="space-y-1 mb-4 max-h-96 overflow-y-auto">
@@ -1208,7 +1123,6 @@ function FaultConfigPanel({
               </div>
             ))}
           </div>
-
           {/* Add new */}
           <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
             <input
@@ -1230,7 +1144,6 @@ function FaultConfigPanel({
     </div>
   )
 }
-
 // ── Tab: Nhập liệu ─────────────────────────────────────────────
 function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs: Record<string, string[]> }) {
   const { t } = useLanguage()
@@ -1248,10 +1161,8 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
   const defaultMonday = getMondayOfWeek(now)
   const defaultFriday = new Date(defaultMonday)
   defaultFriday.setDate(defaultMonday.getDate() + 4)
-
   const [dateStart, setDateStart] = useState(toDateInput(defaultMonday))
   const [dateEnd, setDateEnd]     = useState(toDateInput(defaultFriday))
-
   // Derive week_number, year, week_label from dateStart
   const derivedInfo = (() => {
     if (!dateStart) return { year: now.getFullYear(), week_number: getWeekNumber(now), week_label: '' }
@@ -1260,28 +1171,23 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
     const wn = getWeekNumber(d)
     return { year: y, week_number: wn, week_label: `Tuan ${wn} - ${y}` }
   })()
-
   function formatDate(s: string) {
     if (!s) return ''
     const [y, m, d] = s.split('-')
     return `${d}/${m}/${y}`
   }
-
   const displayLabel = dateStart && dateEnd
     ? `${formatDate(dateStart)} – ${formatDate(dateEnd)}`
     : derivedInfo.week_label
-
   // Sparse state — keys are created on demand when user types
   const [stats, setStats] = useState<Record<string, Record<string, Record<string, number>>>>({})
   // Dữ liệu hiện có trong DB (để hiển thị "ai đã nhập")
   const [existingStats, setExistingStats] = useState<RepairStat[]>([])
   const [loadingExisting, setLoadingExisting] = useState(false)
-
   const [activeStatus, setActiveStatus] = useState('da_sua')
   const [mode, setMode] = useState<'entry' | 'preview'>('entry')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
-
   // Tải dữ liệu hiện có mỗi khi tuần thay đổi
   useEffect(() => {
     const wn = derivedInfo.week_number
@@ -1318,21 +1224,18 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
       .finally(() => setLoadingExisting(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [derivedInfo.week_number, derivedInfo.year])
-
   // Helper: lấy thông tin người đã nhập ô này từ DB
   function getExistingStat(status: string, fault: string, device: string): RepairStat | undefined {
     return existingStats.find(
       s => s.status_type === status && s.fault_type === fault && s.device_type === device && s.quantity > 0
     )
   }
-
   // Rút gọn tên người nhập để hiển thị nhỏ (lấy phần trước @ hoặc tên đầu)
   function shortName(name: string | null | undefined): string {
     if (!name) return '?'
     const n = name.split('@')[0] // nếu là email, lấy phần trước @
     return n.length > 8 ? n.substring(0, 8) : n
   }
-
   function setCellValue(statusKey: string, fault: string, device: string, val: number) {
     setStats(prev => ({
       ...prev,
@@ -1342,7 +1245,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
       }
     }))
   }
-
   // Tính tổng theo status × device cho preview
   function getStatusDeviceTotal(statusKey: string, deviceType: string): number {
     return (faultConfigs[statusKey] ?? []).reduce(
@@ -1358,7 +1260,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
   function getGrandTotal(): number {
     return STATUS_TYPES.reduce((a, st) => a + getStatusTotal(st.key), 0)
   }
-
   async function handleSave() {
     setSaving(true); setMsg('')
     try {
@@ -1377,7 +1278,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
       const weekData = await weekRes.json()
       if (!weekRes.ok) throw new Error(weekData.error)
       const week_id = weekData.week.id
-
       const statsFlat: Array<{ status_type: string; fault_type: string; device_type: string; quantity: number }> = []
       STATUS_TYPES.forEach(st => {
         ;(faultConfigs[st.key] ?? []).forEach(ft => {
@@ -1386,7 +1286,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
           })
         })
       })
-
       const statsRes = await fetch('/api/sua-chua/stats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1398,7 +1297,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
     } catch (e) { setMsg('❌ ' + (e instanceof Error ? e.message : String(e))) }
     finally { setSaving(false) }
   }
-
   return (
     <div className="space-y-5">
       {/* Week date range */}
@@ -1422,7 +1320,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
           </strong>
         </p>
       </div>
-
       {/* Entry table (hidden in preview mode) */}
       {mode === 'entry' && (
         <>
@@ -1487,7 +1384,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
               </table>
             </div>
           </div>
-
           <div className="flex items-center gap-3">
             <button onClick={() => setMode('preview')}
               className="px-6 py-2 text-sm font-semibold text-white rounded-xl transition"
@@ -1497,7 +1393,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
           </div>
         </>
       )}
-
       {/* Preview mode */}
       {mode === 'preview' && (
         <>
@@ -1557,7 +1452,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
               </table>
             </div>
           </div>
-
           <div className="flex items-center gap-3">
             <button onClick={() => { setMode('entry'); setMsg('') }}
               className="px-5 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition"
@@ -1573,7 +1467,6 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
     </div>
   )
 }
-
 // ── Tab: Lịch sử + Import ──────────────────────────────────────
 function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: boolean }) {
   const { t } = useLanguage()
@@ -1587,16 +1480,13 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
   const [editDateStart, setEditDateStart] = useState('')
   const [editDateEnd, setEditDateEnd] = useState('')
   const [savingDates, setSavingDates] = useState(false)
-
   const loadWeeks = useCallback(async () => {
     setLoading(true)
     const d = await fetch('/api/sua-chua/weeks').then(r => r.json())
     setWeeks(d.weeks ?? [])
     setLoading(false)
   }, [])
-
   useEffect(() => { loadWeeks() }, [loadWeeks, refreshKey])
-
   async function loadWeekDetail(week: RepairWeek) {
     setSelectedWeek(week)
     setEditingDates(false)
@@ -1605,7 +1495,6 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
     const d = await fetch(`/api/sua-chua/stats?week_id=${week.id}`).then(r => r.json())
     setWeekData(d)
   }
-
   async function handleSaveDates() {
     if (!selectedWeek) return
     setSavingDates(true)
@@ -1623,7 +1512,6 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
     setEditingDates(false)
     setSavingDates(false)
   }
-
   async function handleImport() {
     if (!confirm('Xóa toàn bộ data cũ và import lại từ Google Sheets (từ tuần 40/2025)?')) return
     setImporting(true); setImportResult('')
@@ -1641,15 +1529,12 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
     }
     setImporting(false)
   }
-
   async function handleDelete(weekId: string) {
     if (!confirm('Xóa dữ liệu tuần này?')) return
     await fetch('/api/sua-chua/weeks', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ week_id: weekId }) })
     setSelectedWeek(null); setWeekData(null); loadWeeks()
   }
-
   if (loading) return <LoadingSpinner />
-
   return (
     <div className="space-y-4">
       {canWrite && (
@@ -1684,7 +1569,6 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
             ))}
           </div>
         </div>
-
         <div className="md:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
           {!selectedWeek ? (
             <div className="flex items-center justify-center h-full min-h-[200px] text-gray-400 text-sm">{t.suaChua.chooseWeek}</div>
@@ -1692,7 +1576,6 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
             <LoadingSpinner />
           ) : (
             <div>
-              <div className="px-4 py-3 border-b bord
               <div className="px-4 py-3 border-b border-gray-100">
                 <div className="flex justify-between items-start">
                   <div>
@@ -1733,7 +1616,6 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
                   </p>
                 )}
               </div>
-
               <div className="px-4 py-3 border-b border-gray-100">
                 <p className="text-xs font-semibold text-gray-500 mb-2">{t.suaChua.byDeviceType}</p>
                 <div className="flex flex-wrap gap-2">
@@ -1748,7 +1630,6 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
                   })}
                 </div>
               </div>
-
               <div className="px-4 py-3">
                 <p className="text-xs font-semibold text-gray-500 mb-2">{t.suaChua.repairResults}</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -1770,7 +1651,6 @@ function HistoryTab({ refreshKey, canWrite }: { refreshKey: number; canWrite: bo
     </div>
   )
 }
-
 function LoadingSpinner() {
   const { t } = useLanguage()
   return (
@@ -1780,7 +1660,6 @@ function LoadingSpinner() {
     </div>
   )
 }
-
 function EmptyState({ msg }: { msg: string }) {
   return (
     <div className="flex flex-col items-center justify-center h-48 text-gray-400">
@@ -1789,23 +1668,19 @@ function EmptyState({ msg }: { msg: string }) {
     </div>
   )
 }
-
 // ── Main ───────────────────────────────────────────────────────
 export default function RepairDashboard({ userEmail = '', permissions = [] }: { userEmail?: string; permissions?: string[] }) {
   const { t, lang } = useLanguage()
   const canWrite = permissions.includes('sua_chua:write') || permissions.includes('admin:users')
   const [tab, setTab] = useState<'dashboard' | 'entry' | 'history' | 'config' | 'tracking'>('dashboard')
   const [refreshKey, setRefreshKey] = useState(0)
-
   const [faultConfigs, setFaultConfigs] = useState<Record<string, string[]>>(DEFAULT_FAULT_TYPES_BY_STATUS)
-
   useEffect(() => {
     fetch('/api/sua-chua/fault-configs')
       .then(r => r.json())
       .then(d => { if (d.configs) setFaultConfigs(d.configs) })
       .catch(() => {})
   }, [])
-
   async function handleAddFault(status: string, fault: string) {
     await fetch('/api/sua-chua/fault-configs', {
       method: 'POST',
@@ -1817,7 +1692,6 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
       [status]: [...(prev[status] ?? []), fault],
     }))
   }
-
   async function handleDeleteFault(status: string, fault: string) {
     await fetch('/api/sua-chua/fault-configs', {
       method: 'DELETE',
@@ -1829,7 +1703,6 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
       [status]: (prev[status] ?? []).filter(f => f !== fault),
     }))
   }
-
   const tabs: Array<{ key: 'dashboard' | 'entry' | 'history' | 'config' | 'tracking'; label: string }> = [
     { key: 'dashboard', label: `📊 ${t.suaChua.tabDashboard}` },
     ...(canWrite ? [{ key: 'entry' as const, label: `✏️ ${t.suaChua.tabEntry}` }] : []),
@@ -1837,7 +1710,6 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
     { key: 'tracking',  label: lang === 'vi' ? '📋 Thống kê sửa chữa' : '📋 Repair Tracking' },
     ...(canWrite ? [{ key: 'config' as const, label: `⚙️ ${t.common.update}` }] : []),
   ]
-
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200 px-6 py-4">
@@ -1858,7 +1730,6 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
           ))}
         </div>
       </div>
-
       <div className="px-6 py-5">
         {tab === 'dashboard' && <DashboardTab />}
         {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} faultConfigs={faultConfigs} />}
@@ -1888,3 +1759,9 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
     </div>
   )
 }
+        )}
+      </div>
+    </div>
+  )
+}
+            
