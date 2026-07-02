@@ -63,7 +63,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
         setSelected(prev => {
           if (prev) return prev
           // Trigger pre-check sau khi set xong
-          setTimeout(() => selectGuide(list[0]), 0)
+          setTimeout(() => selectGuide(list[0], false), 0)
           return list[0]
         })
       }
@@ -76,11 +76,12 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
 
   useEffect(() => { load() }, [])
 
-  async function selectGuide(g: Guide) {
+  async function selectGuide(g: Guide, collapsePanel = true) {
     setSelected(g)
     setIframeError(false)
     setIframeLoading(true)
     if (isMobile) setMobileView('viewer')
+    else if (collapsePanel) setSidebarOpen(false)
     // Pre-check: HEAD request để phát hiện 404 trước khi iframe load
     try {
       const res = await fetch(`/guides/${g.file_name}`, { method: 'HEAD' })
@@ -313,38 +314,32 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 120px)', background: '#f3f4f6', minHeight: 500 }}>
 
-      {/* ── LEFT SIDEBAR ── */}
-      <div style={{
-        width: sidebarOpen ? 300 : 48, flexShrink: 0,
-        background: '#fff', borderRight: '1px solid #e5e7eb',
-        display: 'flex', flexDirection: 'column', transition: 'width .2s', overflow: 'hidden'
-      }}>
-        {/* Sidebar header */}
-        <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <button
-            onClick={() => setSidebarOpen(v => !v)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280', lineHeight: 1, padding: 4 }}
-            title={sidebarOpen ? 'Thu gọn' : 'Mở rộng'}
-          >
-            {sidebarOpen ? '◀' : '▶'}
-          </button>
-          {sidebarOpen && (
-            <>
-              <span style={{ fontWeight: 700, fontSize: 13, color: '#111827', flex: 1, whiteSpace: 'nowrap' }}>
-                🔧 {vi ? 'Hướng dẫn lắp đặt' : 'Installation Guides'}
-              </span>
-              {isAdmin && (
-                <button onClick={openAdd} style={{
-                  background: '#1a56db', color: '#fff', border: 'none', borderRadius: 6,
-                  padding: '4px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap'
-                }}>+ {vi ? 'Thêm' : 'Add'}</button>
-              )}
-            </>
-          )}
-        </div>
+      {/* ── LEFT PANEL — ẩn hoàn toàn khi sidebarOpen = false ── */}
+      {sidebarOpen && (
+        <div style={{
+          width: 288, flexShrink: 0,
+          background: '#fff', borderRight: '1px solid #e5e7eb',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden'
+        }}>
+          {/* Panel header */}
+          <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#6b7280', lineHeight: 1, padding: 4 }}
+              title="Thu gọn"
+            >◀</button>
+            <span style={{ fontWeight: 700, fontSize: 13, color: '#111827', flex: 1, whiteSpace: 'nowrap' }}>
+              🔧 {vi ? 'Hướng dẫn lắp đặt' : 'Installation Guides'}
+            </span>
+            {isAdmin && (
+              <button onClick={openAdd} style={{
+                background: '#1a56db', color: '#fff', border: 'none', borderRadius: 6,
+                padding: '4px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap'
+              }}>+ {vi ? 'Thêm' : 'Add'}</button>
+            )}
+          </div>
 
-        {/* Guide list */}
-        {sidebarOpen && (
+          {/* Guide list */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
             {loading ? (
               <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>Đang tải...</div>
@@ -384,7 +379,6 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
                     )}
                   </div>
                 </div>
-                {/* Admin actions */}
                 {isAdmin && (
                   <div style={{ display: 'flex', gap: 4, marginTop: 8 }} onClick={e => e.stopPropagation()}>
                     <button onClick={() => openEdit(g)} style={{ flex: 1, padding: '4px 0', fontSize: 11, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 5, cursor: 'pointer', color: '#374151' }}>
@@ -398,32 +392,46 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── MAIN VIEWER ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         {/* Viewer toolbar */}
-        {selected && (
-          <div style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-            <span style={{ fontSize: 13, color: '#374151', fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              📄 {selected.title}
-            </span>
-            {selected.device_model && (
-              <span style={{ fontSize: 11, background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: 10, fontWeight: 500, flexShrink: 0 }}>
-                {selected.device_model}
+        <div style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {/* Toggle list button */}
+          <button
+            onClick={() => setSidebarOpen(v => !v)}
+            title={sidebarOpen ? 'Ẩn danh sách' : 'Danh sách'}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: sidebarOpen ? '#f3f4f6' : '#eff6ff', border: `1px solid ${sidebarOpen ? '#e5e7eb' : '#bfdbfe'}`, borderRadius: 7, padding: '5px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: sidebarOpen ? '#374151' : '#1a56db', flexShrink: 0 }}
+          >
+            ☰ {vi ? 'Danh sách' : 'List'}
+          </button>
+          {selected ? (
+            <>
+              <span style={{ fontSize: 13, color: '#374151', fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                📄 {selected.title}
               </span>
-            )}
-            <a
-              href={`/guides/${selected.file_name}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ fontSize: 12, color: '#1a56db', textDecoration: 'none', background: '#eff6ff', padding: '4px 10px', borderRadius: 6, fontWeight: 500, flexShrink: 0 }}
-            >
-              🔗 {vi ? 'Mở tab mới' : 'Open in tab'}
-            </a>
-          </div>
-        )}
+              {selected.device_model && (
+                <span style={{ fontSize: 11, background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: 10, fontWeight: 500, flexShrink: 0 }}>
+                  {selected.device_model}
+                </span>
+              )}
+              <a
+                href={`/guides/${selected.file_name}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: 12, color: '#1a56db', textDecoration: 'none', background: '#eff6ff', padding: '4px 10px', borderRadius: 6, fontWeight: 500, flexShrink: 0, border: '1px solid #bfdbfe' }}
+              >
+                🔗 {vi ? 'Mở tab mới' : 'Open in tab'}
+              </a>
+            </>
+          ) : (
+            <span style={{ fontSize: 13, color: '#9ca3af', flex: 1 }}>
+              {vi ? 'Chọn một hướng dẫn để xem' : 'Select a guide to view'}
+            </span>
+          )}
+        </div>
 
         {/* iFrame viewer */}
         {guideUrl ? (
@@ -479,8 +487,13 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
             <div style={{ fontSize: 13 }}>
               {guides.length === 0
                 ? (vi ? 'Chưa có tài liệu nào được thêm' : 'No guides added yet')
-                : (vi ? 'Nhấn vào tiêu đề bên trái' : 'Click a title on the left')}
+                : (vi ? 'Nhấn "Danh sách" để chọn tài liệu' : 'Click "List" to pick a guide')}
             </div>
+            {!sidebarOpen && guides.length > 0 && (
+                    <button onClick={() => setSidebarOpen(true)} style={{ marginTop: 8, padding: '8px 20px', background: '#1a56db', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                ☰ {vi ? 'Mở danh sách' : 'Open list'}
+              </button>
+            )}
           </div>
         )}
       </div>
