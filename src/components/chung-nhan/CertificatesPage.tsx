@@ -88,17 +88,31 @@ function FilePreviewModal({ file, onClose }: { file: DriveItem; onClose: () => v
 }
 
 // ── Main Page ─────────────────────────────────────────────────
-export default function CertificatesPage() {
+export default function CertificatesPage({
+  rootFolderId: rootFolderIdProp,
+  title: titleProp,
+}: {
+  rootFolderId?: string
+  title?: string
+} = {}) {
   const { t } = useLanguage()
+  const effectiveRootId = rootFolderIdProp ?? ROOT_FOLDER_ID
+  const effectiveTitle  = titleProp ?? t.chungNhan.title
   const [result, setResult]         = useState<BrowseResult | null>(null)
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState<string | null>(null)
   const [breadcrumb, setBreadcrumb] = useState<BreadcrumbEntry[]>([
-    { id: ROOT_FOLDER_ID, name: t.chungNhan.title }
+    { id: effectiveRootId, name: effectiveTitle }
   ])
   const [preview, setPreview]       = useState<DriveItem | null>(null)
 
   const currentFolderId = breadcrumb[breadcrumb.length - 1].id
+
+  // Reset khi đổi root folder (đổi subtab)
+  useEffect(() => {
+    setBreadcrumb([{ id: effectiveRootId, name: effectiveTitle }])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveRootId])
 
   useEffect(() => {
     setLoading(true)

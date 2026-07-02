@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import AppShell from '@/components/AppShell'
-import CertificatesPage from '@/components/chung-nhan/CertificatesPage'
+import TaiLieuKyThuatPage from '@/components/chung-nhan/TaiLieuKyThuatPage'
 
 async function getCurrentUserPermissions(userId: string): Promise<string[]> {
   const supabase = createClient(
@@ -26,7 +26,7 @@ export default async function ChungNhanPage() {
 
   return (
     <AppShell userEmail={user.email ?? ''} permissions={permissions}>
-      <CertificatesPage />
+      <TaiLieuKyThuatPage />
     </AppShell>
   )
 }
