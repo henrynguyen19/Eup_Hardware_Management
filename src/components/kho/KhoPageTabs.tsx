@@ -61,7 +61,7 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
     <div className="min-h-screen" style={{ background: '#f5f6f8' }}>
 
       {/* Page header */}
-      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20">
+      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-14 md:top-0 z-20">
         {/* Top color stripe */}
         <div className="h-0.5" style={{ background: `linear-gradient(90deg, ${EUP_RED} 0%, ${activeTabDef.indicatorColor} 100%)`, transition: 'all 0.3s' }} />
 
@@ -172,4 +172,10 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
               </div>
               <VehicleCompatMatrix isAdmin={isAdmin} />
             </div>
-   
+             </div>
+        )}
+
+      </div>
+    </div>
+  )
+}
