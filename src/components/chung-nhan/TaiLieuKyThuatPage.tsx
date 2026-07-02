@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
 import CertificatesPage from './CertificatesPage'
 import HuongDanLapDatPage from './HuongDanLapDatPage'
@@ -95,4 +95,8 @@ export default function TaiLieuKyThuatPage({ isAdmin = false }: { isAdmin?: bool
         </div>
       </div>
 
-      {/* C
+      {/* Content — no extra padding, CertificatesPage has its own layout */}
+      <div key={activeTab}>
+        {renderContent()}
+      </div>
+    </div>
