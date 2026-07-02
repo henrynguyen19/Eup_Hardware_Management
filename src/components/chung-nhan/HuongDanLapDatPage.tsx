@@ -515,4 +515,6 @@ const btnSecStyle: React.CSSProperties = {
   fontSize: 13, fontWeight: 500, cursor: 'pointer', color: '#374151'
 }
 const btnPrimStyle: React.CSSProperties = {
-  padding: '8px 18px', borderRadius: 8, border: 'none', background
+  padding: '8px 18px', borderRadius: 8, border: 'none', background: '#1a56db',
+  fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#fff'
+}
