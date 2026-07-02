@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hướng Dẫn Lắp Đặt Thiết Bị Telematic – Cảm Biến Va Chạm & SOS</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--nav:#b91c1c;--nav-dark:#991b1b;--accent:#fca5a5;--bg:#fff1f2;--text:#450a0a}
+  body{font-family:'Segoe UI',sans-serif;background:#f8f9fa;color:#1f2937;display:flex;min-height:100vh}
+  nav{width:260px;min-width:260px;background:var(--nav);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav .logo{padding:24px 20px 16px;border-bottom:1px solid rgba(255,255,255,.15)}
+  nav .logo h1{font-size:15px;font-weight:700;line-height:1.4}
+  nav .logo p{font-size:11px;opacity:.7;margin-top:4px}
+  nav .badge{display:inline-block;background:var(--accent);color:var(--nav-dark);font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;margin-top:6px}
+  nav ul{list-style:none;padding:12px 0;flex:1}
+  nav ul li a{display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:rgba(255,255,255,.85);text-decoration:none;transition:.15s;cursor:pointer}
+  nav ul li a:hover,nav ul li a.active{background:rgba(255,255,255,.15);color:#fff}
+  nav ul li a .num{background:rgba(255,255,255,.2);border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700}
+  nav ul li a.active .num{background:#fff;color:var(--nav)}
+  nav .footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,.15);font-size:11px;opacity:.6}
+  main{flex:1;padding:32px;max-width:900px}
+  .section{display:none;animation:fadeIn .25s ease}
+  .section.active{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:22px;font-weight:700;color:var(--nav-dark);margin-bottom:6px}
+  .subtitle{font-size:13px;color:#6b7280;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid var(--accent)}
+  .card{background:#fff;border-radius:12px;padding:20px 24px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid var(--accent)}
+  .card h3{font-size:15px;font-weight:700;color:var(--nav-dark);margin-bottom:10px}
+  .card p,.card li{font-size:13.5px;color:#374151;line-height:1.7}
+  .card ul,.card ol{padding-left:18px;margin-top:6px}
+  .card li{margin-bottom:4px}
+  .parts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px}
+  .part-item{background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1px solid #fecaca}
+  .part-item .icon{font-size:28px;margin-bottom:6px}
+  .part-item p{font-size:12px;font-weight:600;color:var(--text)}
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+  th{background:var(--nav);color:#fff;padding:9px 12px;text-align:left;font-weight:600}
+  td{padding:8px 12px;border-bottom:1px solid #e5e7eb}
+  tr:nth-child(even) td{background:#f9fafb}
+  .wire-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .steps{margin-top:8px}
+  .step{display:flex;gap:14px;margin-bottom:16px;align-items:flex-start}
+  .step-num{background:var(--nav);color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+  .step-content strong{display:block;font-size:14px;color:var(--nav-dark);margin-bottom:4px}
+  .step-content p{font-size:13px;color:#4b5563;line-height:1.6}
+  .alert{background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#92400e}
+  .alert strong{display:block;margin-bottom:4px}
+  .info{background:var(--bg);border:1px solid #fecaca;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:var(--text)}
+  .check-list{list-style:none;padding:0;margin-top:8px}
+  .check-list li{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13.5px}
+  .check-list li:last-child{border:none}
+  .check-list li::before{content:'✓';color:var(--nav);font-weight:700;flex-shrink:0;margin-top:1px}
+  .tabs-inner{display:flex;gap:0;border-bottom:2px solid #e5e7eb;margin-bottom:16px}
+  .tab-btn{padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px}
+  .tab-btn.active{color:var(--nav);border-bottom-color:var(--nav)}
+  .tab-content{display:none}.tab-content.active{display:block}
+  .nav-btns{display:flex;gap:10px;margin-top:28px}
+  .btn{padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+  .btn-prev{background:#f3f4f6;color:#374151}.btn-prev:hover{background:#e5e7eb}
+  .btn-next{background:var(--nav);color:#fff}.btn-next:hover{background:var(--nav-dark)}
+  @media(max-width:700px){body{flex-direction:column}nav{width:100%;height:auto;position:relative}main{padding:20px}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="logo">
+    <h1>🚨 Thiết Bị Telematic</h1>
+    <p>Cảm biến va chạm + Công tắc SOS</p>
+    <span class="badge">EUPFIN VN</span>
+  </div>
+  <ul>
+    <li><a href="#" onclick="show(0)" id="tab0" class="active"><span class="num">1</span> Tổng quan</a></li>
+    <li><a href="#" onclick="show(1)" id="tab1"><span class="num">2</span> Chuẩn bị thiết bị</a></li>
+    <li><a href="#" onclick="show(2)" id="tab2"><span class="num">3</span> Đấu dây GO-168</a></li>
+    <li><a href="#" onclick="show(3)" id="tab3"><span class="num">4</span> Đấu dây VN88-4G(H)</a></li>
+    <li><a href="#" onclick="show(4)" id="tab4"><span class="num">5</span> Vị trí lắp đặt</a></li>
+    <li><a href="#" onclick="show(5)" id="tab5"><span class="num">6</span> Cài đặt CRM</a></li>
+    <li><a href="#" onclick="show(6)" id="tab6"><span class="num">7</span> Kiểm tra tín hiệu</a></li>
+  </ul>
+  <div class="footer">CTCP Công Nghệ EUPFIN VN · Galvin</div>
+</nav>
+
+<main>
+<!-- Section 0 -->
+<section class="section active" id="s0">
+  <h2>🚨 Thiết Bị Telematic</h2>
+  <p class="subtitle">Hướng dẫn lắp đặt Cảm biến va chạm và Công tắc SOS với Go-168 / VN88-4G(H)</p>
+  <div class="card">
+    <h3>Mục đích</h3>
+    <ul>
+      <li>🛡️ <strong>Cảm biến va chạm (Sonar):</strong> Phát hiện va chạm hoặc vật cản phía trước xe</li>
+      <li>🆘 <strong>Công tắc SOS:</strong> Tài xế nhấn để phát tín hiệu khẩn cấp về trung tâm</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Thiết bị hỗ trợ</h3>
+    <table>
+      <tr><th>Thiết bị</th><th>Hỗ trợ</th></tr>
+      <tr><td>Go-168</td><td>✅ Cả cảm biến va chạm + SOS</td></tr>
+      <tr><td>VN88-4G(H) + Smart Box</td><td>✅ Cả cảm biến va chạm + SOS</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Tín hiệu trả về</h3>
+    <table>
+      <tr><th>Thiết bị</th><th>Cột kiểm tra</th><th>Cảm biến va chạm</th><th>Công tắc SOS</th></tr>
+      <tr><td>Go-168/VN88</td><td>IO_str</td><td>Báo: <code>1</code> | Không: <code>0</code></td><td>–</td></tr>
+      <tr><td>Warm</td><td>–</td><td>–</td><td>SOS: <code>0440080</code> | Bình thường: <code>0040080</code></td></tr>
+    </table>
+  </div>
+  <div class="nav-btns"><button class="btn btn-next" onclick="show(1)">Tiếp theo →</button></div>
+</section>
+
+<!-- Section 1 -->
+<section class="section" id="s1">
+  <h2>📦 Chuẩn Bị Thiết Bị</h2>
+  <p class="subtitle">Danh sách linh kiện cho cả 2 cấu hình Go-168 và VN88-4G(H)</p>
+  <div class="card">
+    <h3>Cấu hình Go-168</h3>
+    <div class="parts-grid">
+      <div class="part-item"><div class="icon">📡</div><p>Thiết bị Go-168</p></div>
+      <div class="part-item"><div class="icon">🔋</div><p>2 Dây nguồn (cổng A & B)</p></div>
+      <div class="part-item"><div class="icon">🆘</div><p>Công tắc SOS</p></div>
+      <div class="part-item"><div class="icon">📡</div><p>Bộ cảm biến va chạm</p></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:4px">
+    <h3>Cấu hình VN88-4G(H)</h3>
+    <div class="parts-grid">
+      <div class="part-item"><div class="icon">📡</div><p>Thiết bị VN88-4G(H)</p></div>
+      <div class="part-item"><div class="icon">📦</div><p>Smart Box</p></div>
+      <div class="part-item"><div class="icon">🔋</div><p>Dây nguồn VN88</p></div>
+      <div class="part-item"><div class="icon">🆘</div><p>Công tắc SOS</p></div>
+      <div class="part-item"><div class="icon">📡</div><p>Bộ cảm biến va chạm</p></div>
+    </div>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(0)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(2)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 2: Go-168 wiring -->
+<section class="section" id="s2">
+  <h2>🔌 Đấu Dây Go-168</h2>
+  <p class="subtitle">Kết nối cảm biến va chạm + SOS với Go-168 (2 cổng A và B)</p>
+  <div class="alert"><strong>⚠️ Lưu ý:</strong> Go-168 có 2 cổng A và B. Vị trí chân IO0 và IO1 ở 2 cổng <strong>khác nhau</strong>. Đọc kỹ màu dây trước khi nối!</div>
+  <div class="card">
+    <h3>Cổng A – Nguồn + SOS</h3>
+    <table>
+      <tr><th>Dây số</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>Dây 2</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>Nguồn +DC</td></tr>
+      <tr><td>Dây 3</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>GND (mát vỏ xe)</td></tr>
+      <tr><td>Dây 6</td><td><span class="wire-dot" style="background:#f97316"></span>Cam</td><td>Nguồn ACC</td></tr>
+      <tr><td>Dây 5 – IO0</td><td><span class="wire-dot" style="background:#fff;border:1px solid #ccc"></span>Trắng</td><td>Dây đen công tắc SOS</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Công tắc SOS</h3>
+    <table>
+      <tr><th>Dây SOS</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>Dây 1</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>Nguồn +DC</td></tr>
+      <tr><td>Dây đen</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>Dây 5 (IO0 trắng) cổng A – Go-168</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Cổng B – Cảm biến va chạm</h3>
+    <table>
+      <tr><th>Dây</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>IO1 Cổng B</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>Dây 1 trắng cảm biến va chạm</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Cảm biến va chạm (đầu thu + đầu dò)</h3>
+    <table>
+      <tr><th>Dây số</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>Dây 1</td><td><span class="wire-dot" style="background:#fff;border:1px solid #ccc"></span>Trắng</td><td>IO1 đỏ – Cổng B Go-168</td></tr>
+      <tr><td>Dây 2</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>GND</td></tr>
+      <tr><td>Dây 3 (đầu thu)</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>GND</td></tr>
+      <tr><td>Dây 4 (đầu thu)</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>ACC (nguồn chìa khóa)</td></tr>
+    </table>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(1)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(3)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 3: VN88 wiring -->
+<section class="section" id="s3">
+  <h2>🔌 Đấu Dây VN88-4G(H)</h2>
+  <p class="subtitle">Kết nối cảm biến va chạm + SOS với VN88-4G(H) và Smart Box</p>
+  <div class="card">
+    <h3>Dây nguồn VN88-4G(H)</h3>
+    <table>
+      <tr><th>Dây số</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>Dây 1</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>Nguồn +DC</td></tr>
+      <tr><td>Dây 2</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>GND (mát vỏ xe)</td></tr>
+      <tr><td>Dây 3</td><td><span class="wire-dot" style="background:#3b82f6"></span>Xanh dương</td><td>Nguồn ACC</td></tr>
+      <tr><td>Dây 4</td><td><span class="wire-dot" style="background:#f97316"></span>Cam</td><td>Dây đen công tắc SOS</td></tr>
+      <tr><td>Jack 5</td><td>–</td><td>Jack 3 Smart Box</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Công tắc SOS</h3>
+    <table>
+      <tr><th>Dây SOS</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>Dây đỏ</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>Nguồn +DC</td></tr>
+      <tr><td>Dây đen</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>Dây 4 cam – dây nguồn VN88</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Smart Box với cảm biến va chạm</h3>
+    <table>
+      <tr><th>Dây Smart Box</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>Dây 1</td><td><span class="wire-dot" style="background:#3b82f6"></span>Xanh dương</td><td>Dây 1 trắng cảm biến va chạm</td></tr>
+      <tr><td>Dây 2</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>GND</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Cảm biến va chạm (đầu thu)</h3>
+    <table>
+      <tr><th>Dây số</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>Dây 3</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>GND</td></tr>
+      <tr><td>Dây 4</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>ACC (nguồn chìa khóa)</td></tr>
+    </table>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(2)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(4)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 4: Vị trí lắp đặt -->
+<section class="section" id="s4">
+  <h2>📍 Vị Trí Lắp Đặt</h2>
+  <p class="subtitle">Chọn vị trí gắn cảm biến va chạm và công tắc SOS trên xe</p>
+  <div class="card">
+    <h3>Công tắc SOS</h3>
+    <p>Lắp trên <strong>cabin</strong>, ở vị trí tiện cho tài xế sử dụng (tầm tay với dễ dàng). Không che khuất tầm nhìn của tài xế.</p>
+  </div>
+  <div class="card">
+    <h3>Đầu thu cảm biến va chạm</h3>
+    <p>Lắp tại <strong>bên phải cabin</strong>, gần nguồn điện của xe.</p>
+  </div>
+  <div class="card">
+    <h3>Đầu dò cảm biến va chạm</h3>
+    <p>Lắp tại <strong>đầu xe (phía trước)</strong>. Hướng mũi dò về phía trước.</p>
+    <div class="alert" style="margin-top:10px"><strong>⚠️ Quan trọng:</strong> Lắp dấu chấm của đầu dò theo hướng <strong>12 giờ</strong> để cảm biến hoạt động tốt nhất.</div>
+  </div>
+  <div class="card">
+    <h3>Màn hình hiển thị cảm biến</h3>
+    <p>Lắp <strong>trước mặt tài xế</strong> (trên bảng điều khiển), ở vị trí tài xế dễ quan sát khi lái xe.</p>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(3)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(5)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 5: Cài đặt CRM -->
+<section class="section" id="s5">
+  <h2>🖥️ Cài Đặt Hệ Thống CRM</h2>
+  <p class="subtitle">Cài đặt IO trên CRM cho cả Go-168 và VN88-4G(H)</p>
+  <div class="card">
+    <h3>Cài đặt CRM – Go-168</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Mở CRM</strong><p>Dịch vụ khách hàng → Tracker → Chọn xe lắp đặt → Quản lý thiết bị</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Cài đặt IO</strong><p>IO:1 → <strong>SOS</strong> | IO:2 → <strong>Sonar (IO07)</strong> → Nhấn nút O xanh lá</p></div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Cài đặt CRM – VN88-4G(H)</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Cài đặt IO cảm biến va chạm</strong><p>Dịch vụ khách hàng → Tracker → Chọn xe → Quản lý thiết bị → Cài đặt IO<br>IO:1 → <strong>Sonar</strong> → Nhấn O xanh lá</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Cài đặt SOS</strong><p>Đồng bộ hóa thiết bị → Cài đặt chống trộm → Chọn <strong>cập nhật giá trị</strong> → Chế độ đang hoạt động → <strong>Gửi ngay</strong></p></div></div>
+    </div>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(4)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(6)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 6: Kiểm tra -->
+<section class="section" id="s6">
+  <h2>📊 Kiểm Tra Tín Hiệu</h2>
+  <p class="subtitle">Xác nhận tín hiệu va chạm và SOS gửi về CMS đúng</p>
+  <div class="card">
+    <h3>Cách kiểm tra</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Vào CMS</strong><p>Chọn Dữ liệu lịch sử → Điền mã tracker vào ô Unicode</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Kiểm tra cột IO_str</strong><p>Kích hoạt cảm biến va chạm (test) và xem giá trị</p></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-content"><strong>Kiểm tra cột Warm</strong><p>Nhấn nút SOS và xem giá trị trả về</p></div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Bảng tín hiệu kỳ vọng</h3>
+    <table>
+      <tr><th>Cột</th><th>Trạng thái</th><th>Giá trị</th></tr>
+      <tr><td>IO_str</td><td>Cảm biến va chạm báo động</td><td><strong>1</strong></td></tr>
+      <tr><td>IO_str</td><td>Không báo động</td><td><strong>0</strong></td></tr>
+      <tr><td>Warm</td><td>SOS đang kích hoạt</td><td><strong>0440080</strong></td></tr>
+      <tr><td>Warm</td><td>SOS bình thường</td><td><strong>0040080</strong></td></tr>
+    </table>
+  </div>
+  <div class="card" style="background:#f0fdf4;border-left-color:#22c55e">
+    <h3>✅ Checklist hoàn thành lắp đặt</h3>
+    <ul class="check-list">
+      <li>Dây nguồn đấu đúng màu và cổng</li>
+      <li>Công tắc SOS cố định trên cabin, tầm tay với</li>
+      <li>Đầu dò cảm biến gắn đầu xe, dấu chấm hướng 12 giờ</li>
+      <li>Màn hình hiển thị trước mặt tài xế</li>
+      <li>Cài đặt IO CRM: SOS + Sonar đúng</li>
+      <li>IO_str = 1 khi cảm biến báo động</li>
+      <li>Warm = 0440080 khi nhấn SOS</li>
+    </ul>
+  </div>
+  <div class="nav-btns"><button class="btn btn-prev" onclick="show(5)">← Quay lại</button></div>
+</section>
+</main>
+
+<script>
+function show(i){
+  document.querySelectorAll('.section').forEach((s,idx)=>{s.classList.toggle('active',idx===i)});
+  document.querySelectorAll('nav ul li a').forEach((a,idx)=>{a.classList.toggle('active',idx===i)});
+  window.scrollTo({top:0,behavior:'smooth'});
+  return false;
+}
+</script>
+</body>
+</html>

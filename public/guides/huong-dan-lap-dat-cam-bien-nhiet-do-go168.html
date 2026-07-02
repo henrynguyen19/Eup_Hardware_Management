@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hướng Dẫn Lắp Đặt Cảm Biến Nhiệt Độ – Go-168</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--nav:#7c3aed;--nav-dark:#5b21b6;--accent:#a78bfa;--bg:#f5f3ff;--text:#1e1b4b}
+  body{font-family:'Segoe UI',sans-serif;background:#f8f9fa;color:#1f2937;display:flex;min-height:100vh}
+  /* Sidebar */
+  nav{width:260px;min-width:260px;background:var(--nav);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav .logo{padding:24px 20px 16px;border-bottom:1px solid rgba(255,255,255,.15)}
+  nav .logo h1{font-size:15px;font-weight:700;line-height:1.4}
+  nav .logo p{font-size:11px;opacity:.7;margin-top:4px}
+  nav .badge{display:inline-block;background:var(--accent);color:var(--nav-dark);font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;margin-top:6px}
+  nav ul{list-style:none;padding:12px 0;flex:1}
+  nav ul li a{display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:rgba(255,255,255,.85);text-decoration:none;transition:.15s;cursor:pointer}
+  nav ul li a:hover,nav ul li a.active{background:rgba(255,255,255,.15);color:#fff}
+  nav ul li a .num{background:rgba(255,255,255,.2);border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700}
+  nav ul li a.active .num{background:#fff;color:var(--nav)}
+  nav .footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,.15);font-size:11px;opacity:.6}
+  /* Main */
+  main{flex:1;padding:32px;max-width:900px}
+  .section{display:none;animation:fadeIn .25s ease}
+  .section.active{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:22px;font-weight:700;color:var(--nav-dark);margin-bottom:6px}
+  .subtitle{font-size:13px;color:#6b7280;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid var(--accent)}
+  /* Cards */
+  .card{background:#fff;border-radius:12px;padding:20px 24px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid var(--accent)}
+  .card h3{font-size:15px;font-weight:700;color:var(--nav-dark);margin-bottom:10px}
+  .card p,.card li{font-size:13.5px;color:#374151;line-height:1.7}
+  .card ul,.card ol{padding-left:18px;margin-top:6px}
+  .card li{margin-bottom:4px}
+  /* Parts list */
+  .parts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:12px}
+  .part-item{background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1px solid #ddd6fe}
+  .part-item .icon{font-size:28px;margin-bottom:6px}
+  .part-item p{font-size:12px;font-weight:600;color:var(--text)}
+  /* Wire table */
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+  th{background:var(--nav);color:#fff;padding:9px 12px;text-align:left;font-weight:600}
+  td{padding:8px 12px;border-bottom:1px solid #e5e7eb}
+  tr:nth-child(even) td{background:#f9fafb}
+  .wire{display:inline-block;width:14px;height:14px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  /* Steps */
+  .steps{counter-reset:step;margin-top:8px}
+  .step{display:flex;gap:14px;margin-bottom:16px;align-items:flex-start}
+  .step-num{counter-increment:step;background:var(--nav);color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+  .step-content{flex:1}
+  .step-content strong{display:block;font-size:14px;color:var(--nav-dark);margin-bottom:4px}
+  .step-content p{font-size:13px;color:#4b5563;line-height:1.6}
+  /* Alert */
+  .alert{background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#92400e}
+  .alert strong{display:block;margin-bottom:4px}
+  .info{background:#ede9fe;border:1px solid #c4b5fd;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:var(--text)}
+  /* Check */
+  .check-list{list-style:none;padding:0;margin-top:8px}
+  .check-list li{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13.5px}
+  .check-list li:last-child{border:none}
+  .check-list li::before{content:'✓';color:var(--nav);font-weight:700;flex-shrink:0;margin-top:1px}
+  /* Nav buttons */
+  .nav-btns{display:flex;gap:10px;margin-top:28px}
+  .btn{padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+  .btn-prev{background:#f3f4f6;color:#374151}.btn-prev:hover{background:#e5e7eb}
+  .btn-next{background:var(--nav);color:#fff}.btn-next:hover{background:var(--nav-dark)}
+  @media(max-width:700px){body{flex-direction:column}nav{width:100%;height:auto;position:relative}main{padding:20px}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="logo">
+    <h1>🌡️ Cảm Biến Nhiệt Độ</h1>
+    <p>Go-168 | SW Sensor</p>
+    <span class="badge">EUPFIN VN</span>
+  </div>
+  <ul>
+    <li><a href="#" onclick="show(0)" id="tab0" class="active"><span class="num">1</span> Tổng quan</a></li>
+    <li><a href="#" onclick="show(1)" id="tab1"><span class="num">2</span> Cấu tạo thiết bị</a></li>
+    <li><a href="#" onclick="show(2)" id="tab2"><span class="num">3</span> Chuẩn bị</a></li>
+    <li><a href="#" onclick="show(3)" id="tab3"><span class="num">4</span> Hướng dẫn kết nối</a></li>
+    <li><a href="#" onclick="show(4)" id="tab4"><span class="num">5</span> Vị trí lắp đặt</a></li>
+    <li><a href="#" onclick="show(5)" id="tab5"><span class="num">6</span> Cài đặt & Kiểm tra</a></li>
+  </ul>
+  <div class="footer">Cập nhật: 04/2023 · Messi</div>
+</nav>
+
+<main>
+<!-- Section 0: Tổng quan -->
+<section class="section active" id="s0">
+  <h2>🌡️ Cảm Biến Nhiệt Độ (Thân Nhiệt)</h2>
+  <p class="subtitle">Hướng dẫn lắp đặt cảm biến phát hiện người trong xe với thiết bị Go-168</p>
+  <div class="card">
+    <h3>Mục đích sử dụng</h3>
+    <p>Cảm biến thân nhiệt giúp <strong>phát hiện người ngồi trong xe</strong> (Sensor detects people sitting in the car). Khi có hành khách, cảm biến gửi tín hiệu IO về thiết bị Go-168.</p>
+  </div>
+  <div class="card">
+    <h3>Thiết bị hỗ trợ</h3>
+    <ul>
+      <li>✅ <strong>Go-168</strong> – thiết bị chính hỗ trợ cảm biến này</li>
+      <li>❌ MDVR, VN88 – <strong>không hỗ trợ</strong></li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Nguyên lý hoạt động</h3>
+    <ul>
+      <li>Cảm biến thân nhiệt nhận dạng nhiệt lượng cơ thể người (tia hồng ngoại)</li>
+      <li>Khi có người: cảm biến xuất tín hiệu điện áp <strong>3.3V → Relay đóng → IO0 = 1</strong></li>
+      <li>Không có người (>60s): <strong>IO0 = 0</strong></li>
+      <li>Tín hiệu delay 30–60 giây trước khi phát hiện chính xác</li>
+    </ul>
+  </div>
+  <div class="nav-btns"><button class="btn btn-next" onclick="show(1)">Tiếp theo →</button></div>
+</section>
+
+<!-- Section 1: Cấu tạo -->
+<section class="section" id="s1">
+  <h2>⚙️ Cấu Tạo Thiết Bị</h2>
+  <p class="subtitle">Gồm 2 thành phần chính: Bộ nguồn & điều khiển + Cảm biến thân nhiệt</p>
+  <div class="card">
+    <h3>1. Bộ nguồn và điều khiển</h3>
+    <p><strong>Chức năng:</strong></p>
+    <ul>
+      <li><strong>Mạch hạ áp (24V–12V → 5V):</strong> Cấp nguồn cho cảm biến thân nhiệt và Modul Relay</li>
+      <li><strong>Modul 1 Relay:</strong> Hoạt động ở 5V. Đóng/ngắt điện áp 12V–24V khi nhận tín hiệu 3.3V từ cảm biến</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>2. Cảm biến thân nhiệt (×2)</h3>
+    <ul>
+      <li>Điện áp hoạt động: <strong>5V</strong></li>
+      <li>Tín hiệu điện áp ra: <strong>3.3V</strong> khi có người trong xe</li>
+      <li>Phát hiện nhiệt lượng cơ thể qua tia hồng ngoại</li>
+    </ul>
+  </div>
+  <div class="info">ℹ️ Bộ nguồn hạ áp cần vì cảm biến chỉ chấp nhận 5V, trong khi nguồn xe thường là 12V–24V.</div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(0)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(2)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 2: Chuẩn bị -->
+<section class="section" id="s2">
+  <h2>📦 Chuẩn Bị Thiết Bị</h2>
+  <p class="subtitle">Danh sách linh kiện cần thiết trước khi lắp đặt</p>
+  <div class="parts-grid">
+    <div class="part-item"><div class="icon">📡</div><p>1 Thiết bị Go-168</p></div>
+    <div class="part-item"><div class="icon">🔌</div><p>1 Bộ nguồn & điều khiển (Relay)</p></div>
+    <div class="part-item"><div class="icon">🌡️</div><p>2 Cảm biến thân nhiệt</p></div>
+    <div class="part-item"><div class="icon">🔧</div><p>Dây điện & đầu nối</p></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <h3>Kiểm tra trước lắp đặt</h3>
+    <ul class="check-list">
+      <li>Thiết bị Go-168 đã được kích hoạt SIM, firmware cập nhật</li>
+      <li>Bộ nguồn & điều khiển nguyên vẹn, relay hoạt động</li>
+      <li>2 cảm biến thân nhiệt còn tốt</li>
+      <li>Dây IO trắng của Go-168 còn nguyên</li>
+    </ul>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(1)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(3)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 3: Kết nối dây -->
+<section class="section" id="s3">
+  <h2>🔌 Hướng Dẫn Kết Nối Dây</h2>
+  <p class="subtitle">Sơ đồ đấu dây chi tiết theo thứ tự</p>
+  <div class="alert"><strong>⚠️ Lưu ý an toàn:</strong> Tắt nguồn xe trước khi đấu dây. Kiểm tra lại cực dương/âm trước khi cấp điện.</div>
+  <div class="card">
+    <h3>Sơ đồ kết nối tổng quát</h3>
+    <div style="background:#f5f3ff;border-radius:8px;padding:16px;margin:10px 0;font-family:monospace;font-size:12.5px;line-height:2">
+      Nguồn xe (12V–24V) ──→ Bộ nguồn &amp; điều khiển<br>
+      Bộ nguồn (5V out) ──→ Cảm biến thân nhiệt 1 + 2<br>
+      Cảm biến (Control Signal) ──→ Bộ điều khiển (Control Signal)<br>
+      Bộ điều khiển (IO out) ──→ Dây IO trắng – Go-168
+    </div>
+  </div>
+  <div class="card">
+    <h3>Các bước đấu dây (theo thứ tự)</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Đấu nguồn cho Bộ điều khiển</strong><p>Nối dây nguồn xe (12V–24V) vào cổng nguồn vào của Bộ nguồn & điều khiển</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Cấp 5V cho cảm biến thân nhiệt</strong><p>Nối dây nguồn ra 5V từ Bộ điều khiển đến cổng nguồn của 2 cảm biến thân nhiệt</p></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-content"><strong>Kết nối tín hiệu điều khiển</strong><p>Nối dây Control Signal từ cảm biến thân nhiệt → dây Control Signal của Bộ điều khiển</p></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-content"><strong>Kết nối IO với Go-168</strong><p>Nối dây IO tín hiệu ra của Bộ điều khiển → <strong>dây IO trắng</strong> của thiết bị Go-168</p></div></div>
+    </div>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(2)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(4)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 4: Vị trí lắp đặt -->
+<section class="section" id="s4">
+  <h2>📍 Vị Trí Lắp Đặt</h2>
+  <p class="subtitle">Hướng dẫn chọn vị trí đặt bộ điều khiển và cảm biến trên xe</p>
+  <div class="card">
+    <h3>Bộ nguồn và điều khiển</h3>
+    <p>Lắp đặt giấu gần nguồn điện xe. Kết nối dây tín hiệu IO đầu ra với <strong>dây IO1 của thiết bị Go-168</strong>.</p>
+  </div>
+  <div class="card">
+    <h3>Cảm biến thân nhiệt 1 (Ghế phụ)</h3>
+    <p>Lắp ở <strong>ria bên trái của ghế phụ</strong>, hướng cảm biến về phía ghế để nhận biết được khách ngồi trong xe.</p>
+  </div>
+  <div class="card">
+    <h3>Cảm biến thân nhiệt 2 (Hàng sau)</h3>
+    <p>Lắp ở <strong>ria cửa sau – phía tài xế</strong>, chiếu sang cửa đối diện. Vị trí này giúp <strong>không kích hoạt cảnh báo đối với tài xế</strong>.</p>
+  </div>
+  <div class="alert"><strong>⚠️ Lưu ý vị trí:</strong> Đảm bảo vùng phát hiện không bị che khuất bởi ghế, nệm hoặc hành lý. Kiểm tra góc nhìn trước khi cố định.</div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(3)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(5)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 5: Cài đặt & Kiểm tra -->
+<section class="section" id="s5">
+  <h2>⚙️ Cài Đặt & Kiểm Tra Tín Hiệu</h2>
+  <p class="subtitle">Cài đặt trên hệ thống và xác nhận tín hiệu hoạt động đúng</p>
+  <div class="card">
+    <h3>Cài đặt đồng bộ hóa</h3>
+    <p>Vào phần <strong>đồng bộ hóa thiết bị</strong>, cài đặt IO0 ở chế độ:</p>
+    <div style="background:#1e1b4b;color:#a78bfa;padding:12px 16px;border-radius:8px;font-family:monospace;font-size:14px;margin:10px 0">
+      IO0 → chế độ <strong style="color:#fff">DOO, 1</strong>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Kiểm tra tín hiệu (cột IO0)</h3>
+    <table>
+      <tr><th>Giá trị IO0</th><th>Ý nghĩa</th><th>Điều kiện</th></tr>
+      <tr><td><strong style="color:#7c3aed">1</strong></td><td>Có người trong xe</td><td>Giá trị không liên tục, delay 30–60s</td></tr>
+      <tr><td><strong style="color:#6b7280">0</strong></td><td>Không có người</td><td>Giá trị liên tục > 60 giây</td></tr>
+    </table>
+  </div>
+  <div class="info">
+    <strong>📌 Lưu ý kiểm tra:</strong><br>
+    Sau lắp đặt, ngồi vào ghế phụ và ghế sau, quan sát cột IO0 trên CRM/phần mềm. Chờ 30–60 giây để tín hiệu ổn định trước khi kết luận cảm biến hoạt động đúng.
+  </div>
+  <div class="card" style="background:#f0fdf4;border-left-color:#22c55e">
+    <h3>✅ Checklist hoàn thành lắp đặt</h3>
+    <ul class="check-list">
+      <li>Bộ nguồn & điều khiển đã được cố định và giấu gọn</li>
+      <li>2 cảm biến thân nhiệt đúng vị trí, hướng đúng</li>
+      <li>Dây IO kết nối chắc chắn với Go-168</li>
+      <li>Cài đặt IO0 = DOO,1 trên hệ thống</li>
+      <li>Kiểm tra tín hiệu IO0 = 1 khi có người (30–60s delay)</li>
+      <li>Kiểm tra tín hiệu IO0 = 0 khi không có người (>60s)</li>
+    </ul>
+  </div>
+  <div class="nav-btns"><button class="btn btn-prev" onclick="show(4)">← Quay lại</button></div>
+</section>
+</main>
+
+<script>
+const total = 6;
+function show(i){
+  document.querySelectorAll('.section').forEach((s,idx)=>{s.classList.toggle('active',idx===i)});
+  document.querySelectorAll('nav ul li a').forEach((a,idx)=>{a.classList.toggle('active',idx===i)});
+  window.scrollTo({top:0,behavior:'smooth'});
+  return false;
+}
+</script>
+</body>
+</html>

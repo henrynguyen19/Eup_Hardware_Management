@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hướng Dẫn Lắp Đặt Cảm Biến Cửa – VN88-4G(H)</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--nav:#0f766e;--nav-dark:#0d5e58;--accent:#5eead4;--bg:#f0fdfa;--text:#134e4a}
+  body{font-family:'Segoe UI',sans-serif;background:#f8f9fa;color:#1f2937;display:flex;min-height:100vh}
+  nav{width:260px;min-width:260px;background:var(--nav);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav .logo{padding:24px 20px 16px;border-bottom:1px solid rgba(255,255,255,.15)}
+  nav .logo h1{font-size:15px;font-weight:700;line-height:1.4}
+  nav .logo p{font-size:11px;opacity:.7;margin-top:4px}
+  nav .badge{display:inline-block;background:var(--accent);color:var(--nav-dark);font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;margin-top:6px}
+  nav ul{list-style:none;padding:12px 0;flex:1}
+  nav ul li a{display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:rgba(255,255,255,.85);text-decoration:none;transition:.15s;cursor:pointer}
+  nav ul li a:hover,nav ul li a.active{background:rgba(255,255,255,.15);color:#fff}
+  nav ul li a .num{background:rgba(255,255,255,.2);border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700}
+  nav ul li a.active .num{background:#fff;color:var(--nav)}
+  nav .footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,.15);font-size:11px;opacity:.6}
+  main{flex:1;padding:32px;max-width:900px}
+  .section{display:none;animation:fadeIn .25s ease}
+  .section.active{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:22px;font-weight:700;color:var(--nav-dark);margin-bottom:6px}
+  .subtitle{font-size:13px;color:#6b7280;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid var(--accent)}
+  .card{background:#fff;border-radius:12px;padding:20px 24px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid var(--accent)}
+  .card h3{font-size:15px;font-weight:700;color:var(--nav-dark);margin-bottom:10px}
+  .card p,.card li{font-size:13.5px;color:#374151;line-height:1.7}
+  .card ul,.card ol{padding-left:18px;margin-top:6px}
+  .card li{margin-bottom:4px}
+  .parts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px}
+  .part-item{background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1px solid #99f6e4}
+  .part-item .icon{font-size:28px;margin-bottom:6px}
+  .part-item p{font-size:12px;font-weight:600;color:var(--text)}
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+  th{background:var(--nav);color:#fff;padding:9px 12px;text-align:left;font-weight:600}
+  td{padding:8px 12px;border-bottom:1px solid #e5e7eb}
+  tr:nth-child(even) td{background:#f9fafb}
+  .wire-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .steps{counter-reset:step;margin-top:8px}
+  .step{display:flex;gap:14px;margin-bottom:16px;align-items:flex-start}
+  .step-num{background:var(--nav);color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+  .step-content strong{display:block;font-size:14px;color:var(--nav-dark);margin-bottom:4px}
+  .step-content p{font-size:13px;color:#4b5563;line-height:1.6}
+  .alert{background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#92400e}
+  .alert strong{display:block;margin-bottom:4px}
+  .info{background:#f0fdfa;border:1px solid #5eead4;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:var(--text)}
+  .check-list{list-style:none;padding:0;margin-top:8px}
+  .check-list li{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13.5px}
+  .check-list li:last-child{border:none}
+  .check-list li::before{content:'✓';color:var(--nav);font-weight:700;flex-shrink:0;margin-top:1px}
+  .nav-btns{display:flex;gap:10px;margin-top:28px}
+  .btn{padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+  .btn-prev{background:#f3f4f6;color:#374151}.btn-prev:hover{background:#e5e7eb}
+  .btn-next{background:var(--nav);color:#fff}.btn-next:hover{background:var(--nav-dark)}
+  @media(max-width:700px){body{flex-direction:column}nav{width:100%;height:auto;position:relative}main{padding:20px}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="logo">
+    <h1>🚪 Cảm Biến Cửa</h1>
+    <p>VN88-4G(H) + Smart Box</p>
+    <span class="badge">EUPFIN VN</span>
+  </div>
+  <ul>
+    <li><a href="#" onclick="show(0)" id="tab0" class="active"><span class="num">1</span> Tổng quan</a></li>
+    <li><a href="#" onclick="show(1)" id="tab1"><span class="num">2</span> Chuẩn bị thiết bị</a></li>
+    <li><a href="#" onclick="show(2)" id="tab2"><span class="num">3</span> Đấu dây VN88-4G(H)</a></li>
+    <li><a href="#" onclick="show(3)" id="tab3"><span class="num">4</span> Vị trí lắp đặt</a></li>
+    <li><a href="#" onclick="show(4)" id="tab4"><span class="num">5</span> Cài đặt CRM</a></li>
+    <li><a href="#" onclick="show(5)" id="tab5"><span class="num">6</span> Kiểm tra tín hiệu</a></li>
+  </ul>
+  <div class="footer">CTCP Công Nghệ EUPFIN VN · Galvin</div>
+</nav>
+
+<main>
+<!-- Section 0 -->
+<section class="section active" id="s0">
+  <h2>🚪 Lắp Đặt Cảm Biến Cửa</h2>
+  <p class="subtitle">Hướng dẫn lắp đặt thiết bị VN88-4G(H) với Bộ cảm biến cửa</p>
+  <div class="card">
+    <h3>Mục đích</h3>
+    <p>Cảm biến cửa giúp <strong>giám sát trạng thái đóng/mở cửa xe</strong> theo thời gian thực. Tín hiệu được gửi về CRM để theo dõi và cảnh báo khi cửa mở bất thường.</p>
+  </div>
+  <div class="card">
+    <h3>Thiết bị hỗ trợ</h3>
+    <ul>
+      <li>✅ <strong>VN88-4G(H)</strong> – thiết bị chính</li>
+      <li>✅ <strong>Smart Box</strong> – mở rộng thêm cửa (cửa 2, 3...)</li>
+      <li>✅ <strong>Go-168</strong> – cũng hỗ trợ (xem hướng dẫn riêng)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Tín hiệu trả về</h3>
+    <table>
+      <tr><th>Cột IO_str</th><th>Trạng thái cửa</th></tr>
+      <tr><td><strong>0</strong></td><td>Cửa đóng</td></tr>
+      <tr><td><strong>1</strong></td><td>Cửa mở</td></tr>
+    </table>
+    <p style="margin-top:10px;font-size:13px;color:#6b7280">Khi đấu dây màu cam VN88 4G(H) → gửi về cột <strong>(Warm)</strong>: tín hiệu <code>0248008</code> màu tím</p>
+  </div>
+  <div class="nav-btns"><button class="btn btn-next" onclick="show(1)">Tiếp theo →</button></div>
+</section>
+
+<!-- Section 1 -->
+<section class="section" id="s1">
+  <h2>📦 Chuẩn Bị Thiết Bị</h2>
+  <p class="subtitle">Danh sách linh kiện cần thiết trước khi lắp đặt</p>
+  <div class="parts-grid">
+    <div class="part-item"><div class="icon">📡</div><p>Thiết bị VN88-4G(H)</p></div>
+    <div class="part-item"><div class="icon">📦</div><p>Thiết bị Smart Box</p></div>
+    <div class="part-item"><div class="icon">🔋</div><p>Dây nguồn VN88</p></div>
+    <div class="part-item"><div class="icon">🚪</div><p>Bộ cảm biến cửa (từ)</p></div>
+    <div class="part-item"><div class="icon">📡</div><p>Thiết bị Go-168 (tùy chọn)</p></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <h3>Lưu ý trước lắp đặt</h3>
+    <ul class="check-list">
+      <li>VN88-4G(H) đã kích hoạt SIM và có tín hiệu GPS</li>
+      <li>Smart Box hoạt động bình thường</li>
+      <li>Cảm biến cửa (từ tính) còn nguyên vẹn, 2 bộ phận: nam châm + công tắc</li>
+      <li>Đủ dây dẫn màu: đỏ, đen, xanh dương, cam, tím</li>
+    </ul>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(0)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(2)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 2 -->
+<section class="section" id="s2">
+  <h2>🔌 Đấu Dây VN88-4G(H)</h2>
+  <p class="subtitle">Sơ đồ kết nối chi tiết từng dây</p>
+  <div class="alert"><strong>⚠️ Tắt nguồn xe trước khi đấu dây!</strong> Kiểm tra màu dây và số thứ tự trước khi nối.</div>
+  <div class="card">
+    <h3>Dây nguồn VN88-4G(H)</h3>
+    <table>
+      <tr><th>Dây số</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>Dây 1</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>Nguồn +DC (dương nguồn điện)</td></tr>
+      <tr><td>Dây 2</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>GND (mát vỏ xe)</td></tr>
+      <tr><td>Dây 3</td><td><span class="wire-dot" style="background:#3b82f6"></span>Xanh dương</td><td>Nguồn ACC (nguồn chìa khóa)</td></tr>
+      <tr><td>Dây 4</td><td><span class="wire-dot" style="background:#f97316"></span>Cam</td><td>1 dây đỏ của cảm biến cửa</td></tr>
+      <tr><td>Jack 5</td><td>–</td><td>Jack số 3 của Smart Box</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Kết nối Smart Box với cảm biến cửa</h3>
+    <table>
+      <tr><th>Dây Smart Box</th><th>Màu</th><th>Kết nối đến</th></tr>
+      <tr><td>Dây xanh dương</td><td><span class="wire-dot" style="background:#3b82f6"></span>Xanh dương</td><td>1 dây của cảm biến cửa</td></tr>
+      <tr><td>Dây tím</td><td><span class="wire-dot" style="background:#7c3aed"></span>Tím</td><td>Dây tím cảm biến cửa</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h3>Cảm biến cửa</h3>
+    <ul>
+      <li>Dây còn lại của cảm biến cửa → nối với <strong>(+DC) nguồn dương</strong></li>
+    </ul>
+  </div>
+  <div class="info">💡 <strong>Khi lắp 1 cửa:</strong> Đấu vào dây tín hiệu <strong>màu cam</strong> của VN88. <strong>Khi lắp thêm cửa:</strong> Mới đấu qua dây tín hiệu Smart Box.</div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(1)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(3)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 3 -->
+<section class="section" id="s3">
+  <h2>📍 Vị Trí Lắp Đặt Cảm Biến Cửa</h2>
+  <p class="subtitle">Chọn vị trí gắn công tắc từ sao cho cảm biến hoạt động chính xác</p>
+  <div class="card">
+    <h3>Nguyên lý hoạt động của cảm biến từ</h3>
+    <ul>
+      <li><strong>Cảm biến cửa (điện):</strong> Đấu theo chế độ <strong>tĩnh</strong></li>
+      <li><strong>Thanh từ khóa:</strong> Hoạt động theo chế độ <strong>động</strong></li>
+      <li>Hình 1: Cửa mở → Hai bộ phận tách ra → tín hiệu = 1</li>
+      <li>Hình 2: Cửa đóng → Hai bộ phận tiếp xúc → tín hiệu = 0</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Hướng dẫn gắn cảm biến</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Chọn vị trí trên cửa xe</strong><p>Vị trí phù hợp trên khung cửa hoặc cạnh cửa xe, nơi hai cạnh cửa tiếp xúc khi đóng</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Gắn nam châm vào cánh cửa</strong><p>Gắn phần nam châm lên cánh cửa (phần di động)</p></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-content"><strong>Gắn công tắc vào khung cửa</strong><p>Gắn công tắc từ vào khung cửa cố định, đảm bảo 2 bộ phận thẳng hàng khi cửa đóng</p></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-content"><strong>Kiểm tra hoạt động cơ học</strong><p>Mở/đóng cửa nhiều lần, đảm bảo 2 phần gặp nhau chính xác</p></div></div>
+    </div>
+  </div>
+  <div class="alert"><strong>⚠️ Quan trọng:</strong> Nếu chỉ lắp 1 cửa → dùng dây cam VN88. Nếu lắp 2+ cửa → dùng thêm Smart Box (IO2, IO6).</div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(2)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(4)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 4 -->
+<section class="section" id="s4">
+  <h2>🖥️ Cài Đặt Hệ Thống CRM</h2>
+  <p class="subtitle">Cài đặt IO trên CRM sau khi đấu dây xong</p>
+  <div class="card">
+    <h3>Bước 1 – Vào CRM đồng bộ thiết bị</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Mở CRM</strong><p>Dịch vụ khách hàng → Tracker → Chọn xe lắp đặt cảm biến cửa</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Cài đặt chống trộm</strong><p>Click vào <strong>Đồng bộ thiết bị</strong> → Cài đặt chống trộm → Chọn chế độ <strong>Door</strong></p></div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Bước 2 – Cài đặt IO VN88</h3>
+    <table>
+      <tr><th>IO</th><th>Cài đặt</th><th>Loại cửa</th></tr>
+      <tr><td><strong>IO1</strong> (VN88)</td><td>Cửa trước IO1</td><td>Cửa trước</td></tr>
+      <tr><td><strong>IO1</strong> (Smart Box)</td><td>Cửa sau (IO2)</td><td>Cửa sau</td></tr>
+      <tr><td><strong>IO2</strong> (Smart Box)</td><td>Cửa bên phải (IO6)</td><td>Cửa bên phải</td></tr>
+    </table>
+  </div>
+  <div class="info">✅ Sau khi cài đặt xong → nhấn nút <strong>O màu xanh lá cây</strong> để lưu và áp dụng.</div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(3)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(5)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 5 -->
+<section class="section" id="s5">
+  <h2>📊 Kiểm Tra Tín Hiệu</h2>
+  <p class="subtitle">Xác nhận tín hiệu gửi về CMS sau khi cài đặt</p>
+  <div class="card">
+    <h3>Cách kiểm tra</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Vào CRM kiểm tra tín hiệu GPS</strong><p>Tracker → GPS → Xác nhận GPS hoạt động bình thường trước</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Vào EUPIS kiểm tra IO</strong><p>Nhập mã tracker → Xem cột <strong>IO_str</strong></p></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-content"><strong>Mở/đóng từng cửa để test</strong><p>Quan sát cột IO_str thay đổi theo từng cửa</p></div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Bảng tín hiệu kỳ vọng (3 cửa)</h3>
+    <table>
+      <tr><th>Trạng thái</th><th>IO_str</th></tr>
+      <tr><td>Cửa 2 và cửa 3 cùng mở</td><td><code>...11...</code></td></tr>
+      <tr><td>Cửa 2 và cửa 3 cùng đóng</td><td><code>...00...</code></td></tr>
+      <tr><td>Cửa 2 mở, cửa 3 đóng</td><td><code>...10...</code></td></tr>
+    </table>
+    <p style="margin-top:10px;font-size:12.5px;color:#6b7280">Cửa đấu dây cam VN88 4G → Gửi về cột <strong>(Warm)</strong>: <code>0248008</code> màu tím</p>
+  </div>
+  <div class="card" style="background:#f0fdf4;border-left-color:#22c55e">
+    <h3>✅ Checklist hoàn thành</h3>
+    <ul class="check-list">
+      <li>Dây nguồn VN88 đấu đúng: đỏ → +DC, đen → GND, xanh → ACC</li>
+      <li>Dây cam nối đúng cảm biến cửa</li>
+      <li>Smart Box kết nối đúng jack 5 → jack 3</li>
+      <li>Cảm biến cửa gắn chắc, đúng vị trí đóng/mở</li>
+      <li>Cài đặt IO trên CRM: IO1 = Cửa trước</li>
+      <li>Tín hiệu IO_str = 0 khi cửa đóng, = 1 khi cửa mở</li>
+    </ul>
+  </div>
+  <div class="nav-btns"><button class="btn btn-prev" onclick="show(4)">← Quay lại</button></div>
+</section>
+</main>
+
+<script>
+function show(i){
+  document.querySelectorAll('.section').forEach((s,idx)=>{s.classList.toggle('active',idx===i)});
+  document.querySelectorAll('nav ul li a').forEach((a,idx)=>{a.classList.toggle('active',idx===i)});
+  window.scrollTo({top:0,behavior:'smooth'});
+  return false;
+}
+</script>
+</body>
+</html>

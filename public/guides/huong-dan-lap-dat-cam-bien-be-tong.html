@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hướng Dẫn Lắp Đặt Cảm Biến Bê Tông – SW-Working Sensor</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--nav:#78350f;--nav-dark:#5c2a0b;--accent:#fbbf24;--bg:#fffbeb;--text:#451a03}
+  body{font-family:'Segoe UI',sans-serif;background:#f8f9fa;color:#1f2937;display:flex;min-height:100vh}
+  nav{width:260px;min-width:260px;background:var(--nav);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav .logo{padding:24px 20px 16px;border-bottom:1px solid rgba(255,255,255,.15)}
+  nav .logo h1{font-size:15px;font-weight:700;line-height:1.4}
+  nav .logo p{font-size:11px;opacity:.7;margin-top:4px}
+  nav .badge{display:inline-block;background:var(--accent);color:var(--nav-dark);font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;margin-top:6px}
+  nav ul{list-style:none;padding:12px 0;flex:1}
+  nav ul li a{display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:rgba(255,255,255,.85);text-decoration:none;transition:.15s;cursor:pointer}
+  nav ul li a:hover,nav ul li a.active{background:rgba(255,255,255,.15);color:#fff}
+  nav ul li a .num{background:rgba(255,255,255,.2);border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700}
+  nav ul li a.active .num{background:#fff;color:var(--nav)}
+  nav .footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,.15);font-size:11px;opacity:.6}
+  main{flex:1;padding:32px;max-width:900px}
+  .section{display:none;animation:fadeIn .25s ease}
+  .section.active{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:22px;font-weight:700;color:var(--nav-dark);margin-bottom:6px}
+  .subtitle{font-size:13px;color:#6b7280;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid var(--accent)}
+  .card{background:#fff;border-radius:12px;padding:20px 24px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid var(--accent)}
+  .card h3{font-size:15px;font-weight:700;color:var(--nav-dark);margin-bottom:10px}
+  .card p,.card li{font-size:13.5px;color:#374151;line-height:1.7}
+  .card ul,.card ol{padding-left:18px;margin-top:6px}
+  .card li{margin-bottom:4px}
+  .parts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px}
+  .part-item{background:var(--bg);border-radius:10px;padding:14px;text-align:center;border:1px solid #fde68a}
+  .part-item .icon{font-size:28px;margin-bottom:6px}
+  .part-item p{font-size:12px;font-weight:600;color:var(--text)}
+  table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+  th{background:var(--nav);color:#fff;padding:9px 12px;text-align:left;font-weight:600}
+  td{padding:8px 12px;border-bottom:1px solid #e5e7eb}
+  tr:nth-child(even) td{background:#f9fafb}
+  .steps{counter-reset:step;margin-top:8px}
+  .step{display:flex;gap:14px;margin-bottom:16px;align-items:flex-start}
+  .step-num{background:var(--nav);color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+  .step-content strong{display:block;font-size:14px;color:var(--nav-dark);margin-bottom:4px}
+  .step-content p{font-size:13px;color:#4b5563;line-height:1.6}
+  .alert{background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#92400e}
+  .alert strong{display:block;margin-bottom:4px}
+  .info{background:var(--bg);border:1px solid #fde68a;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:var(--text)}
+  .danger{background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#7f1d1d}
+  .check-list{list-style:none;padding:0;margin-top:8px}
+  .check-list li{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13.5px}
+  .check-list li:last-child{border:none}
+  .check-list li::before{content:'✓';color:var(--nav);font-weight:700;flex-shrink:0;margin-top:1px}
+  .signal-diagram{background:#1c1917;color:#fbbf24;border-radius:10px;padding:16px 20px;font-family:monospace;font-size:13px;line-height:2;margin:10px 0}
+  .nav-btns{display:flex;gap:10px;margin-top:28px}
+  .btn{padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+  .btn-prev{background:#f3f4f6;color:#374151}.btn-prev:hover{background:#e5e7eb}
+  .btn-next{background:var(--nav);color:#fff}.btn-next:hover{background:var(--nav-dark)}
+  @media(max-width:700px){body{flex-direction:column}nav{width:100%;height:auto;position:relative}main{padding:20px}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="logo">
+    <h1>🏗️ Cảm Biến Bê Tông</h1>
+    <p>SW-Working Sensor + Go-168</p>
+    <span class="badge">EUPFIN VN</span>
+  </div>
+  <ul>
+    <li><a href="#" onclick="show(0)" id="tab0" class="active"><span class="num">1</span> Giới thiệu sản phẩm</a></li>
+    <li><a href="#" onclick="show(1)" id="tab1"><span class="num">2</span> Nguyên lý hoạt động</a></li>
+    <li><a href="#" onclick="show(2)" id="tab2"><span class="num">3</span> Chuẩn bị & yêu cầu</a></li>
+    <li><a href="#" onclick="show(3)" id="tab3"><span class="num">4</span> Lắp đặt & đấu dây</a></li>
+    <li><a href="#" onclick="show(4)" id="tab4"><span class="num">5</span> Cài đặt hệ thống</a></li>
+    <li><a href="#" onclick="show(5)" id="tab5"><span class="num">6</span> Kiểm tra & duyệt đơn</a></li>
+    <li><a href="#" onclick="show(6)" id="tab6"><span class="num">7</span> Xử lý sự cố Q&A</a></li>
+  </ul>
+  <div class="footer">Cập nhật: 2023/11/08</div>
+</nav>
+
+<main>
+<!-- Section 0 -->
+<section class="section active" id="s0">
+  <h2>🏗️ Cảm Biến Bê Tông (SW-Working Sensor)</h2>
+  <p class="subtitle">Giám sát trạng thái trộn và xả bê tông của xe bồn trộn</p>
+  <div class="card">
+    <h3>Ngành áp dụng chính</h3>
+    <p>Ngành <strong>bê tông</strong> – Xe bồn trộn bê tông tại công trường, trạm trộn.</p>
+    <p style="margin-top:8px">Kết hợp GPS để <strong>phán đoán xe bồn đang trộn hay xả</strong> bê tông.</p>
+  </div>
+  <div class="card">
+    <h3>Tính năng</h3>
+    <ul>
+      <li>✅ Phát hiện trạng thái <strong>Trộn (Mixing)</strong> và <strong>Xả (Discharge)</strong></li>
+      <li>✅ Kết hợp GPS theo dõi vị trí + trạng thái hoạt động</li>
+      <li>✅ Khách hàng có công trường, trạm trộn theo dõi năng suất</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Hạn chế quan trọng</h3>
+    <ul>
+      <li>❌ <strong>Không biết được xả bao nhiêu khối/tấn</strong> – chỉ biết có xả hay không</li>
+      <li>❌ Chỉ hỗ trợ <strong>Go-168-4G</strong> – MDVR và VN88 không hỗ trợ</li>
+      <li>⚠️ Điện áp nhỏ hơn <strong>9V</strong> có thể gây tín hiệu không ổn định</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Yêu cầu Firmware</h3>
+    <div class="signal-diagram">Go-168-4G: Firmware ≥ 2.000.00.000003.230309</div>
+    <p>Phiên bản FW từ ngày <strong>09/03/2023</strong> trở lên mới hỗ trợ cảm biến bê tông.</p>
+  </div>
+  <div class="nav-btns"><button class="btn btn-next" onclick="show(1)">Tiếp theo →</button></div>
+</section>
+
+<!-- Section 1 -->
+<section class="section" id="s1">
+  <h2>⚙️ Nguyên Lý Hoạt Động</h2>
+  <p class="subtitle">Cách cảm biến phát hiện chiều quay và trạng thái của bồn trộn</p>
+  <div class="card">
+    <h3>Phát hiện chiều quay bồn</h3>
+    <table>
+      <tr><th>Chiều quay (mặc định)</th><th>Trạng thái</th></tr>
+      <tr><td>Ngược chiều kim đồng hồ ←</td><td>🔄 <strong>Trộn (Mixing)</strong></td></tr>
+      <tr><td>Thuận chiều kim đồng hồ →</td><td>⬇️ <strong>Xả (Discharge)</strong></td></tr>
+    </table>
+  </div>
+  <div class="alert">
+    <strong>⚠️ Trường hợp đặc biệt – Bồn lắp ngược:</strong>
+    Nếu bồn quay lắp ngược (nghịch = trộn, thuận = xả) → Cần lắp ngược lại chiều mũi tên trên cảm biến để phát hiện đúng trạng thái.
+  </div>
+  <div class="card">
+    <h3>Tín hiệu gửi về FMS</h3>
+    <table>
+      <tr><th>IO</th><th>Trạng thái</th></tr>
+      <tr><td>IO0 (PSA,1)</td><td>Tín hiệu Xả (Discharge)</td></tr>
+      <tr><td>IO1 (MIX,1)</td><td>Tín hiệu Trộn (Mixing)</td></tr>
+    </table>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(0)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(2)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 2 -->
+<section class="section" id="s2">
+  <h2>📦 Chuẩn Bị Xuất Hàng</h2>
+  <p class="subtitle">Danh sách thiết bị và kiểm tra trước khi xuất</p>
+  <div class="parts-grid">
+    <div class="part-item"><div class="icon">📡</div><p>Go-168-4G</p></div>
+    <div class="part-item"><div class="icon">🔄</div><p>SW-Working Sensor (CB bê tông)</p></div>
+    <div class="part-item"><div class="icon">🧲</div><p>4 Nam châm (bắt buộc)</p></div>
+    <div class="part-item"><div class="icon">🔌</div><p>Miếng lót 2 cổng</p></div>
+  </div>
+  <div class="alert" style="margin-top:16px">
+    <strong>⚠️ Bắt buộc khi xuất hàng:</strong>
+    <ul style="margin-top:6px;padding-left:16px">
+      <li>Phải có đủ <strong>4 nam châm</strong></li>
+      <li><strong>2 cổng</strong> đều phải có miếng lót (gioăng cao su)</li>
+      <li>Kiểm tra firmware Go-168 ≥ 2.000.00.000003.230309</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Kiểm tra trước lắp đặt</h3>
+    <ul class="check-list">
+      <li>Go-168-4G firmware đúng phiên bản (≥ 230309)</li>
+      <li>SW-Working sensor còn nguyên, không hỏng</li>
+      <li>Đủ 4 nam châm đi kèm</li>
+      <li>2 cổng có miếng lót</li>
+      <li>SIM kích hoạt, tín hiệu GPS ổn định</li>
+    </ul>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(1)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(3)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 3 -->
+<section class="section" id="s3">
+  <h2>🔧 Lắp Đặt & Đấu Dây</h2>
+  <p class="subtitle">Quy trình lắp cảm biến lên xe bồn bê tông</p>
+  <div class="card">
+    <h3>Vị trí lắp cảm biến</h3>
+    <ul>
+      <li>Gắn cảm biến vào <strong>thân bồn trộn</strong> (phần quay)</li>
+      <li>Sử dụng nam châm để cố định lên bề mặt kim loại của bồn</li>
+      <li>Mũi tên trên cảm biến chỉ hướng theo quy ước (xem nguyên lý)</li>
+      <li>Đảm bảo cảm biến bám chắc, không rung lắc khi bồn quay</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Kết nối dây với Go-168</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Kết nối nguồn cảm biến</strong><p>Nối dây nguồn SW sensor với nguồn điện xe (đảm bảo điện áp ≥ 9V)</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Kết nối tín hiệu IO</strong><p>Dây IO của cảm biến → các cổng IO tương ứng trên Go-168</p></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-content"><strong>Kiểm tra miếng lót cổng</strong><p>Đảm bảo 2 cổng đã lắp miếng lót để chống nước và rung động</p></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-content"><strong>Kiểm tra đèn LED</strong><p>Đèn xanh: tín hiệu Trộn | Đèn đỏ: tín hiệu Xả</p></div></div>
+    </div>
+  </div>
+  <div class="info">💡 GPS Go-168 nên có dán tem và phân loại loại GPS rõ ràng để duyệt đơn sau.</div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(2)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(4)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 4 -->
+<section class="section" id="s4">
+  <h2>🖥️ Cài Đặt Hệ Thống</h2>
+  <p class="subtitle">Cài đặt IO và đồng bộ hóa trên CRM/FMS</p>
+  <div class="card">
+    <h3>Cài đặt đồng bộ hóa – Mục quan trọng</h3>
+    <table>
+      <tr><th>IO</th><th>Cài đặt bắt buộc</th></tr>
+      <tr><td><strong>IO0</strong></td><td>PSA, 1 (Discharge – Xả)</td></tr>
+      <tr><td><strong>IO1</strong></td><td>MIX, 1 (Mixing – Trộn)</td></tr>
+    </table>
+    <p style="margin-top:10px;font-size:13px;color:#92400e">⚠️ Nếu chưa cài đúng → điều chỉnh lại và bấm <strong>"Gửi ngay"</strong></p>
+  </div>
+  <div class="card">
+    <h3>Cài đặt quản lý thiết bị – IO</h3>
+    <p>Kỹ thuật lắp xong → hệ thống tự thiết lập:</p>
+    <table style="margin-top:8px">
+      <tr><th>IO</th><th>Chức năng</th></tr>
+      <tr><td>IO1</td><td>Mixing barrel circles (số vòng trộn)</td></tr>
+      <tr><td>IO2</td><td>Mixing drum – IO9</td></tr>
+    </table>
+    <p style="margin-top:10px;font-size:13px;color:#6b7280">Nếu không đúng → Trợ lý cài lại và báo lại cho RD TW</p>
+  </div>
+  <div class="card">
+    <h3>Reset thiết bị nếu có thay đổi</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Vào GoTrack_Reset</strong><p>Bấm nút <strong>"Gửi ngay"</strong></p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Bấm "Reload"</strong><p>Sau khi reload, 2 giá trị sẽ giống nhau → cài đặt đã được áp dụng</p></div></div>
+    </div>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(3)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(5)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 5 -->
+<section class="section" id="s5">
+  <h2>✅ Kiểm Tra & Duyệt Đơn</h2>
+  <p class="subtitle">Quy trình kiểm tra bắt buộc trước khi duyệt đơn lắp đặt</p>
+  <div class="danger"><strong>🚫 KHÔNG được duyệt đơn nếu:</strong> Kỹ thuật lắp xong không tiến hành check tín hiệu theo quy trình. Trường hợp đặc biệt → báo Leader/trợ lý.</div>
+  <div class="card">
+    <h3>Checklist duyệt đơn – Phần 1: Tín hiệu cơ bản</h3>
+    <ul class="check-list">
+      <li>Tín hiệu GPS bình thường (kiểm tra CRM → Tracker → GPS)</li>
+      <li>Có tín hiệu CB bê tông về (Discharge và/hoặc Mixing)</li>
+      <li>Quan sát FMS: nếu <strong>cả 2 đều không có</strong> → yêu cầu lắp lại, không duyệt</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Checklist duyệt đơn – Phần 2: Test thực tế</h3>
+    <p>Yêu cầu kỹ thuật cho test tín hiệu bồn trộn/xả:</p>
+    <ul style="margin-top:8px;padding-left:18px">
+      <li>Mỗi chế độ (trộn + xả) tối thiểu <strong>2 phút</strong></li>
+      <li>Quan sát tín hiệu xuất hiện trên FMS trong thời gian test</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Checklist duyệt đơn – Phần 3: Đồng bộ hóa</h3>
+    <ul class="check-list">
+      <li>IO0 cài đặt đúng: PSA, 1</li>
+      <li>IO1 cài đặt đúng: MIX, 1</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Checklist duyệt đơn – Phần 4: Hình ảnh lắp đặt</h3>
+    <ul class="check-list">
+      <li>Ảnh xe + biển số xe</li>
+      <li>GPS kết nối có miếng lót (gioăng cao su)</li>
+      <li>GPS có dán tem + ghi rõ loại GPS</li>
+      <li>Vị trí đấu dây trên xe</li>
+      <li>Đèn xanh sáng (tín hiệu Trộn)</li>
+      <li>Đèn đỏ sáng (tín hiệu Xả)</li>
+    </ul>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(4)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(6)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- Section 6 Q&A -->
+<section class="section" id="s6">
+  <h2>❓ Xử Lý Sự Cố – Q&A</h2>
+  <p class="subtitle">Các lỗi thường gặp và cách xử lý</p>
+  <div class="card">
+    <h3>Q1 & Q2: FMS không hiển thị Xả (nhưng có Trộn) hoặc ngược lại</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Xác nhận khoảng thời gian bất thường</strong><p>Hỏi khách hàng khoảng thời gian nào bị lỗi. Xác nhận GPS có hoạt động bình thường không.</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Kiểm tra cài đặt đồng bộ hóa + phụ kiện + FW</strong><p>FW ≥ 2.000.00.000003.230309. Cài đặt IO đúng chưa?</p></div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-content"><strong>Nếu chạy không tải tại chỗ</strong><p>Số vòng đôi khi hiển thị -1 do điện áp xe không ổn định (bình thường).</p></div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-content"><strong>Kết quả</strong><p>Sai → Xe chạy → Quan sát 1 ngày → Vẫn lỗi → Kỹ thuật đến kiểm tra<br>Đúng → Vẫn lỗi → Kỹ thuật đến kiểm tra</p></div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Q3: Dữ liệu bất thường – Thời gian trộn/xả sai</h3>
+    <p>Quy trình tương tự Q1/Q2. Nếu xả nhưng không hiển thị → <strong>Kỹ thuật kiểm tra hướng mũi tên cảm biến</strong> (có thể lắp ngược).</p>
+  </div>
+  <div class="card">
+    <h3>Q4: Có xả/trộn thực tế nhưng không có dữ liệu trên báo cáo FMS</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-content"><strong>Kiểm tra đồng bộ hóa + phụ kiện + FW</strong><p>Sau khi xe chạy cần quan sát 1 ngày</p></div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-content"><strong>Nếu vẫn còn vấn đề</strong><p>Báo cho bộ phận anh Henry để được hỗ trợ xử lý quy tắc nâng cao.</p></div></div>
+    </div>
+  </div>
+  <div class="nav-btns"><button class="btn btn-prev" onclick="show(5)">← Quay lại</button></div>
+</section>
+</main>
+
+<script>
+function show(i){
+  document.querySelectorAll('.section').forEach((s,idx)=>{s.classList.toggle('active',idx===i)});
+  document.querySelectorAll('nav ul li a').forEach((a,idx)=>{a.classList.toggle('active',idx===i)});
+  window.scrollTo({top:0,behavior:'smooth'});
+  return false;
+}
+</script>
+</body>
+</html>
