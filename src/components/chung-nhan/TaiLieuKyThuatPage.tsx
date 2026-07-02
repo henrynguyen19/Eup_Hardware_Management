@@ -100,3 +100,5 @@ export default function TaiLieuKyThuatPage({ isAdmin = false }: { isAdmin?: bool
         {renderContent()}
       </div>
     </div>
+  )
+}
