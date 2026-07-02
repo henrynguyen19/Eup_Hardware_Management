@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
 
 interface Guide {
@@ -336,4 +336,4 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
                   <input type="number" value={form.sort_order} onChange={e => setForm(f => ({ ...f, sort_order: +e.target.value }))}
                     style={inputStyle} />
                 </label>
-                <label style={{ ...labelStyle, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, marginTop
+                <label style={{ ...labelStyle, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, ma
