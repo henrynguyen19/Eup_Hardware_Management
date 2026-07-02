@@ -118,7 +118,7 @@ function DeviceSelect({ value, onChange }: { value: string; onChange: (v: string
           placeholder="Tên thiết bị"
           value={custom}
           onChange={e => { setCustom(e.target.value); onChange(e.target.value) }}
-          className="border border-gray-300 rounded px-2 py-1 text-sm w-28"
+          className="border border-gray-300 rounded px-2 py-1 text-sm w-full min-w-0 flex-1"
         />
       )}
     </div>
@@ -131,7 +131,7 @@ function DeviceRow({
 }: { item: DeviceQty; onChange: (v: DeviceQty) => void; onRemove: () => void; accentColor?: string }) {
   const adj = (delta: number) => onChange({ ...item, qty: Math.max(0, (item.qty || 0) + delta) })
   return (
-    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm hover:border-gray-300 transition group">
+    <div className="flex items-center gap-2 flex-wrap bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm hover:border-gray-300 transition group">
       <DeviceSelect value={item.device} onChange={d => onChange({ ...item, device: d })} />
       <div className="flex items-center gap-1 ml-auto flex-shrink-0">
         <button onClick={() => adj(-1)}
@@ -224,7 +224,7 @@ function OtherRow({
               type="text" placeholder="Nhập tên công việc..."
               value={customTask}
               onChange={e => { setCustomTask(e.target.value); onChange({ ...item, task: e.target.value }) }}
-              className="border border-gray-200 rounded-lg px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-amber-300"
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm flex-1 min-w-0 focus:outline-none focus:ring-2 focus:ring-amber-300"
             />
           )}
         </div>

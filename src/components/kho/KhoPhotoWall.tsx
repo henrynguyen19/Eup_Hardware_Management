@@ -116,7 +116,7 @@ export default function KhoPhotoWall({ initialCards, userEmail, canWrite = true,
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20">
+      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-14 md:top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -135,7 +135,7 @@ export default function KhoPhotoWall({ initialCards, userEmail, canWrite = true,
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Tìm kiếm..."
-                  className="pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
+                  className="pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-48"
                 />
                 <svg className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -178,7 +178,7 @@ export default function KhoPhotoWall({ initialCards, userEmail, canWrite = true,
 
       <div className="max-w-7xl mx-auto px-4 pt-4">
         {/* Summary tiles */}
-        <div className="grid grid-cols-4 md:grid-cols-7 gap-2 mb-4">
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2 mb-4">
           {DEVICE_TYPES.map(type => {
             const colors = DEVICE_TYPE_COLORS[type]
             const count = countByType[type] ?? 0
@@ -250,7 +250,7 @@ export default function KhoPhotoWall({ initialCards, userEmail, canWrite = true,
             ))}
           </div>
         ) : (
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-8">
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-8 overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>

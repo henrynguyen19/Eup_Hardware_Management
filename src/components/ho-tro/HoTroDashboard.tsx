@@ -290,7 +290,7 @@ function SummaryView({
       {showPendingPanel && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end" onClick={() => setShowPendingPanel(false)}>
           <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between">
+            <div className="sticky top-14 md:top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between">
               <div>
                 <h2 className="font-bold text-gray-800 text-lg">Yeu cau can theo doi</h2>
                 <p className="text-xs text-gray-400">Hen / mai bao lai - thang {month}/{yearShort}</p>
@@ -1155,7 +1155,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   return (
     <div className="flex flex-col min-h-screen">
       {/* ── Header ── */}
-      <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-20">
+      <header className="bg-white border-b border-gray-200 shadow-sm sticky top-14 md:top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <a href="/kho" className="text-sm text-gray-500 hover:text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition">
@@ -1327,7 +1327,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       {/* ── Main tabs ── */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-1 py-2">
+          <div className="flex gap-1 py-2 overflow-x-auto scrollbar-hide">
             {[
               { key: 'tickets', label: `📋 ${t.hoTro.tabRequests}` },
               { key: 'stats',   label: `📊 ${t.hoTro.tabStats}` },
@@ -1487,7 +1487,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     {/* Expanded detail */}
                     {expandedTicket === t.id && (
                       <div className="px-4 pb-4 border-t border-gray-100 pt-3 text-sm space-y-2">
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500">
                           {t.ticket_type && <div><span className="font-medium">Loại:</span> {t.ticket_type}</div>}
                           {t.contact     && <div><span className="font-medium">Liên hệ:</span> {t.contact}</div>}
                           {t.direction   && <div><span className="font-medium">Chiều:</span> {t.direction}</div>}
@@ -2205,7 +2205,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       {showStaffPending && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end" onClick={() => setShowStaffPending(false)}>
           <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between">
+            <div className="sticky top-14 md:top-0 bg-white border-b border-gray-200 px-5 py-4 flex items-center justify-between">
               <div>
                 <h2 className="font-bold text-gray-800 text-lg">{t.hoTro.pendingPanelTitle}</h2>
                 <p className="text-xs text-gray-400">{viewingStaff?.name}</p>
@@ -2250,7 +2250,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       {showUnread && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end" onClick={() => setShowUnread(false)}>
           <div className="bg-white w-full max-w-2xl h-full overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 bg-orange-50 border-b border-orange-200 px-5 py-4 flex items-center justify-between">
+            <div className="sticky top-14 md:top-0 bg-orange-50 border-b border-orange-200 px-5 py-4 flex items-center justify-between">
               <div>
                 <h2 className="font-bold text-orange-800 text-lg">🔔 Cập nhật mới từ CRM</h2>
                 <p className="text-xs text-orange-600">{unreadTickets.length} yêu cầu có thay đổi</p>

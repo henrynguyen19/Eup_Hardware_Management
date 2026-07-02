@@ -461,7 +461,7 @@ export default function PhotoWall({ initialCards, isAdmin, settings, userEmail, 
   return (
     <>
       {/* 單一凍結列：Tiêu đề列 + Tìm kiếm + Lọc */}
-      <div className="sticky top-0 z-40 bg-[#faf6f0] border-b border-[rgba(122,82,48,.18)] shadow-sm">
+      <div className="sticky top-14 md:top-0 z-40 bg-[#faf6f0] border-b border-[rgba(122,82,48,.18)] shadow-sm">
         {/* Tiêu đề列 */}
         <div className="max-w-7xl mx-auto px-4 pt-4 pb-3 flex items-center justify-between">
           <div>

@@ -68,9 +68,9 @@ export default function DeviceDetailModal({ card, canWrite, onClose, onEdit, onD
           {/* Tab: Tổng quan */}
           {activeTab === 'info' && (
             <>
-              <div className="flex gap-0">
+              <div className="flex flex-col sm:flex-row gap-0">
                 {/* Image */}
-                <div className="w-52 flex-shrink-0 bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4 min-h-52">
+                <div className="w-full sm:w-52 flex-shrink-0 bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4 min-h-40 sm:min-h-52">
                   {card.main_photo ? (
                     <div className="relative w-44 h-44">
                       <Image src={card.main_photo} alt={card.name} fill className="object-contain" />
@@ -164,8 +164,4 @@ export default function DeviceDetailModal({ card, canWrite, onClose, onEdit, onD
               ✏️ Chỉnh sửa
             </button>
           </div>
-        )}
-      </div>
-    </div>
-  )
-}
+   

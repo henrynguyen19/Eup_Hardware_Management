@@ -513,7 +513,7 @@ function StaleDeviceDetailModal({ imei, onClose, t }: { imei: string; onClose: (
                       {STATUS_LABEL[r.status] ?? r.status}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
                     <div><span className="text-gray-400">{t('Nhận về kho','Received')}: </span><span className="text-gray-700">{fmtDate(r.received_at)}</span></div>
                     <div><span className="text-gray-400">{t('Gửi sửa','Sent')}: </span><span className="text-gray-700">{fmtDate(r.sent_at)}</span></div>
                     <div><span className="text-gray-400">{t('Hoàn thành','Completed')}: </span><span className="text-gray-700">{fmtDate(r.completed_at)}</span></div>
@@ -1028,7 +1028,7 @@ function RepeatDevicesPanel({ devices, t }: { devices: DupDevice[]; t:(vi:string
                             {r.repair_warehouse && <span className="text-xs text-blue-500">{r.repair_warehouse}</span>}
                           </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-2 text-xs text-gray-500 mb-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-gray-500 mb-2">
                           <div><span className="text-gray-400">Nhận: </span>{fmtDate(r.received_at)}{r.receiver_name && <span className="text-gray-400"> · {r.receiver_name}</span>}</div>
                           <div><span className="text-gray-400">Gửi: </span>{r.sent_at?fmtDate(r.sent_at):'—'}{r.sender_name && <span className="text-gray-400"> · {r.sender_name}</span>}</div>
                           <div><span className="text-gray-400">Xong: </span>{r.completed_at?fmtDate(r.completed_at):'—'}{r.completer_name && <span className="text-gray-400"> · {r.completer_name}</span>}</div>
