@@ -38,6 +38,9 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
   const [saving, setSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<Guide | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [contentEditor, setContentEditor] = useState<{ file: string; content: string } | null>(null)
+  const [contentSaving, setContentSaving] = useState(false)
+  const [contentLoading, setContentLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -129,6 +132,40 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
     await load()
   }
 
+  async function openContentEditor(g: Guide) {
+    setContentLoading(true)
+    try {
+      const res = await fetch(`/api/guide-content?file=${encodeURIComponent(g.file_name)}`)
+      if (!res.ok) throw new Error('Cannot read file')
+      const { content } = await res.json()
+      setContentEditor({ file: g.file_name, content })
+    } catch {
+      alert('Không thể đọc file. Hãy chắc chắn file đã được deploy lên server.')
+    } finally {
+      setContentLoading(false)
+    }
+  }
+
+  async function saveContent() {
+    if (!contentEditor) return
+    setContentSaving(true)
+    try {
+      const res = await fetch('/api/guide-content', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: contentEditor.file, content: contentEditor.content }),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      setContentEditor(null)
+      // Reload iframe
+      if (iframeRef.current) iframeRef.current.src = iframeRef.current.src
+    } catch {
+      alert('Lưu thất bại. Vui lòng thử lại.')
+    } finally {
+      setContentSaving(false)
+    }
+  }
+
   const guideUrl = selected ? `/guides/${selected.file_name}` : null
 
   const q = searchQuery.trim().toLowerCase()
@@ -194,6 +231,56 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
                   {saving ? '⏳ Đang lưu...' : (modal === 'add' ? '➕ Thêm mới' : '💾 Lưu')}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+        {contentEditor && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '20px' }}>
+            <div style={{ background: '#1e1e2e', borderRadius: 14, width: '100%', maxWidth: 860, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
+              {/* Header */}
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', gap: 12, background: '#16162a', flexShrink: 0 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  ✏️ {vi ? 'Sửa nội dung' : 'Edit content'} — <span style={{ color: '#93c5fd', fontFamily: 'monospace', fontSize: 13 }}>{contentEditor.file}</span>
+                </span>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <button onClick={() => setContentEditor(null)} style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.08)', color: '#e2e8f0', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
+                    {vi ? 'Hủy' : 'Cancel'}
+                  </button>
+                  <button onClick={saveContent} disabled={contentSaving} style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: contentSaving ? '#6b7280' : '#1a56db', color: '#fff', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+                    {contentSaving ? '⏳ Đang lưu...' : '💾 Lưu'}
+                  </button>
+                </div>
+              </div>
+              {/* Hint */}
+              <div style={{ padding: '8px 20px', background: '#1a1a2e', borderBottom: '1px solid rgba(255,255,255,.07)', fontSize: 11.5, color: '#94a3b8', flexShrink: 0 }}>
+                💡 {vi ? 'Chỉnh sửa nội dung HTML. Lưu xong trang sẽ tự reload để hiển thị thay đổi.' : 'Edit HTML content. Save to reload the guide with changes.'}
+              </div>
+              {/* Code editor textarea */}
+              <textarea
+                value={contentEditor.content}
+                onChange={e => setContentEditor(prev => prev ? { ...prev, content: e.target.value } : null)}
+                spellCheck={false}
+                style={{
+                  flex: 1, resize: 'none', border: 'none', outline: 'none',
+                  background: '#1e1e2e', color: '#e2e8f0',
+                  fontFamily: "'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace",
+                  fontSize: 13, lineHeight: 1.6, padding: '16px 20px',
+                  tabSize: 2,
+                }}
+                onKeyDown={e => {
+                  // Tab key inserts 2 spaces
+                  if (e.key === 'Tab') {
+                    e.preventDefault()
+                    const el = e.target as HTMLTextAreaElement
+                    const start = el.selectionStart
+                    const end = el.selectionEnd
+                    const val = el.value
+                    const newVal = val.substring(0, start) + '  ' + val.substring(end)
+                    setContentEditor(prev => prev ? { ...prev, content: newVal } : null)
+                    setTimeout(() => { el.selectionStart = el.selectionEnd = start + 2 }, 0)
+                  }
+                }}
+              />
             </div>
           </div>
         )}
@@ -469,6 +556,15 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
               >
                 🔗 {vi ? 'Mở tab mới' : 'Open in tab'}
               </a>
+              {isAdmin && (
+                <button
+                  onClick={() => openContentEditor(selected)}
+                  disabled={contentLoading}
+                  style={{ fontSize: 12, color: '#b45309', background: '#fef3c7', padding: '4px 10px', borderRadius: 6, fontWeight: 500, flexShrink: 0, border: '1px solid #fde68a', cursor: 'pointer' }}
+                >
+                  {contentLoading ? '⏳' : '✏️'} {vi ? 'Sửa nội dung' : 'Edit content'}
+                </button>
+              )}
             </>
           ) : (
             <span style={{ fontSize: 13, color: '#9ca3af', flex: 1 }}>
