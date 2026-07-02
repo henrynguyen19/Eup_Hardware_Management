@@ -336,4 +336,59 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
                   <input type="number" value={form.sort_order} onChange={e => setForm(f => ({ ...f, sort_order: +e.target.value }))}
                     style={inputStyle} />
                 </label>
-                <label style={{ ...labelStyle, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, ma
+                <label style={{ ...labelStyle, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20 }}>
+                  <input type="checkbox" checked={form.is_active} onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))}
+                    style={{ width: 16, height: 16, flexShrink: 0 }} />
+                  <span>Hiển thị (active)</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Modal footer */}
+            <div style={{ padding: '12px 22px 18px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setModal(null)} style={btnSecStyle}>Hủy</button>
+              <button onClick={saveForm} disabled={saving || !form.title || !form.file_name} style={btnPrimStyle}>
+                {saving ? '⏳ Đang lưu...' : (modal === 'add' ? '➕ Thêm mới' : '💾 Lưu')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE CONFIRM ── */}
+      {deleteConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', maxWidth: 400, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', textAlign: 'center' }}>
+            <div style={{ fontSize: 44, marginBottom: 12 }}>🗑️</div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 8px' }}>Xác nhận xóa?</h3>
+            <p style={{ fontSize: 13.5, color: '#6b7280', margin: '0 0 20px', lineHeight: 1.6 }}>
+              Xóa hướng dẫn <strong>"{deleteConfirm.title}"</strong>?<br />Hành động này không thể hoàn tác.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <button onClick={() => setDeleteConfirm(null)} style={btnSecStyle}>Hủy</button>
+              <button onClick={() => doDelete(deleteConfirm)} style={{ ...btnPrimStyle, background: '#dc2626' }}>
+                Xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const labelStyle: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: '#374151'
+}
+const inputStyle: React.CSSProperties = {
+  border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none',
+  fontFamily: 'inherit', width: '100%', color: '#111827'
+}
+const btnSecStyle: React.CSSProperties = {
+  padding: '8px 18px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff',
+  fontSize: 13, fontWeight: 500, cursor: 'pointer', color: '#374151'
+}
+const btnPrimStyle: React.CSSProperties = {
+  padding: '8px 18px', borderRadius: 8, border: 'none', background: '#1a56db',
+  fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#fff'
+}
