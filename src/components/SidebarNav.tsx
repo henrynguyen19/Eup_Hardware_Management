@@ -109,16 +109,14 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
       )}
 
       {/* ── SIDEBAR ───────────────────────────────────── */}
-      {/* Desktop: always visible static. Mobile: slide-in overlay */}
+      {/* Desktop: always in-flow (hidden md:flex pattern).
+          Mobile: hidden by default, shows as fixed overlay when mobileOpen=true */}
       <aside
-        className={[
-          'flex flex-col flex-shrink-0',
-          'fixed md:static inset-y-0 left-0 z-50',
-          'w-56 min-h-screen',
-          'transition-transform duration-300',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full',
-          'md:translate-x-0',
-        ].join(' ')}
+        className={
+          mobileOpen
+            ? 'fixed inset-y-0 left-0 z-50 flex flex-col w-56 min-h-screen'   /* mobile open: overlay */
+            : 'hidden md:flex flex-col flex-shrink-0 w-56 min-h-screen'         /* mobile closed + desktop */
+        }
         style={{ background: '#0d2a4a' }}
       >
 
@@ -305,4 +303,56 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
                 onChange={e => setCurrentPw(e.target.value)}
                 placeholder={t.changePw.currentPlaceholder}
                 autoFocus
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none transition"
+                onFocus={e => { e.currentTarget.style.borderColor = '#A70A0A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,10,10,0.1)' }}
+                onBlur={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.boxShadow = '' }}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">{t.changePw.newPw}</label>
+              <input
+                type="password"
+                value={newPw}
+                onChange={e => setNewPw(e.target.value)}
+                placeholder={t.changePw.newPlaceholder}
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none transition"
+                onFocus={e => { e.currentTarget.style.borderColor = '#A70A0A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,10,10,0.1)' }}
+                onBlur={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.boxShadow = '' }}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">{t.changePw.confirmPw}</label>
+              <input
+                type="password"
+                value={confirmPw}
+                onChange={e => setConfirmPw(e.target.value)}
+                placeholder={t.changePw.confirmPlaceholder}
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none transition"
+                onFocus={e => { e.currentTarget.style.borderColor = '#A70A0A'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,10,10,0.1)' }}
+                onBlur={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.boxShadow = '' }}
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5 rounded-xl flex items-center gap-2">
+                <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>{error}</span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl text-white font-semibold text-sm transition-all disabled:opacity-60"
+              style={{ background: '#A70A0A' }}
+            >
+              {loading ? t.changePw.saving : t.changePw.savePw}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
