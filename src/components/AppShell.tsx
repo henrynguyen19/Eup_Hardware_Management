@@ -30,4 +30,7 @@ export default function AppShell({ userEmail, permissions, children }: Props) {
       />
       <div className="flex-1 min-w-0 overflow-hidden pt-14 md:pt-0">
         {children}
-    
+      </div>
+    </div>
+  )
+}
