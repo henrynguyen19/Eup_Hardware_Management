@@ -164,4 +164,8 @@ export default function DeviceDetailModal({ card, canWrite, onClose, onEdit, onD
               ✏️ Chỉnh sửa
             </button>
           </div>
-   
+        )}
+      </div>
+    </div>
+  )
+}

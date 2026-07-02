@@ -370,4 +370,138 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', lineHeight: 1.4, marginBottom: 3 }}>
                       {g.title}
-                      {!g.is_active && <span style={{ marginLeft: 6, fontSize: 10, background: '#fee2e2', color: '#991b1b', padding: '1px 5px',
+                      {!g.is_active && <span style={{ marginLeft: 6, fontSize: 10, background: '#fee2e2', color: '#991b1b', padding: '1px 5px', borderRadius: 4 }}>Ẩn</span>}
+                    </div>
+                    {g.device_model && (
+                      <span style={{ fontSize: 11, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 10, fontWeight: 500 }}>
+                        {g.device_model}
+                      </span>
+                    )}
+                    {g.description && (
+                      <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 4, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                        {g.description}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Admin actions */}
+                {isAdmin && (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 8 }} onClick={e => e.stopPropagation()}>
+                    <button onClick={() => openEdit(g)} style={{ flex: 1, padding: '4px 0', fontSize: 11, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 5, cursor: 'pointer', color: '#374151' }}>
+                      ✏️ Sửa
+                    </button>
+                    <button onClick={() => setDeleteConfirm(g)} style={{ flex: 1, padding: '4px 0', fontSize: 11, background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: 5, cursor: 'pointer', color: '#dc2626' }}>
+                      🗑️ Xóa
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── MAIN VIEWER ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* Viewer toolbar */}
+        {selected && (
+          <div style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            <span style={{ fontSize: 13, color: '#374151', fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              📄 {selected.title}
+            </span>
+            {selected.device_model && (
+              <span style={{ fontSize: 11, background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: 10, fontWeight: 500, flexShrink: 0 }}>
+                {selected.device_model}
+              </span>
+            )}
+            <a
+              href={`/guides/${selected.file_name}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: 12, color: '#1a56db', textDecoration: 'none', background: '#eff6ff', padding: '4px 10px', borderRadius: 6, fontWeight: 500, flexShrink: 0 }}
+            >
+              🔗 {vi ? 'Mở tab mới' : 'Open in tab'}
+            </a>
+          </div>
+        )}
+
+        {/* iFrame viewer */}
+        {guideUrl ? (
+          <div style={{ flex: 1, position: 'relative' }}>
+            {/* Loading overlay */}
+            {iframeLoading && !iframeError && (
+              <div style={{ position: 'absolute', inset: 0, background: '#f9fafb', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
+                <div style={{ textAlign: 'center', color: '#6b7280' }}>
+                  <div style={{ fontSize: 36, marginBottom: 10 }}>📄</div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>Đang tải tài liệu...</div>
+                  <div style={{ fontSize: 12, marginTop: 6, color: '#9ca3af' }}>{selected?.file_name}</div>
+                </div>
+              </div>
+            )}
+            {/* Error overlay — file chưa deploy hoặc không tồn tại */}
+            {iframeError && (
+              <div style={{ position: 'absolute', inset: 0, background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, flexDirection: 'column', gap: 12, padding: 32 }}>
+                <div style={{ fontSize: 44 }}>⚠️</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#991b1b' }}>Không tìm thấy file tài liệu</div>
+                <div style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', maxWidth: 400, lineHeight: 1.6 }}>
+                  File <code style={{ background: '#fee2e2', padding: '2px 6px', borderRadius: 4 }}>{selected?.file_name}</code> chưa có trên server.<br/>
+                  Vui lòng chạy <code style={{ background: '#fee2e2', padding: '2px 6px', borderRadius: 4 }}>git push origin master</code> để deploy file lên.
+                </div>
+                <a href={guideUrl} target="_blank" rel="noopener noreferrer"
+                  style={{ marginTop: 8, padding: '8px 18px', background: '#1a56db', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                  🔗 Thử mở trực tiếp
+                </a>
+              </div>
+            )}
+            <iframe
+              ref={iframeRef}
+              src={guideUrl}
+              style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+              title={selected?.title}
+              onLoad={() => {
+                // Detect 404: contentDocument có thể không truy cập được (cross-origin),
+                // nhưng nếu same-origin và trả về 404 thì title sẽ là "404" hoặc body trống
+                setIframeLoading(false)
+                setIframeError(false)
+              }}
+              onError={() => {
+                setIframeLoading(false)
+                setIframeError(true)
+              }}
+            />
+          </div>
+        ) : (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#9ca3af' }}>
+            <div style={{ fontSize: 52 }}>🔧</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: '#6b7280' }}>
+              {vi ? 'Chọn một hướng dẫn để xem' : 'Select a guide to view'}
+            </div>
+            <div style={{ fontSize: 13 }}>
+              {guides.length === 0
+                ? (vi ? 'Chưa có tài liệu nào được thêm' : 'No guides added yet')
+                : (vi ? 'Nhấn vào tiêu đề bên trái' : 'Click a title on the left')}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {renderModals()}
+    </div>
+  )
+}
+
+const labelStyle: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: '#374151'
+}
+const inputStyle: React.CSSProperties = {
+  border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none',
+  fontFamily: 'inherit', width: '100%', color: '#111827'
+}
+const btnSecStyle: React.CSSProperties = {
+  padding: '8px 18px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff',
+  fontSize: 13, fontWeight: 500, cursor: 'pointer', color: '#374151'
+}
+const btnPrimStyle: React.CSSProperties = {
+  padding: '8px 18px', borderRadius: 8, border: 'none', background: '#1a56db',
+  fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#fff'
+}
