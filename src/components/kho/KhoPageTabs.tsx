@@ -83,8 +83,8 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
             )}
           </div>
 
-          {/* Tab row */}
-          <div className="flex gap-1 pb-0">
+          {/* Tab row — scrollable on mobile */}
+          <div className="flex gap-1 pb-0 overflow-x-auto scrollbar-hide">
             {PAGE_TABS.map(tab => {
               const isActive = tab.id === activeTab
               return (
@@ -172,10 +172,4 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
               </div>
               <VehicleCompatMatrix isAdmin={isAdmin} />
             </div>
-          </div>
-        )}
-
-      </div>
-    </div>
-  )
-}
+   

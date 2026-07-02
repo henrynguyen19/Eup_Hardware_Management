@@ -66,24 +66,24 @@ export default function TaiLieuKyThuatPage({ isAdmin = false }: { isAdmin?: bool
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Page header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <h1 className="text-xl font-bold text-gray-900">
+      <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-4">
+        <h1 className="text-lg md:text-xl font-bold text-gray-900">
           {vi ? '📁 Tài liệu kỹ thuật' : '📁 Technical Documents'}
         </h1>
-        <p className="text-sm text-gray-500 mt-0.5">
+        <p className="text-xs md:text-sm text-gray-500 mt-0.5">
           {vi ? 'Giấy chứng nhận, tài liệu kỹ thuật và hướng dẫn lắp đặt thiết bị'
                : 'Certificates, technical documents and device installation guides'}
         </p>
       </div>
 
-      {/* Subtabs */}
-      <div className="bg-white border-b border-gray-200 px-6">
-        <div className="flex gap-1">
+      {/* Subtabs — scrollable on mobile */}
+      <div className="bg-white border-b border-gray-200 px-2 md:px-6">
+        <div className="flex gap-0 overflow-x-auto scrollbar-hide">
           {tabs.map(tab => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-xs md:text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
                 activeTab === tab.key
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -95,10 +95,4 @@ export default function TaiLieuKyThuatPage({ isAdmin = false }: { isAdmin?: bool
         </div>
       </div>
 
-      {/* Content — no extra padding, CertificatesPage has its own layout */}
-      <div key={activeTab}>
-        {renderContent()}
-      </div>
-    </div>
-  )
-}
+      {/* C
