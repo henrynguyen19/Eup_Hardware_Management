@@ -26,7 +26,7 @@ export default async function ChungNhanPage() {
 
   return (
     <AppShell userEmail={user.email ?? ''} permissions={permissions}>
-      <TaiLieuKyThuatPage />
+      <TaiLieuKyThuatPage isAdmin={permissions.includes('admin:users')} />
     </AppShell>
   )
 }

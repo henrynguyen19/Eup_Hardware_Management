@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
 import CertificatesPage from './CertificatesPage'
+import HuongDanLapDatPage from './HuongDanLapDatPage'
 
 // Google Drive folder IDs — cấu hình theo từng loại tài liệu
 // Giấy chứng nhận: dùng folder gốc hiện có
@@ -13,7 +14,7 @@ const FOLDER_HUONG_DAN    = ''   // ← điền Google Drive folder ID
 
 type SubTab = 'certificates' | 'technical' | 'installation'
 
-export default function TaiLieuKyThuatPage() {
+export default function TaiLieuKyThuatPage({ isAdmin = false }: { isAdmin?: boolean }) {
   const { lang } = useLanguage()
   const [activeTab, setActiveTab] = useState<SubTab>('certificates')
 
@@ -40,10 +41,15 @@ export default function TaiLieuKyThuatPage() {
       ? (vi ? 'Tài liệu kỹ thuật' : 'Technical Documents')
       : (vi ? 'Hướng dẫn lắp đặt' : 'Installation Guide')
 
+    // Hướng dẫn lắp đặt — dùng HuongDanLapDatPage
+    if (activeTab === 'installation') {
+      return <HuongDanLapDatPage isAdmin={isAdmin} />
+    }
+
     if (!folderId) {
       return (
         <div className="flex flex-col items-center justify-center py-24 text-gray-400 space-y-3">
-          <span className="text-5xl">{activeTab === 'technical' ? '📋' : '🔧'}</span>
+          <span className="text-5xl">📋</span>
           <p className="text-base font-medium text-gray-500">{title}</p>
           <p className="text-sm">
             {vi
