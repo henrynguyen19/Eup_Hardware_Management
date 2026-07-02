@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quy Trình Bảo Hành Sản Phẩm EUP</title>
+<style>
+  :root {
+    --primary:#059669;--primary-light:#ecfdf5;--primary-dark:#047857;
+    --blue:#1a56db;--blue-light:#ebf5ff;
+    --warning:#c27803;--warning-light:#fffbeb;
+    --danger:#c81e1e;--danger-light:#fdf2f2;
+    --gray:#6b7280;--gray-light:#f9fafb;--border:#e5e7eb;--text:#111827;--text-muted:#6b7280;
+    --sidebar-w:270px;--radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f4f6;color:var(--text);line-height:1.6}
+  .layout{display:flex;min-height:100vh}
+  .sidebar{width:var(--sidebar-w);background:#064e3b;color:#d1fae5;position:fixed;top:0;left:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;z-index:100;transition:transform .3s}
+  .sidebar-logo{padding:20px 16px 16px;border-bottom:1px solid #065f46}
+  .sidebar-logo .brand{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#6ee7b7;font-weight:600}
+  .sidebar-logo .title{font-size:14px;font-weight:700;color:#fff;margin-top:4px;line-height:1.3}
+  .sidebar-logo .version{font-size:11px;color:#6b7280;margin-top:4px}
+  .sidebar-nav{padding:12px 0;flex:1}
+  .nav-section{padding:6px 16px 2px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#4b7562;font-weight:600}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;transition:background .15s;border-left:3px solid transparent;color:#86efac;font-size:13px}
+  .nav-item:hover{background:#065f46;color:#d1fae5}
+  .nav-item.active{background:#047857;border-left-color:#34d399;color:#fff}
+  .nav-item .icon{font-size:16px;width:20px;text-align:center;flex-shrink:0}
+  .nav-item .step-num{margin-left:auto;background:#065f46;color:#86efac;font-size:10px;padding:1px 7px;border-radius:10px;font-weight:600}
+  .nav-item.active .step-num{background:#059669;color:#fff}
+  .progress-bar{padding:12px 16px;border-top:1px solid #065f46}
+  .progress-label{font-size:11px;color:#6ee7b7;margin-bottom:6px;display:flex;justify-content:space-between}
+  .progress-track{background:#065f46;border-radius:4px;height:6px}
+  .progress-fill{background:#34d399;height:6px;border-radius:4px;transition:width .4s;width:0%}
+  .hamburger{display:none;position:fixed;top:12px;left:12px;z-index:200;background:#064e3b;border:none;color:#fff;width:40px;height:40px;border-radius:8px;font-size:20px;cursor:pointer;align-items:center;justify-content:center}
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90}
+  .main{margin-left:var(--sidebar-w);flex:1;min-width:0}
+  .topbar{background:#fff;border-bottom:1px solid var(--border);padding:14px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+  .topbar-breadcrumb{font-size:13px;color:var(--text-muted)}
+  .topbar-breadcrumb span{color:var(--text);font-weight:600}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+  .btn-outline{background:#fff;border:1px solid var(--border);color:var(--text)}
+  .btn-outline:hover{background:var(--gray-light)}
+  .hero{background:linear-gradient(135deg,#064e3b 0%,#059669 60%,#34d399 100%);padding:48px 40px 40px;color:#fff}
+  .hero-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);padding:4px 12px;border-radius:20px;font-size:12px;margin-bottom:16px}
+  .hero h1{font-size:26px;font-weight:800;line-height:1.2;margin-bottom:10px}
+  .hero p{font-size:14px;opacity:.85;max-width:550px;line-height:1.6}
+  .hero-meta{display:flex;gap:24px;margin-top:24px;flex-wrap:wrap}
+  .hero-meta-item{display:flex;align-items:center;gap:8px;font-size:13px;opacity:.9}
+  .hero-meta-item .dot{width:8px;height:8px;background:#6ee7b7;border-radius:50%}
+  .content{padding:32px 40px}
+  .section{margin-bottom:48px;scroll-margin-top:70px}
+  .section-header{display:flex;align-items:center;gap:14px;margin-bottom:24px;padding-bottom:14px;border-bottom:2px solid var(--border)}
+  .section-num{width:36px;height:36px;border-radius:10px;background:var(--primary);color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .section-num.blue{background:#1a56db}
+  .section-num.orange{background:#d97706}
+  .section-num.red{background:#dc2626}
+  .section-num.purple{background:#7c3aed}
+  .section-header h2{font-size:20px;font-weight:700;color:var(--text)}
+  .section-header .sub{font-size:13px;color:var(--text-muted)}
+  .steps{display:flex;flex-direction:column;gap:14px}
+  .step{background:#fff;border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;transition:box-shadow .2s}
+  .step:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)}
+  .step-header{display:flex;align-items:flex-start;gap:16px;padding:18px 20px;cursor:pointer;user-select:none}
+  .step-num{width:28px;height:28px;border-radius:50%;background:var(--primary-light);color:var(--primary);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+  .step-num.blue{background:#eff6ff;color:#1e40af}
+  .step-num.warn{background:#fffbeb;color:#d97706}
+  .step-title{font-size:15px;font-weight:600;flex:1}
+  .step-subtitle{font-size:12.5px;color:var(--text-muted);margin-top:2px}
+  .step-toggle{color:var(--text-muted);font-size:18px;transition:transform .2s;flex-shrink:0;margin-top:2px}
+  .step.open .step-toggle{transform:rotate(180deg)}
+  .step-body{padding:0 20px 20px 64px;display:none;border-top:1px solid #f3f4f6;padding-top:16px}
+  .step.open .step-body{display:block}
+  .callout{border-radius:10px;padding:14px 16px;margin:14px 0;display:flex;gap:12px;font-size:13.5px;line-height:1.6}
+  .callout.info{background:var(--blue-light);border-left:3px solid var(--blue)}
+  .callout.success{background:var(--primary-light);border-left:3px solid var(--primary)}
+  .callout.warning{background:var(--warning-light);border-left:3px solid var(--warning)}
+  .callout.danger{background:var(--danger-light);border-left:3px solid var(--danger)}
+  .callout-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+  .checklist{list-style:none;display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .checklist li{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5;cursor:pointer;padding:4px 0}
+  .checklist li::before{content:"☐";font-size:16px;color:var(--primary);flex-shrink:0;margin-top:1px}
+  .checklist li.checked::before{content:"☑";color:#059669}
+  .checklist li.checked{color:var(--text-muted);text-decoration:line-through}
+  .inline-steps{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .inline-step{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5}
+  .inline-step .n{width:22px;height:22px;border-radius:50%;background:var(--primary);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+  .data-table{width:100%;border-collapse:collapse;font-size:13px;margin:14px 0;border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+  .data-table th{background:#047857;color:#fff;padding:10px 14px;text-align:left;font-weight:600}
+  .data-table td{padding:9px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  .data-table tr:last-child td{border-bottom:none}
+  .data-table tr:hover td{background:#f9fafb}
+  .tag{display:inline-flex;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .tag-green{background:#d1fae5;color:#065f46}
+  .tag-blue{background:#dbeafe;color:#1e40af}
+  .tag-orange{background:#fed7aa;color:#9a3412}
+  .tag-red{background:#fee2e2;color:#991b1b}
+  .tag-gray{background:#f3f4f6;color:#374151}
+  /* Warranty grid */
+  .warranty-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+  .warranty-card{border-radius:10px;padding:14px;border:1px solid var(--border)}
+  .warranty-card h5{font-size:12px;font-weight:700;margin-bottom:8px}
+  .warranty-card p{font-size:12.5px;color:var(--text-muted);line-height:1.5}
+  .warranty-card.lifetime{background:#ecfdf5;border-color:#6ee7b7}
+  .warranty-card.lifetime h5{color:#065f46}
+  .warranty-card.one-year{background:#eff6ff;border-color:#93c5fd}
+  .warranty-card.one-year h5{color:#1e40af}
+  .warranty-card.two-year{background:#fffbeb;border-color:#fcd34d}
+  .warranty-card.two-year h5{color:#92400e}
+  .warranty-card.no-warranty{background:#fef2f2;border-color:#fca5a5}
+  .warranty-card.no-warranty h5{color:#991b1b}
+  .flow-steps{display:flex;align-items:flex-start;gap:0;margin:16px 0;flex-wrap:wrap}
+  .flow-step{display:flex;flex-direction:column;align-items:center;text-align:center;flex:1;min-width:80px;position:relative}
+  .flow-step:not(:last-child)::after{content:"→";position:absolute;right:-12px;top:16px;color:#9ca3af;font-size:18px}
+  .flow-step .circle{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;margin:0 auto 6px;border:2px solid}
+  .flow-step .circle.green{background:#ecfdf5;border-color:#6ee7b7}
+  .flow-step .circle.blue{background:#eff6ff;border-color:#93c5fd}
+  .flow-step .circle.orange{background:#fffbeb;border-color:#fcd34d}
+  .flow-step .label{font-size:11px;color:var(--text-muted);line-height:1.3}
+  .version-section{background:#fff;border-radius:var(--radius);border:1px solid var(--border);padding:20px;margin-bottom:32px}
+  .version-section h3{font-size:14px;font-weight:700;margin-bottom:12px;color:var(--text)}
+  @media(max-width:768px){
+    .hamburger{display:flex}
+    .sidebar{transform:translateX(-100%)}
+    .sidebar.open{transform:translateX(0)}
+    .overlay.open{display:block}
+    .main{margin-left:0}
+    .hero{padding:40px 20px 28px}
+    .hero h1{font-size:20px}
+    .content{padding:20px 16px}
+    .topbar{padding:12px 16px;padding-left:60px}
+    .warranty-grid{grid-template-columns:1fr}
+    .step-body{padding-left:20px}
+    .flow-steps{gap:8px}
+    .flow-step:not(:last-child)::after{display:none}
+  }
+  @media print{
+    .sidebar,.hamburger,.topbar,.btn{display:none!important}
+    .main{margin-left:0}
+    .step-body{display:block!important}
+  }
+</style>
+</head>
+<body>
+
+<button class="hamburger" onclick="toggleSidebar()">☰</button>
+<div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+<div class="layout">
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">EUP · Quy Trình</div>
+    <div class="title">Bảo Hành Sản Phẩm</div>
+    <div class="version">Phiên bản V2.1 · 16/06/2025</div>
+  </div>
+  <div class="sidebar-nav">
+    <div class="nav-section">Nội dung</div>
+    <div class="nav-item active" onclick="scrollTo('s0')" id="nav-s0">
+      <span class="icon">📋</span> Giới thiệu <span class="step-num">TQ</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s1')" id="nav-s1">
+      <span class="icon">📥</span> Tiếp nhận yêu cầu <span class="step-num">1</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s2')" id="nav-s2">
+      <span class="icon">📦</span> Kho chuẩn bị hàng <span class="step-num">2</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s3')" id="nav-s3">
+      <span class="icon">🔧</span> Kỹ thuật xử lý <span class="step-num">3</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s4')" id="nav-s4">
+      <span class="icon">✅</span> Trợ lý xác nhận <span class="step-num">4</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s5')" id="nav-s5">
+      <span class="icon">🔁</span> Thu hồi & sửa chữa <span class="step-num">5</span>
+    </div>
+  </div>
+  <div class="progress-bar">
+    <div class="progress-label"><span>Tiến độ đọc</span><span id="pct">0%</span></div>
+    <div class="progress-track"><div class="progress-fill" id="pfill"></div></div>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-breadcrumb">EUP / Quy trình / <span>Bảo hành sản phẩm</span></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline" onclick="window.print()">🖨️ In</button>
+      <button class="btn btn-outline" onclick="expandAll()">📖 Mở tất cả</button>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-chip">🛡️ Bảo hành · V2.1</div>
+    <h1>Quy Trình Bảo Hành<br>Sản Phẩm EUP</h1>
+    <p>Quy trình từ tiếp nhận yêu cầu bảo hành, chuẩn bị thiết bị, xử lý tại hiện trường đến thu hồi và sửa chữa. Áp dụng cho GPS, camera, cảm biến và phụ kiện.</p>
+    <div class="hero-meta">
+      <div class="hero-meta-item"><div class="dot"></div>5 bước chính</div>
+      <div class="hero-meta-item"><div class="dot"></div>GPS · Camera · Cảm biến · Phụ kiện</div>
+      <div class="hero-meta-item"><div class="dot"></div>Cập nhật 16/06/2025</div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- Overview -->
+    <div class="version-section" id="s0">
+      <h3>📋 Lịch sử phiên bản</h3>
+      <table class="data-table">
+        <thead><tr><th>STT</th><th>Ngày cập nhật</th><th>Phiên bản</th><th>Nội dung</th><th>Người tạo</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>12/11/2024</td><td><span class="tag tag-blue">V1.0</span></td><td>Phát hành lần đầu</td><td>Henry</td></tr>
+          <tr><td>2</td><td>27/11/2024</td><td><span class="tag tag-blue">V2.0</span></td><td>Cập nhật yêu cầu về biên bản nghiệm thu</td><td>Henry</td></tr>
+          <tr><td>3</td><td>16/06/2025</td><td><span class="tag tag-green">V2.1</span></td><td>Cập nhật yêu cầu chụp ảnh bằng app Timestamp Camera ở mục Nghiệm thu</td><td>Henry</td></tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top:20px">
+        <p style="font-size:13.5px;font-weight:700;margin-bottom:12px">📊 Luồng xử lý tổng quan:</p>
+        <div class="flow-steps">
+          <div class="flow-step"><div class="circle green">📥</div><div class="label">Trợ lý<br>tiếp nhận</div></div>
+          <div class="flow-step"><div class="circle blue">📦</div><div class="label">Kho<br>chuẩn bị</div></div>
+          <div class="flow-step"><div class="circle orange">🔧</div><div class="label">Kỹ thuật<br>xử lý</div></div>
+          <div class="flow-step"><div class="circle green">✅</div><div class="label">Trợ lý<br>xác nhận</div></div>
+          <div class="flow-step"><div class="circle orange">🔁</div><div class="label">Thu hồi<br>sửa chữa</div></div>
+        </div>
+      </div>
+
+      <div style="margin-top:20px">
+        <p style="font-size:13.5px;font-weight:700;margin-bottom:12px">⏱️ Thời hạn bảo hành theo loại thiết bị:</p>
+        <div class="warranty-grid">
+          <div class="warranty-card lifetime">
+            <h5>♾️ Bảo hành vĩnh viễn</h5>
+            <p>Thiết bị định vị GPS (Go-168, VN88-4GH, VN88-4G, MT99, S400). Kỹ thuật có thể tự thay theo đơn bảo hành.</p>
+          </div>
+          <div class="warranty-card one-year">
+            <h5>📅 Bảo hành 1 năm</h5>
+            <p>Camera H5, C43, Bewin · Camera các loại · Cảm biến (dầu, cửa, bê tông) · Thẻ nhớ, ổ cứng · Dây nguồn, dây cáp, ăng ten GPS/GSM</p>
+          </div>
+          <div class="warranty-card two-year">
+            <h5>📅 Bảo hành 1–2 năm</h5>
+            <p>DVR88. Có thể cho khách mượn thiết bị trong khi sửa chữa (lưu ý: chỉ mượn thiết bị, <strong>không mượn thẻ nhớ</strong>).</p>
+          </div>
+          <div class="warranty-card no-warranty">
+            <h5>🚫 Không bảo hành</h5>
+            <p>Cảm biến dầu chuyển đổi (một số trường hợp cảm biến Soji có thể nhờ hãng bảo hành). Thẻ nhớ, ổ cứng hỏng phải mua mới.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BƯỚC 1 -->
+    <div class="section" id="s1">
+      <div class="section-header">
+        <div class="section-num blue">1</div>
+        <div><h2>Trợ lý tiếp nhận & xác định yêu cầu bảo hành</h2><div class="sub">Từ đội Hỗ trợ kỹ thuật (Kyo)</div></div>
+      </div>
+      <div class="steps">
+
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num blue">1</div>
+            <div style="flex:1"><div class="step-title">📋 Xác định loại thiết bị cần bảo hành</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <table class="data-table">
+              <thead><tr><th>Nhóm thiết bị</th><th>Loại cụ thể</th></tr></thead>
+              <tbody>
+                <tr><td>Định vị GPS</td><td>Go-168, VN88-4GH, VN88-4G, MT99, S400</td></tr>
+                <tr><td>Camera giám sát hành trình</td><td>H5, C43, Bewin, DVR88</td></tr>
+                <tr><td>Cảm biến</td><td>Dầu, cửa, bê tông…</td></tr>
+                <tr><td>Camera (cho H5, Bewin)</td><td>Hành trình, cabin, thùng xe, ngoài xe, AI</td></tr>
+                <tr><td>Phụ kiện</td><td>Dây nguồn, dây cáp camera, ăng ten GPS/GSM</td></tr>
+                <tr><td>Lưu trữ</td><td>Thẻ nhớ, ổ cứng</td></tr>
+                <tr><td>SIM</td><td>SIM data</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num blue">2</div>
+            <div style="flex:1"><div class="step-title">⏱️ Xác định thời hạn và điều kiện bảo hành</div><div class="step-subtitle">Tra bảng thời hạn bảo hành theo từng loại thiết bị</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div class="callout warning">
+              <span class="callout-icon">⚠️</span>
+              <div>
+                <strong>Quy tắc chung:</strong> Nếu thiết bị hết hạn bảo hành → thông báo khách hàng có thể phát sinh chi phí thay mới hoặc sửa chữa (tháo về công ty kiểm tra), cộng công kỹ thuật.
+              </div>
+            </div>
+            <div class="callout info">
+              <span class="callout-icon">💡</span>
+              <div>
+                <strong>Cảm biến dầu thay mới:</strong> Cần báo kho <strong>thông số chiều dài cây dầu</strong> để kho chuẩn bị cây dầu dự phòng phù hợp.
+              </div>
+            </div>
+            <div class="callout info">
+              <span class="callout-icon">💡</span>
+              <div>
+                <strong>DVR88:</strong> Có thể format lại thẻ nhớ trước khi quyết định thay mới.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num blue">3</div>
+            <div style="flex:1"><div class="step-title">📞 Liên hệ khách hàng thông báo</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Thông báo về việc bảo hành thiết bị</li>
+              <li onclick="toggleCheck(this)">Nếu hết hạn / không đủ điều kiện: thông báo rõ có thể phát sinh chi phí</li>
+              <li onclick="toggleCheck(this)">Xác nhận thời gian và địa điểm xử lý với khách hàng</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num blue">4</div>
+            <div style="flex:1"><div class="step-title">📝 Đặt hàng kho và lên đơn kỹ thuật</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Đặt hàng kho thiết bị và phụ kiện theo đơn bảo hành</li>
+              <li onclick="toggleCheck(this)">Ghi rõ: <strong>mang đi thay mới</strong> hay <strong>dự phòng</strong> (dự phòng phải trả lại đúng thiết bị đã mang đi)</li>
+              <li onclick="toggleCheck(this)">Cập nhật lên file Google Docshare</li>
+              <li onclick="toggleCheck(this)">Lên đơn cho kỹ thuật, ghi rõ <strong>thiết bị còn bảo hành hay không</strong></li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- BƯỚC 2 -->
+    <div class="section" id="s2">
+      <div class="section-header">
+        <div class="section-num">2</div>
+        <div><h2>Kho chuẩn bị hàng</h2><div class="sub">Theo đơn hàng từ trợ lý</div></div>
+      </div>
+      <div class="steps">
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">1</div>
+            <div style="flex:1"><div class="step-title">📦 Chuẩn bị và bàn giao thiết bị</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Kiểm tra đơn yêu cầu từ trợ lý, xác nhận các thiết bị cần thiết</li>
+              <li onclick="toggleCheck(this)">Xác nhận thông tin người nhận, thời gian và địa chỉ (văn phòng hoặc địa chỉ khác)</li>
+              <li onclick="toggleCheck(this)">Gửi hàng qua đơn vị chuyển phát hoặc tại kho</li>
+              <li onclick="toggleCheck(this)">Xác nhận bàn giao (ký nhận với kỹ thuật hoặc trợ lý)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BƯỚC 3 -->
+    <div class="section" id="s3">
+      <div class="section-header">
+        <div class="section-num orange">3</div>
+        <div><h2>Kỹ thuật xử lý đơn bảo hành</h2><div class="sub">Tại hiện trường · Dùng APP Timestamp Camera</div></div>
+      </div>
+      <div class="callout info" style="margin-bottom:16px">
+        <span class="callout-icon">📱</span>
+        <div>Kỹ thuật cần cài <strong>APP Timestamp Camera</strong> vào điện thoại để chụp ảnh có đóng dấu thời gian. Các ảnh này bắt buộc phải cập nhật vào đơn điều phối.</div>
+      </div>
+      <div class="steps">
+
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">A</div>
+            <div style="flex:1"><div class="step-title">📍 Định vị GPS</div><div class="step-subtitle">Go-168, VN88-4GH, VN88-4G, MT99, S400</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <p style="font-size:13px;font-weight:600;margin-bottom:8px">Ảnh bắt buộc chụp:</p>
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Mã thiết bị (IMEI)</li>
+              <li onclick="toggleCheck(this)">Vị trí lắp đặt thiết bị</li>
+              <li onclick="toggleCheck(this)">Vị trí dán tem niêm phong</li>
+              <li onclick="toggleCheck(this)">Biển số xe</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">B</div>
+            <div style="flex:1"><div class="step-title">📹 Camera giám sát (H5, C43, Bewin, DVR88)</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div style="margin-bottom:12px">
+              <p style="font-size:13px;font-weight:600;margin-bottom:6px">Đầu ghi H5:</p>
+              <ul class="checklist">
+                <li onclick="toggleCheck(this)">Mã thiết bị, vị trí lắp đặt</li>
+                <li onclick="toggleCheck(this)">Vị trí dán tem niêm phong, biển số xe</li>
+                <li onclick="toggleCheck(this)">Vị trí lắp ăng ten GPS và GSM</li>
+              </ul>
+            </div>
+            <div>
+              <p style="font-size:13px;font-weight:600;margin-bottom:6px">Thiết bị C43:</p>
+              <ul class="checklist">
+                <li onclick="toggleCheck(this)">Mã thiết bị, vị trí lắp đặt</li>
+                <li onclick="toggleCheck(this)">Vị trí dán tem niêm phong, biển số xe</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">C</div>
+            <div style="flex:1"><div class="step-title">🎥 Camera AI (DMS / ADAS)</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Vị trí lắp đặt, mã thiết bị</li>
+              <li onclick="toggleCheck(this)">Các cài đặt thiết bị trên EasyCheck</li>
+              <li onclick="toggleCheck(this)">Ảnh chụp dữ liệu test các trường hợp vi phạm (DMS: buồn ngủ, nhìn ngang; ADAS: phanh gấp, lệch làn…)</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">D</div>
+            <div style="flex:1"><div class="step-title">🛢️ Cảm biến dầu</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Mã thiết bị (IMEI)</li>
+              <li onclick="toggleCheck(this)">Kích thước bồn dầu</li>
+              <li onclick="toggleCheck(this)">Vị trí lắp cây dầu</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">E</div>
+            <div style="flex:1"><div class="step-title">🧱 Cảm biến bê tông</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Vị trí lắp cảm biến và các nam châm</li>
+              <li onclick="toggleCheck(this)">Ảnh rõ màu đèn cảm biến khi test <strong>trường hợp trộn</strong></li>
+              <li onclick="toggleCheck(this)">Ảnh rõ màu đèn cảm biến khi test <strong>trường hợp xả</strong></li>
+              <li onclick="toggleCheck(this)">Mã thiết bị</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">F</div>
+            <div style="flex:1"><div class="step-title">🚪 Cảm biến cửa · Camera thường · Nghiệm thu</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div style="margin-bottom:10px">
+              <p style="font-size:13px;font-weight:600;margin-bottom:6px">Cảm biến cửa:</p>
+              <ul class="checklist">
+                <li onclick="toggleCheck(this)">Vị trí lắp đặt cảm biến cửa</li>
+                <li onclick="toggleCheck(this)">Mã thiết bị</li>
+              </ul>
+            </div>
+            <div style="margin-bottom:10px">
+              <p style="font-size:13px;font-weight:600;margin-bottom:6px">Camera thường:</p>
+              <ul class="checklist">
+                <li onclick="toggleCheck(this)">Vị trí lắp đặt</li>
+                <li onclick="toggleCheck(this)">Mã thiết bị</li>
+              </ul>
+            </div>
+            <div>
+              <p style="font-size:13px;font-weight:600;margin-bottom:6px">Biên bản nghiệm thu:</p>
+              <ul class="checklist">
+                <li onclick="toggleCheck(this)">Chụp hình lại biên bản nghiệm thu đã ký với khách hàng</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- BƯỚC 4 -->
+    <div class="section" id="s4">
+      <div class="section-header">
+        <div class="section-num">4</div>
+        <div><h2>Trợ lý xác nhận đơn bảo hành</h2><div class="sub">Kiểm tra tín hiệu, ảnh chụp và thông báo khách hàng</div></div>
+      </div>
+      <div class="steps">
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">1</div>
+            <div style="flex:1"><div class="step-title">✅ Xác nhận hoàn thành đơn bảo hành</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Kiểm tra tín hiệu thiết bị sau khi kỹ thuật bảo hành</li>
+              <li onclick="toggleCheck(this)">Kiểm tra các ảnh chụp trong đơn điều phối đã đủ theo yêu cầu</li>
+              <li onclick="toggleCheck(this)">Thông báo khách hàng về việc hoàn thành đơn điều phối</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">2</div>
+            <div style="flex:1"><div class="step-title">🛢️ Cập nhật danh sách thay thế cảm biến dầu (nếu có)</div><div class="step-subtitle">Dùng để đối soát với hãng và xin duyệt phương án xử lý</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div class="callout warning">
+              <span class="callout-icon">⚠️</span>
+              <div>Trường hợp bảo hành cần <strong>thay cảm biến dầu mới</strong>, trợ lý bắt buộc cập nhật vào danh sách:</div>
+            </div>
+            <table class="data-table" style="margin-top:10px">
+              <thead><tr><th>Trường</th><th>Nội dung</th></tr></thead>
+              <tbody>
+                <tr><td>Mã khách hàng</td><td>Mã KH trên hệ thống</td></tr>
+                <tr><td>IMEI cảm biến cũ</td><td>IMEI thiết bị đã tháo ra</td></tr>
+                <tr><td>IMEI cảm biến mới</td><td>IMEI thiết bị vừa lắp thay thế</td></tr>
+                <tr><td>Mô tả lỗi</td><td>Mô tả ngắn gọn lỗi thiết bị cũ</td></tr>
+                <tr><td>Mã đơn hàng</td><td>Số đơn điều phối liên quan</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- BƯỚC 5 -->
+    <div class="section" id="s5">
+      <div class="section-header">
+        <div class="section-num red">5</div>
+        <div><h2>Thu hồi và sửa chữa thiết bị bảo hành</h2><div class="sub">Kho thu hồi · Phân loại · Sửa chữa hoặc gửi hãng</div></div>
+      </div>
+      <div class="steps">
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">1</div>
+            <div style="flex:1"><div class="step-title">🔁 Thu hồi và phân loại thiết bị lỗi</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Kho thu hồi thiết bị lỗi từ kỹ thuật</li>
+            </ul>
+            <table class="data-table" style="margin-top:12px">
+              <thead><tr><th>Loại thiết bị</th><th>Xử lý</th></tr></thead>
+              <tbody>
+                <tr><td>Định vị GPS, đầu ghi camera</td><td>Chuyển giao đội <strong>sửa chữa nội bộ</strong></td></tr>
+                <tr><td>Cảm biến dầu, cảm biến bê tông, thẻ nhớ</td><td>Gửi <strong>nhà cung cấp</strong> kèm danh sách và chi tiết lỗi</td></tr>
+              </tbody>
+            </table>
+            <div class="callout success">
+              <span class="callout-icon">✅</span>
+              <div>Sau khi thiết bị được sửa chữa / thay mới từ hãng → cập nhật vào kho và sẵn sàng cho lần bảo hành tiếp theo.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<script>
+function toggleStep(header){const step=header.closest('.step');step.classList.toggle('open');updateProgress()}
+function toggleCheck(li){li.classList.toggle('checked');updateProgress()}
+function expandAll(){document.querySelectorAll('.step').forEach(s=>s.classList.add('open'))}
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('overlay').classList.toggle('open')}
+function scrollTo(id){document.getElementById(id).scrollIntoView({behavior:'smooth',block:'start'});document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));document.getElementById('nav-'+id).classList.add('active');if(window.innerWidth<768)toggleSidebar()}
+function updateProgress(){const total=document.querySelectorAll('.checklist li').length;const done=document.querySelectorAll('.checklist li.checked').length;const pct=total?Math.round(done/total*100):0;document.getElementById('pct').textContent=pct+'%';document.getElementById('pfill').style.width=pct+'%'}
+const sections=['s0','s1','s2','s3','s4','s5'];
+window.addEventListener('scroll',()=>{let current='s0';sections.forEach(id=>{const el=document.getElementById(id);if(el&&el.getBoundingClientRect().top<120)current=id});document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));const nav=document.getElementById('nav-'+current);if(nav)nav.classList.add('active')});
+</script>
+</body>
+</html>

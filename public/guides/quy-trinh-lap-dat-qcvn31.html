@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quy Trình Lắp Đặt Thiết Bị Định Vị Hợp Chuẩn QCVN31</title>
+<style>
+  :root {
+    --primary:#1a56db;--primary-light:#ebf5ff;--success:#057a55;--success-light:#f3faf7;
+    --warning:#c27803;--warning-light:#fffbeb;--danger:#c81e1e;--danger-light:#fdf2f2;
+    --gray:#6b7280;--gray-light:#f9fafb;--border:#e5e7eb;--text:#111827;--text-muted:#6b7280;
+    --sidebar-w:270px;--radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f4f6;color:var(--text);line-height:1.6}
+  .layout{display:flex;min-height:100vh}
+  /* Sidebar */
+  .sidebar{width:var(--sidebar-w);background:#1e2947;color:#e5e7eb;position:fixed;top:0;left:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;z-index:100;transition:transform .3s}
+  .sidebar-logo{padding:20px 16px 16px;border-bottom:1px solid #2d3f6a}
+  .sidebar-logo .brand{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#60a5fa;font-weight:600}
+  .sidebar-logo .title{font-size:14px;font-weight:700;color:#fff;margin-top:4px;line-height:1.3}
+  .sidebar-logo .version{font-size:11px;color:#6b7280;margin-top:4px}
+  .sidebar-nav{padding:12px 0;flex:1}
+  .nav-section{padding:6px 16px 2px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#4b5563;font-weight:600}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;transition:background .15s;border-left:3px solid transparent;color:#9ca3af;font-size:13px}
+  .nav-item:hover{background:#2d3f6a;color:#e5e7eb}
+  .nav-item.active{background:#1e3a8a;border-left-color:#3b82f6;color:#fff}
+  .nav-item .icon{font-size:16px;width:20px;text-align:center;flex-shrink:0}
+  .nav-item .step-num{margin-left:auto;background:#2d3f6a;color:#9ca3af;font-size:10px;padding:1px 7px;border-radius:10px;font-weight:600}
+  .nav-item.active .step-num{background:#3b82f6;color:#fff}
+  .progress-bar{padding:12px 16px;border-top:1px solid #2d3f6a}
+  .progress-label{font-size:11px;color:#9ca3af;margin-bottom:6px;display:flex;justify-content:space-between}
+  .progress-track{background:#2d3f6a;border-radius:4px;height:6px}
+  .progress-fill{background:#3b82f6;height:6px;border-radius:4px;transition:width .4s;width:0%}
+  /* Mobile hamburger */
+  .hamburger{display:none;position:fixed;top:12px;left:12px;z-index:200;background:#1e2947;border:none;color:#fff;width:40px;height:40px;border-radius:8px;font-size:20px;cursor:pointer;align-items:center;justify-content:center}
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90}
+  /* Main */
+  .main{margin-left:var(--sidebar-w);flex:1;min-width:0}
+  .topbar{background:#fff;border-bottom:1px solid var(--border);padding:14px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+  .topbar-breadcrumb{font-size:13px;color:var(--text-muted)}
+  .topbar-breadcrumb span{color:var(--text);font-weight:600}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+  .btn-outline{background:#fff;border:1px solid var(--border);color:var(--text)}
+  .btn-outline:hover{background:var(--gray-light)}
+  .btn-primary{background:var(--primary);color:#fff}
+  .btn-primary:hover{background:#1347ba}
+  /* Hero */
+  .hero{background:linear-gradient(135deg,#1e3a8a 0%,#1a56db 60%,#3b82f6 100%);padding:48px 40px 40px;color:#fff}
+  .hero-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);padding:4px 12px;border-radius:20px;font-size:12px;margin-bottom:16px}
+  .hero h1{font-size:26px;font-weight:800;line-height:1.2;margin-bottom:10px}
+  .hero p{font-size:14px;opacity:.85;max-width:550px;line-height:1.6}
+  .hero-meta{display:flex;gap:24px;margin-top:24px;flex-wrap:wrap}
+  .hero-meta-item{display:flex;align-items:center;gap:8px;font-size:13px;opacity:.9}
+  .hero-meta-item .dot{width:8px;height:8px;background:#86efac;border-radius:50%}
+  /* Content */
+  .content{padding:32px 40px}
+  .section{margin-bottom:48px;scroll-margin-top:70px}
+  .section-header{display:flex;align-items:center;gap:14px;margin-bottom:24px;padding-bottom:14px;border-bottom:2px solid var(--border)}
+  .section-num{width:36px;height:36px;border-radius:10px;background:var(--primary);color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .section-num.green{background:#059669}
+  .section-num.orange{background:#d97706}
+  .section-num.red{background:#dc2626}
+  .section-num.purple{background:#7c3aed}
+  .section-header h2{font-size:20px;font-weight:700;color:var(--text)}
+  .section-header .sub{font-size:13px;color:var(--text-muted)}
+  /* Steps */
+  .steps{display:flex;flex-direction:column;gap:14px}
+  .step{background:#fff;border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;transition:box-shadow .2s}
+  .step:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)}
+  .step-header{display:flex;align-items:flex-start;gap:16px;padding:18px 20px;cursor:pointer;user-select:none}
+  .step-num{width:28px;height:28px;border-radius:50%;background:var(--primary-light);color:var(--primary);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+  .step-num.warn{background:#fffbeb;color:#d97706}
+  .step-num.succ{background:#f0fdf4;color:#16a34a}
+  .step-title{font-size:15px;font-weight:600;flex:1}
+  .step-subtitle{font-size:12.5px;color:var(--text-muted);margin-top:2px}
+  .step-toggle{color:var(--text-muted);font-size:18px;transition:transform .2s;flex-shrink:0;margin-top:2px}
+  .step.open .step-toggle{transform:rotate(180deg)}
+  .step-body{padding:0 20px 20px 64px;display:none;border-top:1px solid #f3f4f6;padding-top:16px}
+  .step.open .step-body{display:block}
+  /* Sub-role cards */
+  .role-card{border-radius:10px;padding:14px 16px;margin:12px 0}
+  .role-card.blue{background:#eff6ff;border-left:4px solid #3b82f6}
+  .role-card.green{background:#f0fdf4;border-left:4px solid #16a34a}
+  .role-card.orange{background:#fffbeb;border-left:4px solid #f59e0b}
+  .role-card h4{font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  /* Callout */
+  .callout{border-radius:10px;padding:14px 16px;margin:14px 0;display:flex;gap:12px;font-size:13.5px;line-height:1.6}
+  .callout.info{background:var(--primary-light);border-left:3px solid var(--primary)}
+  .callout.warning{background:var(--warning-light);border-left:3px solid var(--warning)}
+  .callout.success{background:var(--success-light);border-left:3px solid var(--success)}
+  .callout.danger{background:var(--danger-light);border-left:3px solid var(--danger)}
+  .callout-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+  /* Checklist */
+  .checklist{list-style:none;display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .checklist li{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5;cursor:pointer;padding:4px 0}
+  .checklist li::before{content:"☐";font-size:16px;color:var(--primary);flex-shrink:0;margin-top:1px}
+  .checklist li.checked::before{content:"☑";color:var(--success)}
+  .checklist li.checked{color:var(--text-muted);text-decoration:line-through}
+  /* Inline steps */
+  .inline-steps{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .inline-step{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5}
+  .inline-step .n{width:22px;height:22px;border-radius:50%;background:var(--primary);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+  /* Table */
+  .data-table{width:100%;border-collapse:collapse;font-size:13px;margin:14px 0;border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+  .data-table th{background:#1e3a8a;color:#fff;padding:10px 14px;text-align:left;font-weight:600}
+  .data-table td{padding:9px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  .data-table tr:last-child td{border-bottom:none}
+  .data-table tr:hover td{background:#f9fafb}
+  /* Tags */
+  .tag{display:inline-flex;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .tag-blue{background:#dbeafe;color:#1e40af}
+  .tag-green{background:#d1fae5;color:#065f46}
+  .tag-orange{background:#fed7aa;color:#9a3412}
+  .tag-red{background:#fee2e2;color:#991b1b}
+  /* Signal diagram */
+  .signal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+  .signal-card{background:var(--gray-light);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center}
+  .signal-card .wire{display:inline-block;width:40px;height:8px;border-radius:4px;margin-bottom:8px}
+  .signal-card .wire.red{background:#dc2626}
+  .signal-card .wire.yellow{background:#d97706}
+  .signal-card .wire.black{background:#1f2937}
+  .signal-card .wire.white{background:#9ca3af;border:1px solid #d1d5db}
+  .signal-card h5{font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px}
+  .signal-card p{font-size:11.5px;color:var(--text-muted);line-height:1.4}
+  /* Version table */
+  .version-section{background:#fff;border-radius:var(--radius);border:1px solid var(--border);padding:20px;margin-bottom:32px}
+  .version-section h3{font-size:14px;font-weight:700;margin-bottom:12px;color:var(--text)}
+  /* Responsive */
+  @media(max-width:768px){
+    .hamburger{display:flex}
+    .sidebar{transform:translateX(-100%)}
+    .sidebar.open{transform:translateX(0)}
+    .overlay.open{display:block}
+    .main{margin-left:0}
+    .hero{padding:40px 20px 28px}
+    .hero h1{font-size:20px}
+    .content{padding:20px 16px}
+    .topbar{padding:12px 16px;padding-left:60px}
+    .signal-grid{grid-template-columns:1fr 1fr}
+    .step-body{padding-left:20px}
+  }
+  @media print{
+    .sidebar,.hamburger,.topbar,.btn{display:none!important}
+    .main{margin-left:0}
+    .step-body{display:block!important}
+  }
+</style>
+</head>
+<body>
+
+<button class="hamburger" onclick="toggleSidebar()">☰</button>
+<div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+<div class="layout">
+<!-- Sidebar -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">EUP · Quy Trình</div>
+    <div class="title">Lắp Đặt Thiết Bị Định Vị<br>Hợp Chuẩn QCVN31</div>
+    <div class="version">Phiên bản V2.1 · 16/06/2025</div>
+  </div>
+  <div class="sidebar-nav">
+    <div class="nav-section">Nội dung</div>
+    <div class="nav-item active" onclick="scrollTo('s0')" id="nav-s0">
+      <span class="icon">📋</span> Giới thiệu <span class="step-num">TQ</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s1')" id="nav-s1">
+      <span class="icon">📥</span> Tiếp nhận thông tin <span class="step-num">1</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s2')" id="nav-s2">
+      <span class="icon">🎒</span> Chuẩn bị <span class="step-num">2</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s3')" id="nav-s3">
+      <span class="icon">🔧</span> Lắp đặt <span class="step-num">3</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s4')" id="nav-s4">
+      <span class="icon">✅</span> Kiểm tra & hướng dẫn <span class="step-num">4</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s5')" id="nav-s5">
+      <span class="icon">📝</span> Nghiệm thu <span class="step-num">5</span>
+    </div>
+    <div class="nav-item" onclick="scrollTo('s6')" id="nav-s6">
+      <span class="icon">📊</span> Báo cáo <span class="step-num">6</span>
+    </div>
+  </div>
+  <div class="progress-bar">
+    <div class="progress-label"><span>Tiến độ đọc</span><span id="pct">0%</span></div>
+    <div class="progress-track"><div class="progress-fill" id="pfill"></div></div>
+  </div>
+</nav>
+
+<!-- Main -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-breadcrumb">EUP / Quy trình / <span>Lắp đặt QCVN31</span></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-outline" onclick="window.print()">🖨️ In</button>
+      <button class="btn btn-outline" onclick="expandAll()">📖 Mở tất cả</button>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-chip">🛡️ QCVN31 · Hợp chuẩn</div>
+    <h1>Quy Trình Lắp Đặt Thiết Bị<br>Giám Sát Hành Trình Hợp Chuẩn</h1>
+    <p>Mô tả chi tiết từng bước lắp đặt thiết bị định vị GPS hợp chuẩn QCVN31, đảm bảo an toàn tài sản khách hàng và hoạt động ổn định của thiết bị.</p>
+    <div class="hero-meta">
+      <div class="hero-meta-item"><div class="dot"></div>6 bước chính</div>
+      <div class="hero-meta-item"><div class="dot"></div>Áp dụng: GPS, Camera GSHT</div>
+      <div class="hero-meta-item"><div class="dot"></div>Cập nhật 16/06/2025</div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- Version table -->
+    <div class="version-section" id="s0">
+      <h3>📋 Lịch sử phiên bản</h3>
+      <table class="data-table">
+        <thead><tr><th>STT</th><th>Ngày cập nhật</th><th>Phiên bản</th><th>Nội dung</th><th>Người tạo</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>01/2022</td><td><span class="tag tag-blue">V1.0</span></td><td>Phát hành lần đầu</td><td>Henry</td></tr>
+          <tr><td>2</td><td>27/11/2024</td><td><span class="tag tag-blue">V2.0</span></td><td>Cập nhật yêu cầu vị trí kết nối nguồn điện, cách lấy tín hiệu dây nguồn (Mục 3 & 5)</td><td>Henry</td></tr>
+          <tr><td>3</td><td>16/06/2025</td><td><span class="tag tag-green">V2.1</span></td><td>Cập nhật yêu cầu chụp ảnh bằng app Timestamp camera ở mục Nghiệm thu</td><td>Henry</td></tr>
+        </tbody>
+      </table>
+      <div class="callout info" style="margin-top:16px">
+        <span class="callout-icon">ℹ️</span>
+        <div>Sơ đồ tổng quan: Quy trình gồm <strong>6 bước chính</strong>. Các bước ở <em>hình oval</em> thực hiện tại công ty, các bước ở <em>hình chữ nhật</em> thực hiện tại hiện trường lắp đặt. <strong>Nếu một bước không được thực hiện, việc lắp đặt coi như chưa hoàn thành.</strong></div>
+      </div>
+    </div>
+
+    <!-- BƯỚC 1: Tiếp nhận -->
+    <div class="section" id="s1">
+      <div class="section-header">
+        <div class="section-num">1</div>
+        <div><h2>Tiếp nhận thông tin</h2><div class="sub">Trợ lý · Kỹ thuật · Kho</div></div>
+      </div>
+      <div class="steps">
+
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">A</div>
+            <div style="flex:1"><div class="step-title">👩‍💼 Trợ lý tiếp nhận & điều phối</div><div class="step-subtitle">Nhận lịch từ kinh doanh hoặc khách hàng, điều phối kỹ thuật phù hợp</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div class="inline-steps">
+              <div class="inline-step"><div class="n">1</div><div>Tiếp nhận yêu cầu lắp đặt từ kinh doanh hoặc khách hàng</div></div>
+              <div class="inline-step"><div class="n">2</div><div><strong>Đơn trong ngày:</strong> Kiểm tra vị trí kỹ thuật trên FMS → điều kỹ thuật gần nhất với địa chỉ lắp đặt</div></div>
+              <div class="inline-step"><div class="n">3</div><div><strong>Đơn ngày hôm sau / cuối tuần:</strong> Ưu tiên đơn nhiều xe → sắp xếp kỹ thuật theo doanh số từ thấp đến cao</div></div>
+              <div class="inline-step"><div class="n">4</div><div>Thông báo kho số lượng và chủng loại thiết bị cần lắp đặt cho khách hàng nào</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">B</div>
+            <div style="flex:1"><div class="step-title">👨‍🔧 Kỹ thuật xác nhận lịch</div><div class="step-subtitle">Liên hệ khách, chốt thời gian và địa điểm</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div class="role-card blue">
+              <h4>📅 Đơn trong ngày</h4>
+              <p style="font-size:13.5px">Sau khi nhận lịch từ trợ lý, trực tiếp liên hệ khách hàng xác nhận thời gian — địa điểm, chủ động đến đúng lịch hẹn.</p>
+            </div>
+            <div class="role-card green">
+              <h4>📅 Đơn ngày hôm sau / cuối tuần</h4>
+              <p style="font-size:13.5px">Xác nhận nhận lịch với trợ lý → gọi điện cho khách chốt thời gian và địa điểm cụ thể → gửi xác nhận lại với trợ lý.</p>
+            </div>
+            <div class="callout warning">
+              <span class="callout-icon">⚠️</span>
+              <div>
+                <strong>Lưu ý việc thay đổi lịch:</strong><br>
+                • Kỹ thuật <strong>không được tự ý hủy lịch</strong> đã nhận, trừ trường hợp bất khả kháng (phải nhờ kỹ thuật khác đi thay và báo trợ lý / quản lý).<br>
+                • Mọi thay đổi từ phía khách (thời gian, số lượng xe, khách hủy lịch…) phải <strong>báo ngay trợ lý hoặc cấp trên</strong> bằng cả tin nhắn văn bản để làm căn cứ.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">C</div>
+            <div style="flex:1"><div class="step-title">📦 Kho chuẩn bị và bàn giao</div><div class="step-subtitle">Chuẩn bị thiết bị theo đơn hàng, xác nhận bàn giao</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Chuẩn bị đúng số lượng và chủng loại thiết bị theo yêu cầu trợ lý</li>
+              <li onclick="toggleCheck(this)">Xác nhận thời gian và người nhận bàn giao thiết bị</li>
+              <li onclick="toggleCheck(this)">Ký nhận bàn giao với kỹ thuật hoặc trợ lý sau khi bàn giao</li>
+            </ul>
+            <div class="callout info">
+              <span class="callout-icon">ℹ️</span>
+              <div>Nếu kỹ thuật đã có đủ thiết bị trong kho cá nhân → bỏ qua bước bàn giao với kho.</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- BƯỚC 2: Chuẩn bị -->
+    <div class="section" id="s2">
+      <div class="section-header">
+        <div class="section-num green">2</div>
+        <div><h2>Chuẩn bị trước khi xuất phát</h2><div class="sub">Thực hiện tại công ty · Kỹ thuật viên</div></div>
+      </div>
+      <div class="steps">
+
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num succ">1</div>
+            <div style="flex:1"><div class="step-title">👤 Thông tin khách hàng</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Thông tin người liên hệ</li>
+              <li onclick="toggleCheck(this)">Mã khách hàng trên CRM</li>
+              <li onclick="toggleCheck(this)">Địa chỉ lắp đặt chính xác</li>
+              <li onclick="toggleCheck(this)">Loại thiết bị, biển số xe, số lượng</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num succ">2</div>
+            <div style="flex:1"><div class="step-title">📡 Kiểm tra thiết bị và phụ kiện</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Kiểm tra đủ chủng loại và số lượng thiết bị (thiếu → liên hệ kho)</li>
+              <li onclick="toggleCheck(this)">Bó dây nguồn đầy đủ</li>
+              <li onclick="toggleCheck(this)">Thẻ lái xe (RFID)</li>
+              <li onclick="toggleCheck(this)">Tem vỡ (niêm phong)</li>
+              <li onclick="toggleCheck(this)">Tấm decan thông tin và hướng dẫn</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num succ">3</div>
+            <div style="flex:1"><div class="step-title">🔨 Công cụ</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Bộ vít lục lăng</li>
+              <li onclick="toggleCheck(this)">Bộ vít thường</li>
+              <li onclick="toggleCheck(this)">Dây thít (cable tie)</li>
+              <li onclick="toggleCheck(this)">Băng dính điện</li>
+              <li onclick="toggleCheck(this)">Đồng hồ vạn năng</li>
+              <li onclick="toggleCheck(this)">Dây điện dự phòng</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num succ">4</div>
+            <div style="flex:1"><div class="step-title">📄 Giấy tờ</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Hợp đồng (nếu có)</li>
+              <li onclick="toggleCheck(this)">Báo giá / Hóa đơn thanh toán lắp đặt (nếu có)</li>
+              <li onclick="toggleCheck(this)">Biên bản nghiệm thu kết quả lắp đặt</li>
+              <li onclick="toggleCheck(this)">Giấy chứng nhận hợp quy, hợp chuẩn (nếu có)</li>
+            </ul>
+            <div class="callout success">
+              <span class="callout-icon">✅</span>
+              <div>Sau khi chuẩn bị xong, xếp tất cả vào balo gọn gàng. <strong>Gọi điện thông báo lại cho khách hàng trước khi xuất phát</strong> để đảm bảo không bị lỡ hẹn.</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- BƯỚC 3: Lắp đặt -->
+    <div class="section" id="s3">
+      <div class="section-header">
+        <div class="section-num orange">3</div>
+        <div><h2>Lắp đặt tại hiện trường</h2><div class="sub">⚠️ Lắp đầy đủ các chức năng theo QCVN31 và phụ kiện</div></div>
+      </div>
+      <div class="callout danger" style="margin-bottom:16px">
+        <span class="callout-icon">🚨</span>
+        <div>Đây là công việc <strong>quan trọng nhất</strong>. Phải tuân thủ đúng quy trình từng bước và tập trung trong quá trình lắp đặt. Nếu không tuân thủ, thiết bị có thể hoạt động không ổn định hoặc gây sự cố.</div>
+      </div>
+      <div class="steps">
+
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">1</div>
+            <div style="flex:1"><div class="step-title">🚗 Kiểm tra tình trạng ô tô trước khi lắp</div><div class="step-subtitle">Xác nhận xe hoạt động bình thường trước khi lắp thiết bị</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Bật máy, tắt máy, nổ máy bình thường</li>
+              <li onclick="toggleCheck(this)">Đóng / mở cửa xe bình thường</li>
+              <li onclick="toggleCheck(this)">Đèn báo, đèn pha, đèn xi nhan hoạt động tốt</li>
+              <li onclick="toggleCheck(this)">Các kiểm tra đặc biệt khác theo yêu cầu</li>
+            </ul>
+            <div class="callout warning">
+              <span class="callout-icon">⚠️</span>
+              <div>Nếu phát hiện lỗi xe (mất đèn, còi, không đề nổ…), phải <strong>xác nhận ngay với chủ xe</strong> tại thời điểm đó để tránh bị đổ lỗi sau khi lắp xong.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">2</div>
+            <div style="flex:1"><div class="step-title">📸 Lưu thông tin ô tô và thiết bị</div><div class="step-subtitle">Chụp ảnh trước khi lắp — cần thiết cho đơn điều phối</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div class="callout info">
+              <span class="callout-icon">📷</span>
+              <div>Dùng <strong>APP Timestamp Camera</strong> để chụp ảnh có đóng dấu thời gian. Các ảnh này sẽ được cập nhật vào đơn điều phối sau khi hoàn thành.</div>
+            </div>
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Biển số xe (rõ ràng)</li>
+              <li onclick="toggleCheck(this)">Mã thiết bị (IMEI)</li>
+              <li onclick="toggleCheck(this)">Tình trạng nội thất xe trước khi tháo lắp</li>
+              <li onclick="toggleCheck(this)">Các thông tin cần thiết khác của xe</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">3</div>
+            <div style="flex:1"><div class="step-title">⚡ Tìm nguồn điện và dây tín hiệu</div><div class="step-subtitle">Kết nối 3 dây chính: Dương (+) · ACC · Đất (−)</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div class="signal-grid">
+              <div class="signal-card">
+                <div class="wire red"></div>
+                <h5>🔴 Nguồn (+)</h5>
+                <p>9V–35V trước khóa (lửa thường trực). Luôn có điện dù tắt máy.</p>
+              </div>
+              <div class="signal-card">
+                <div class="wire yellow"></div>
+                <h5>🟡 Tín hiệu ACC</h5>
+                <p>12V–24V sau chìa khóa (lửa ACC). Có điện khi bật khóa, mất khi tắt.</p>
+              </div>
+              <div class="signal-card">
+                <div class="wire black"></div>
+                <h5>⚫ Đất (−)</h5>
+                <p>Kết nối vào khung sắt xe hoặc bắt ốc riêng vào sườn xe.</p>
+              </div>
+            </div>
+            <div class="callout warning">
+              <span class="callout-icon">⚠️</span>
+              <div>
+                <strong>Ưu tiên lấy từ dây chính (tiết diện lớn).</strong> Nếu bắt buộc dùng bảng cầu chì: chọn vị trí ampere cao, tránh vị trí ECC / Memory / MCU — đây là các vị trí ảnh hưởng vận hành xe.<br><br>
+                <strong>ACC ở nấc 1:</strong> Nếu tín hiệu ACC chỉ ở nấc 1, báo khách hàng cần mở lên nấc 2. Nếu khách không đồng ý, kết nối vào dây chờ và ghi chú rõ trong biên bản nghiệm thu.<br><br>
+                <strong>Xe hơi đời cao (Mercedes Benz…):</strong> Dây đất bắt buộc kết nối vào dây đất riêng của xe — sườn xe dòng này không có đất.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">4</div>
+            <div style="flex:1"><div class="step-title">📍 Chọn vị trí lắp thiết bị</div><div class="step-subtitle">Đảm bảo tín hiệu GPS và dễ quan sát LED</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Lắp chắc chắn, không bập bênh</li>
+              <li onclick="toggleCheck(this)"><strong>Mặt có logo thiết bị hướng lên trên</strong> để bắt tín hiệu GPS (không úp xuống)</li>
+              <li onclick="toggleCheck(this)">Có thể quan sát LED chỉ thị và nghe âm thanh còi báo</li>
+              <li onclick="toggleCheck(this)">Tránh vị trí tỏa nhiệt, bụi, nước bay vào</li>
+              <li onclick="toggleCheck(this)">Gần ghế tài xế để quẹt thẻ RFID dễ dàng</li>
+              <li onclick="toggleCheck(this)">Cách xa loa, DVD, ăng ten, thiết bị định vị khác <strong>tối thiểu 30cm</strong></li>
+              <li onclick="toggleCheck(this)">Hạn chế xé/bóc lớp nilon bọc ngoài vỏ thiết bị</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">5</div>
+            <div style="flex:1"><div class="step-title">🔌 Đấu dây an toàn</div><div class="step-subtitle">Quấn băng keo, buộc dây gọn gàng tất cả mối nối</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Tất cả mối nối dây đều quấn băng keo điện và buộc dây rút chặt chẽ</li>
+              <li onclick="toggleCheck(this)">Dây tín hiệu buộc gọn gàng, cố định vào phần cố định gần đó</li>
+              <li onclick="toggleCheck(this)">Tránh các nguồn sinh nhiệt và đối tượng chuyển động</li>
+              <li onclick="toggleCheck(this)"><strong>Không cắt bỏ cầu chì</strong> của các dây nguồn hay dây tín hiệu</li>
+              <li onclick="toggleCheck(this)">Nếu xe đã có thiết bị khác: <strong>không lấy chung nguồn</strong> từ dây thiết bị cũ, phải đấu từ hệ thống dây xe</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num warn">6</div>
+            <div style="flex:1"><div class="step-title">🏷️ Dán tem niêm phong và Decan</div><div class="step-subtitle">Các vị trí bắt buộc phải dán tem vỡ</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <p style="font-size:13.5px;font-weight:600;margin-bottom:8px">Vị trí dán tem niêm phong:</p>
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Các ốc vít phía sau thiết bị</li>
+              <li onclick="toggleCheck(this)">Nắp che cổng DB9</li>
+              <li onclick="toggleCheck(this)">Kết nối giữa jack nguồn và dây nguồn thiết bị</li>
+              <li onclick="toggleCheck(this)">Mối nối dây nguồn thiết bị với dây điện xe</li>
+              <li onclick="toggleCheck(this)">Các cầu chì của dây nguồn</li>
+            </ul>
+            <p style="font-size:13.5px;font-weight:600;margin:12px 0 8px">Tấm Decan và nhãn GPS:</p>
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Dán tấm decan thông tin + hướng dẫn tại vị trí dễ quan sát gần tài xế</li>
+              <li onclick="toggleCheck(this)">Dán nhãn GPS bên ngoài xe: phía đuôi xe hoặc cửa lái xe (xe khách: cửa lên xuống)</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- BƯỚC 4: Kiểm tra -->
+    <div class="section" id="s4">
+      <div class="section-header">
+        <div class="section-num purple">4</div>
+        <div><h2>Kiểm tra và hướng dẫn sử dụng</h2><div class="sub">Sau khi lắp xong · Xác nhận thiết bị hoạt động tốt</div></div>
+      </div>
+      <div class="steps">
+
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">1</div>
+            <div style="flex:1"><div class="step-title">💡 Kiểm tra LED và tín hiệu thiết bị</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Kiểm tra LED chỉ thị hoạt động bình thường (xem hướng dẫn trên mã QR thẻ lái xe)</li>
+              <li onclick="toggleCheck(this)">Kiểm tra tín hiệu trên app kỹ thuật hoặc <strong>eupis-vn.eupfin.com</strong></li>
+              <li onclick="toggleCheck(this)">Thiết bị cập nhật đúng vị trí GPS, đúng thời gian hiện tại</li>
+              <li onclick="toggleCheck(this)">Trạng thái xe hiển thị chính xác (ACC on/off)</li>
+              <li onclick="toggleCheck(this)">Kiểm tra chức năng đăng nhập / đăng xuất của đầu đọc thẻ RFID</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">2</div>
+            <div style="flex:1"><div class="step-title">🚗 Kiểm tra ô tô sau khi lắp</div><div class="step-subtitle">Đảm bảo thiết bị không ảnh hưởng tình trạng xe</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div class="callout danger">
+              <span class="callout-icon">🚨</span>
+              <div>Đề nghị chủ xe kiểm tra xác nhận lại hoạt động của xe. Nếu xe bị ảnh hưởng, <strong>kỹ thuật viên có trách nhiệm tìm nguyên nhân và khắc phục ngay tại hiện trường.</strong></div>
+            </div>
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Nổ máy bình thường</li>
+              <li onclick="toggleCheck(this)">Đèn, còi, hệ thống điện không bị ảnh hưởng</li>
+              <li onclick="toggleCheck(this)">Khách hàng xác nhận xe hoạt động tốt</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">3</div>
+            <div style="flex:1"><div class="step-title">💻 Hướng dẫn sử dụng phần mềm FMS (nếu có yêu cầu)</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Đăng nhập, đăng xuất tài khoản</li>
+              <li onclick="toggleCheck(this)">Giám sát xe trực tuyến</li>
+              <li onclick="toggleCheck(this)">Lịch sử hành trình</li>
+              <li onclick="toggleCheck(this)">Xem lại lộ trình</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">4</div>
+            <div style="flex:1"><div class="step-title">💳 Hướng dẫn sử dụng thẻ RFID cho lái xe</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <div class="callout info">
+              <span class="callout-icon">ℹ️</span>
+              <div>Lấy thông tin lái xe để lưu lên thẻ RFID đi kèm. Ngoài thẻ đi kèm, yêu cầu khách hàng trang bị thẻ cho <strong>tất cả tài xế</strong> trực tiếp lái xe đó để chấp hành quy định nhà nước.</div>
+            </div>
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Hướng dẫn cách quẹt thẻ khi bắt đầu ca lái xe</li>
+              <li onclick="toggleCheck(this)">Hướng dẫn cách quẹt thẻ khi kết thúc ca lái xe</li>
+              <li onclick="toggleCheck(this)">Xác nhận tài xế đã hiểu và thực hiện được</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- BƯỚC 5: Nghiệm thu -->
+    <div class="section" id="s5">
+      <div class="section-header">
+        <div class="section-num red">5</div>
+        <div><h2>Nghiệm thu</h2><div class="sub">Ký biên bản · Chụp ảnh Timestamp · Giao giấy tờ</div></div>
+      </div>
+      <div class="steps">
+
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">1</div>
+            <div style="flex:1"><div class="step-title">📋 Biên bản nghiệm thu</div><div class="step-subtitle">Đề nghị khách hàng ký xác nhận — kỹ thuật giữ lại bản gốc</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <p style="font-size:13.5px;margin-bottom:10px">Thông tin bắt buộc trong biên bản:</p>
+            <table class="data-table">
+              <thead><tr><th>Mục</th><th>Nội dung</th></tr></thead>
+              <tbody>
+                <tr><td>Thông tin xe</td><td>Biển số, loại xe, năm sản xuất</td></tr>
+                <tr><td>Thông tin lái xe</td><td>Họ tên, CMND/CCCD (nếu có)</td></tr>
+                <tr><td>Thiết bị & thẻ RFID</td><td>IMEI thiết bị, mã thẻ RFID</td></tr>
+                <tr><td>Tình trạng xe trước lắp</td><td>Các mục đã kiểm tra ở bước 3.1</td></tr>
+                <tr><td>Tình trạng thiết bị sau lắp</td><td>Xác nhận thiết bị và đầu đọc thẻ hoạt động tốt</td></tr>
+                <tr><td>Tình trạng xe sau lắp</td><td>Xác nhận xe hoạt động bình thường</td></tr>
+                <tr><td>Yêu cầu đặc biệt</td><td>ACC nấc 1/2, vị trí lắp, bảng cầu chì…</td></tr>
+                <tr><td>Thu phí (nếu có)</td><td>Ghi rõ loại chi phí và số tiền</td></tr>
+                <tr><td>Chữ ký</td><td>Họ tên đầy đủ của kỹ thuật viên và khách hàng</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">2</div>
+            <div style="flex:1"><div class="step-title">📸 Chụp ảnh Timestamp Camera</div><div class="step-subtitle">Cập nhật lên đơn điều phối trên app kỹ thuật</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Mã thiết bị (IMEI) — chụp rõ nét</li>
+              <li onclick="toggleCheck(this)">Vị trí lắp đặt thiết bị trên xe</li>
+              <li onclick="toggleCheck(this)">Vị trí dán tem niêm phong</li>
+              <li onclick="toggleCheck(this)">Biển số xe</li>
+              <li onclick="toggleCheck(this)">Biên bản nghiệm thu đã ký</li>
+            </ul>
+            <div class="callout warning">
+              <span class="callout-icon">📱</span>
+              <div>Nếu app kỹ thuật bị lỗi → nhờ trợ lý hỗ trợ cập nhật ảnh vào đơn điều phối.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">3</div>
+            <div style="flex:1"><div class="step-title">📜 Giao giấy tờ và thu phí</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Giao giấy chứng nhận hợp quy, hợp chuẩn cho khách hàng (nếu có yêu cầu)</li>
+              <li onclick="toggleCheck(this)">Đề nghị thanh toán theo báo giá hoặc hóa đơn đi kèm (nếu có)</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- BƯỚC 6: Báo cáo -->
+    <div class="section" id="s6">
+      <div class="section-header">
+        <div class="section-num">6</div>
+        <div><h2>Báo cáo</h2><div class="sub">Sau khi hoàn thành lắp đặt · Nộp biên bản cho trợ lý</div></div>
+      </div>
+      <div class="steps">
+        <div class="step open">
+          <div class="step-header" onclick="toggleStep(this)">
+            <div class="step-num">1</div>
+            <div style="flex:1"><div class="step-title">📊 Báo cáo hoàn thành</div></div>
+            <div class="step-toggle">⌄</div>
+          </div>
+          <div class="step-body">
+            <ul class="checklist">
+              <li onclick="toggleCheck(this)">Báo lại trợ lý hoặc kinh doanh về việc hoàn thành lắp đặt</li>
+              <li onclick="toggleCheck(this)">Xác nhận tín hiệu thiết bị đã ổn định trên tài khoản khách hàng</li>
+              <li onclick="toggleCheck(this)">Nộp biên bản nghiệm thu bản gốc cho trợ lý để lưu trữ</li>
+            </ul>
+            <div class="callout success">
+              <span class="callout-icon">🎉</span>
+              <div>Hoàn thành! Thiết bị đã được lắp đặt đúng quy trình QCVN31, đủ điều kiện nghiệm thu và được ghi nhận hoàn thành.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /layout -->
+
+<script>
+function toggleStep(header) {
+  const step = header.closest('.step');
+  step.classList.toggle('open');
+  updateProgress();
+}
+function toggleCheck(li) {
+  li.classList.toggle('checked');
+  updateProgress();
+}
+function expandAll() {
+  document.querySelectorAll('.step').forEach(s => s.classList.add('open'));
+}
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('overlay').classList.toggle('open');
+}
+function scrollTo(id) {
+  document.getElementById(id).scrollIntoView({behavior:'smooth', block:'start'});
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('nav-' + id).classList.add('active');
+  if (window.innerWidth < 768) toggleSidebar();
+}
+function updateProgress() {
+  const total = document.querySelectorAll('.checklist li').length;
+  const done = document.querySelectorAll('.checklist li.checked').length;
+  const pct = total ? Math.round(done / total * 100) : 0;
+  document.getElementById('pct').textContent = pct + '%';
+  document.getElementById('pfill').style.width = pct + '%';
+}
+// Scroll spy
+const sections = ['s0','s1','s2','s3','s4','s5','s6'];
+window.addEventListener('scroll', () => {
+  let current = 's0';
+  sections.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.getBoundingClientRect().top < 120) current = id;
+  });
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const nav = document.getElementById('nav-' + current);
+  if (nav) nav.classList.add('active');
+  // Reading progress
+  const scrollTop = window.scrollY;
+  const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+  // don't override checklist progress here
+});
+</script>
+</body>
+</html>
