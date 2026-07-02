@@ -25,9 +25,11 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
   const [selected, setSelected] = useState<Guide | null>(null)
   const [loading, setLoading] = useState(true)
   const [iframeLoading, setIframeLoading] = useState(false)
+  const [iframeError, setIframeError] = useState(false)
 
   // Modal state
   const [modal, setModal] = useState<'add' | 'edit' | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)   // ← fix: dùng state thay vì function property
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<Guide | null>(null)
@@ -40,12 +42,21 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
     setLoading(true)
     try {
       const res = await fetch(`/api/installation-guides${isAdmin ? '?all=1' : ''}`)
+      if (!res.ok) throw new Error(`API error ${res.status}`)
       const json = await res.json()
-      setGuides(json.guides ?? [])
-      // Auto-select first guide
-      if (!selected && json.guides?.length > 0) {
-        setSelected(json.guides[0])
+      const list: Guide[] = json.guides ?? []
+      setGuides(list)
+      // Auto-select first guide (only on first load) — sẽ gọi selectGuide sau khi state update
+      if (list.length > 0) {
+        setSelected(prev => {
+          if (prev) return prev
+          // Trigger pre-check sau khi set xong
+          setTimeout(() => selectGuide(list[0]), 0)
+          return list[0]
+        })
       }
+    } catch (e) {
+      console.error('Failed to load guides:', e)
     } finally {
       setLoading(false)
     }
@@ -53,15 +64,32 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
 
   useEffect(() => { load() }, [])
 
+  async function selectGuide(g: Guide) {
+    setSelected(g)
+    setIframeError(false)
+    setIframeLoading(true)
+    // Pre-check: HEAD request để phát hiện 404 trước khi iframe load
+    try {
+      const res = await fetch(`/guides/${g.file_name}`, { method: 'HEAD' })
+      if (!res.ok) {
+        setIframeLoading(false)
+        setIframeError(true)
+      }
+    } catch {
+      setIframeLoading(false)
+      setIframeError(true)
+    }
+  }
+
   function openAdd() {
     setForm(EMPTY_FORM)
+    setEditingId(null)
     setModal('add')
   }
   function openEdit(g: Guide) {
     setForm({ title: g.title, description: g.description ?? '', device_model: g.device_model ?? '', file_name: g.file_name, sort_order: g.sort_order, is_active: g.is_active })
+    setEditingId(g.id)   // ← lưu đúng vào state
     setModal('edit')
-    // store which guide we're editing
-    ;(openEdit as any)._target = g.id
   }
 
   async function saveForm() {
@@ -70,8 +98,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
       if (modal === 'add') {
         await fetch('/api/installation-guides', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
       } else {
-        const id = (openEdit as any)._target
-        await fetch('/api/installation-guides', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...form }) })
+        await fetch('/api/installation-guides', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingId, ...form }) })
       }
       setModal(null)
       await load()
@@ -135,7 +162,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
             ) : guides.map(g => (
               <div
                 key={g.id}
-                onClick={() => { setSelected(g); setIframeLoading(true) }}
+                onClick={() => selectGuide(g)}
                 style={{
                   padding: '10px 14px', cursor: 'pointer',
                   background: selected?.id === g.id ? '#eff6ff' : 'transparent',
@@ -207,12 +234,29 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
         {/* iFrame viewer */}
         {guideUrl ? (
           <div style={{ flex: 1, position: 'relative' }}>
-            {iframeLoading && (
+            {/* Loading overlay */}
+            {iframeLoading && !iframeError && (
               <div style={{ position: 'absolute', inset: 0, background: '#f9fafb', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
                 <div style={{ textAlign: 'center', color: '#6b7280' }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>📄</div>
-                  <div style={{ fontSize: 13 }}>Đang tải...</div>
+                  <div style={{ fontSize: 36, marginBottom: 10 }}>📄</div>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>Đang tải tài liệu...</div>
+                  <div style={{ fontSize: 12, marginTop: 6, color: '#9ca3af' }}>{selected?.file_name}</div>
                 </div>
+              </div>
+            )}
+            {/* Error overlay — file chưa deploy hoặc không tồn tại */}
+            {iframeError && (
+              <div style={{ position: 'absolute', inset: 0, background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, flexDirection: 'column', gap: 12, padding: 32 }}>
+                <div style={{ fontSize: 44 }}>⚠️</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#991b1b' }}>Không tìm thấy file tài liệu</div>
+                <div style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', maxWidth: 400, lineHeight: 1.6 }}>
+                  File <code style={{ background: '#fee2e2', padding: '2px 6px', borderRadius: 4 }}>{selected?.file_name}</code> chưa có trên server.<br/>
+                  Vui lòng chạy <code style={{ background: '#fee2e2', padding: '2px 6px', borderRadius: 4 }}>git push origin master</code> để deploy file lên.
+                </div>
+                <a href={guideUrl} target="_blank" rel="noopener noreferrer"
+                  style={{ marginTop: 8, padding: '8px 18px', background: '#1a56db', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                  🔗 Thử mở trực tiếp
+                </a>
               </div>
             )}
             <iframe
@@ -220,7 +264,16 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
               src={guideUrl}
               style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
               title={selected?.title}
-              onLoad={() => setIframeLoading(false)}
+              onLoad={() => {
+                // Detect 404: contentDocument có thể không truy cập được (cross-origin),
+                // nhưng nếu same-origin và trả về 404 thì title sẽ là "404" hoặc body trống
+                setIframeLoading(false)
+                setIframeError(false)
+              }}
+              onError={() => {
+                setIframeLoading(false)
+                setIframeError(true)
+              }}
             />
           </div>
         ) : (
@@ -283,59 +336,4 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
                   <input type="number" value={form.sort_order} onChange={e => setForm(f => ({ ...f, sort_order: +e.target.value }))}
                     style={inputStyle} />
                 </label>
-                <label style={{ ...labelStyle, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20 }}>
-                  <input type="checkbox" checked={form.is_active} onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))}
-                    style={{ width: 16, height: 16, flexShrink: 0 }} />
-                  <span>Hiển thị (active)</span>
-                </label>
-              </div>
-            </div>
-
-            {/* Modal footer */}
-            <div style={{ padding: '12px 22px 18px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={() => setModal(null)} style={btnSecStyle}>Hủy</button>
-              <button onClick={saveForm} disabled={saving || !form.title || !form.file_name} style={btnPrimStyle}>
-                {saving ? '⏳ Đang lưu...' : (modal === 'add' ? '➕ Thêm mới' : '💾 Lưu')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── DELETE CONFIRM ── */}
-      {deleteConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', maxWidth: 400, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', textAlign: 'center' }}>
-            <div style={{ fontSize: 44, marginBottom: 12 }}>🗑️</div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 8px' }}>Xác nhận xóa?</h3>
-            <p style={{ fontSize: 13.5, color: '#6b7280', margin: '0 0 20px', lineHeight: 1.6 }}>
-              Xóa hướng dẫn <strong>"{deleteConfirm.title}"</strong>?<br />Hành động này không thể hoàn tác.
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-              <button onClick={() => setDeleteConfirm(null)} style={btnSecStyle}>Hủy</button>
-              <button onClick={() => doDelete(deleteConfirm)} style={{ ...btnPrimStyle, background: '#dc2626' }}>
-                Xóa
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-const labelStyle: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: '#374151'
-}
-const inputStyle: React.CSSProperties = {
-  border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none',
-  fontFamily: 'inherit', width: '100%', color: '#111827'
-}
-const btnSecStyle: React.CSSProperties = {
-  padding: '8px 18px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff',
-  fontSize: 13, fontWeight: 500, cursor: 'pointer', color: '#374151'
-}
-const btnPrimStyle: React.CSSProperties = {
-  padding: '8px 18px', borderRadius: 8, border: 'none', background: '#1a56db',
-  fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#fff'
-}
+                <label style={{ ...labelStyle, flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, marginTop
