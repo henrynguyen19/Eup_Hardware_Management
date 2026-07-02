@@ -20,3 +20,12 @@ VALUES (
   'huong-dan-adas-h5.html',
   1
 );
+
+INSERT INTO installation_guides (title, description, device_model, file_name, sort_order)
+VALUES (
+  'Hướng Dẫn Lắp Đặt Streamax H5 AI DMS',
+  'Hướng dẫn đầy đủ lắp đặt hệ thống giám sát tài xế DMS — đấu dây nguồn, lắp camera AV4, hiệu chỉnh AI và kiểm tra 10 chức năng cảnh báo.',
+  'Streamax H5 DMS',
+  'huong-dan-dms-h5.html',
+  2
+);
