@@ -405,7 +405,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
             title={sidebarOpen ? 'Ẩn danh sách' : 'Danh sách'}
             style={{ display: 'flex', alignItems: 'center', gap: 6, background: sidebarOpen ? '#f3f4f6' : '#eff6ff', border: `1px solid ${sidebarOpen ? '#e5e7eb' : '#bfdbfe'}`, borderRadius: 7, padding: '5px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: sidebarOpen ? '#374151' : '#1a56db', flexShrink: 0 }}
           >
-            ☰ {vi ? 'Danh sách' : 'List'}
+            {sidebarOpen ? (vi ? '◀ Ẩn danh sách' : '◀ Hide list') : (vi ? '☰ Hiện danh sách' : '☰ Show list')}
           </button>
           {selected ? (
             <>
@@ -515,6 +515,4 @@ const btnSecStyle: React.CSSProperties = {
   fontSize: 13, fontWeight: 500, cursor: 'pointer', color: '#374151'
 }
 const btnPrimStyle: React.CSSProperties = {
-  padding: '8px 18px', borderRadius: 8, border: 'none', background: '#1a56db',
-  fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#fff'
-}
+  padding: '8px 18px', borderRadius: 8, border: 'none', background

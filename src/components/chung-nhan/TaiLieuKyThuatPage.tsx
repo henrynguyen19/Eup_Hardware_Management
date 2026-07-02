@@ -16,14 +16,14 @@ type SubTab = 'certificates' | 'technical' | 'installation'
 
 export default function TaiLieuKyThuatPage({ isAdmin = false }: { isAdmin?: boolean }) {
   const { lang } = useLanguage()
-  const [activeTab, setActiveTab] = useState<SubTab>('certificates')
+  const [activeTab, setActiveTab] = useState<SubTab>('installation')
 
   const vi = lang === 'vi'
 
   const tabs: { key: SubTab; label: string; icon: string }[] = [
-    { key: 'certificates',  icon: '📜', label: vi ? 'Giấy chứng nhận'     : 'Certificates'       },
-    { key: 'technical',     icon: '📋', label: vi ? 'Tài liệu kỹ thuật'   : 'Technical Docs'     },
     { key: 'installation',  icon: '🔧', label: vi ? 'Hướng dẫn lắp đặt'   : 'Installation Guide' },
+    { key: 'technical',     icon: '📋', label: vi ? 'Tài liệu kỹ thuật'   : 'Technical Docs'     },
+    { key: 'certificates',  icon: '📜', label: vi ? 'Giấy chứng nhận'     : 'Certificates'       },
   ]
 
   function renderContent() {
