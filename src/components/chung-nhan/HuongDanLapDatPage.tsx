@@ -38,6 +38,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
   const [saving, setSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<Guide | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
@@ -129,6 +130,15 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
   }
 
   const guideUrl = selected ? `/guides/${selected.file_name}` : null
+
+  const q = searchQuery.trim().toLowerCase()
+  const filteredGuides = q
+    ? guides.filter(g =>
+        g.title.toLowerCase().includes(q) ||
+        (g.device_model ?? '').toLowerCase().includes(q) ||
+        (g.description ?? '').toLowerCase().includes(q)
+      )
+    : guides
 
   // ── MODALS (dùng chung cho mobile + desktop) ─────────────────────
   function renderModals() {
@@ -268,15 +278,30 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
             </button>
           )}
         </div>
+        {/* Search box – mobile */}
+        <div style={{ padding: '10px 12px 4px' }}>
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', fontSize: 14, pointerEvents: 'none' }}>🔍</span>
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder={vi ? 'Tìm kiếm hướng dẫn...' : 'Search guides...'}
+              style={{ width: '100%', padding: '8px 10px 8px 32px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 8, outline: 'none', background: '#fff', color: '#111827' }}
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16, lineHeight: 1 }}>×</button>
+            )}
+          </div>
+        </div>
         {/* Guide cards */}
-        <div style={{ padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ padding: '8px 12px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>Đang tải...</div>
-          ) : guides.length === 0 ? (
+          ) : filteredGuides.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>
-              {vi ? 'Chưa có hướng dẫn nào' : 'No guides yet'}
+              {q ? (vi ? 'Không tìm thấy kết quả' : 'No results found') : (vi ? 'Chưa có hướng dẫn nào' : 'No guides yet')}
             </div>
-          ) : guides.map(g => (
+          ) : filteredGuides.map(g => (
             <div key={g.id} onClick={() => selectGuide(g)}
               style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', cursor: 'pointer', opacity: g.is_active ? 1 : 0.5 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -322,69 +347,88 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
           display: 'flex', flexDirection: 'column', overflow: 'hidden'
         }}>
           {/* Panel header */}
-          <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <button
               onClick={() => setSidebarOpen(false)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#6b7280', lineHeight: 1, padding: 4 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, color: '#6b7280', lineHeight: 1, padding: '2px 4px' }}
               title="Thu gọn"
             >◀</button>
-            <span style={{ fontWeight: 700, fontSize: 13, color: '#111827', flex: 1, whiteSpace: 'nowrap' }}>
+            <span style={{ fontWeight: 700, fontSize: 12.5, color: '#111827', flex: 1, whiteSpace: 'nowrap' }}>
               🔧 {vi ? 'Hướng dẫn lắp đặt' : 'Installation Guides'}
             </span>
             {isAdmin && (
               <button onClick={openAdd} style={{
                 background: '#1a56db', color: '#fff', border: 'none', borderRadius: 6,
-                padding: '4px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap'
+                padding: '3px 9px', fontSize: 11.5, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap'
               }}>+ {vi ? 'Thêm' : 'Add'}</button>
             )}
           </div>
 
+          {/* Search box */}
+          <div style={{ padding: '8px 10px 6px', borderBottom: '1px solid #f3f4f6', flexShrink: 0 }}>
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', fontSize: 13, pointerEvents: 'none' }}>🔍</span>
+              <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder={vi ? 'Tìm kiếm...' : 'Search...'}
+                style={{ width: '100%', padding: '6px 26px 6px 28px', fontSize: 12.5, border: '1px solid #e5e7eb', borderRadius: 7, outline: 'none', background: '#f9fafb', color: '#111827', transition: 'border-color .15s' }}
+                onFocus={e => { e.target.style.borderColor = '#93c5fd'; e.target.style.background = '#fff' }}
+                onBlur={e => { e.target.style.borderColor = '#e5e7eb'; e.target.style.background = '#f9fafb' }}
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 15, lineHeight: 1, padding: 0 }}>×</button>
+              )}
+            </div>
+            {searchQuery && (
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, paddingLeft: 2 }}>
+                {filteredGuides.length} {vi ? 'kết quả' : 'result(s)'}
+              </div>
+            )}
+          </div>
+
           {/* Guide list */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
             {loading ? (
               <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>Đang tải...</div>
-            ) : guides.length === 0 ? (
+            ) : filteredGuides.length === 0 ? (
               <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
-                {vi ? 'Chưa có hướng dẫn nào' : 'No guides yet'}
-                {isAdmin && <div style={{ marginTop: 8, fontSize: 12 }}>Nhấn + Thêm để thêm mới</div>}
+                {q ? (vi ? 'Không tìm thấy kết quả' : 'No results found') : (vi ? 'Chưa có hướng dẫn nào' : 'No guides yet')}
+                {!q && isAdmin && <div style={{ marginTop: 8, fontSize: 12 }}>Nhấn + Thêm để thêm mới</div>}
               </div>
-            ) : guides.map(g => (
+            ) : filteredGuides.map(g => (
               <div
                 key={g.id}
                 onClick={() => selectGuide(g)}
                 style={{
-                  padding: '10px 14px', cursor: 'pointer',
+                  padding: '8px 12px', cursor: 'pointer',
                   background: selected?.id === g.id ? '#eff6ff' : 'transparent',
                   borderLeft: `3px solid ${selected?.id === g.id ? '#1a56db' : 'transparent'}`,
                   transition: 'background .12s',
                   opacity: g.is_active ? 1 : 0.45
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <span style={{ fontSize: 20, lineHeight: 1.3, flexShrink: 0 }}>📄</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16, lineHeight: 1, flexShrink: 0 }}>📄</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', lineHeight: 1.4, marginBottom: 3 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: selected?.id === g.id ? '#1a56db' : '#111827', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {g.title}
-                      {!g.is_active && <span style={{ marginLeft: 6, fontSize: 10, background: '#fee2e2', color: '#991b1b', padding: '1px 5px', borderRadius: 4 }}>Ẩn</span>}
+                      {!g.is_active && <span style={{ marginLeft: 5, fontSize: 10, background: '#fee2e2', color: '#991b1b', padding: '1px 4px', borderRadius: 3 }}>Ẩn</span>}
                     </div>
                     {g.device_model && (
-                      <span style={{ fontSize: 11, background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 10, fontWeight: 500 }}>
+                      <span style={{ fontSize: 10.5, background: selected?.id === g.id ? '#dbeafe' : '#f3f4f6', color: selected?.id === g.id ? '#1e40af' : '#6b7280', padding: '1px 5px', borderRadius: 8, fontWeight: 500 }}>
                         {g.device_model}
                       </span>
                     )}
-                    {g.description && (
-                      <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 4, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                        {g.description}
-                      </div>
-                    )}
                   </div>
+                  {selected?.id === g.id && <span style={{ fontSize: 12, color: '#1a56db', flexShrink: 0 }}>▶</span>}
                 </div>
                 {isAdmin && (
-                  <div style={{ display: 'flex', gap: 4, marginTop: 8 }} onClick={e => e.stopPropagation()}>
-                    <button onClick={() => openEdit(g)} style={{ flex: 1, padding: '4px 0', fontSize: 11, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 5, cursor: 'pointer', color: '#374151' }}>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }} onClick={e => e.stopPropagation()}>
+                    <button onClick={() => openEdit(g)} style={{ flex: 1, padding: '3px 0', fontSize: 11, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 5, cursor: 'pointer', color: '#374151' }}>
                       ✏️ Sửa
                     </button>
-                    <button onClick={() => setDeleteConfirm(g)} style={{ flex: 1, padding: '4px 0', fontSize: 11, background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: 5, cursor: 'pointer', color: '#dc2626' }}>
+                    <button onClick={() => setDeleteConfirm(g)} style={{ flex: 1, padding: '3px 0', fontSize: 11, background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: 5, cursor: 'pointer', color: '#dc2626' }}>
                       🗑️ Xóa
                     </button>
                   </div>
