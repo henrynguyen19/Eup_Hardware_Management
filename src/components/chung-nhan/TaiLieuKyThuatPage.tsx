@@ -14,17 +14,18 @@ const FOLDER_HUONG_DAN    = ''   // ← điền Google Drive folder ID
 
 type SubTab = 'certificates' | 'technical' | 'installation'
 
-export default function TaiLieuKyThuatPage({ isAdmin = false }: { isAdmin?: boolean }) {
+export default function TaiLieuKyThuatPage({ isAdmin = false, canTaiLieu = true, canHuongDan = true }: { isAdmin?: boolean; canTaiLieu?: boolean; canHuongDan?: boolean }) {
   const { lang } = useLanguage()
   const [activeTab, setActiveTab] = useState<SubTab>('installation')
 
   const vi = lang === 'vi'
 
-  const tabs: { key: SubTab; label: string; icon: string }[] = [
-    { key: 'installation',  icon: '🔧', label: vi ? 'Hướng dẫn lắp đặt'   : 'Installation Guide' },
-    { key: 'technical',     icon: '📋', label: vi ? 'Tài liệu kỹ thuật'   : 'Technical Docs'     },
-    { key: 'certificates',  icon: '📜', label: vi ? 'Giấy chứng nhận'     : 'Certificates'       },
+  const allTabs: { key: SubTab; label: string; icon: string; show: boolean }[] = [
+    { key: 'installation',  icon: '🔧', label: vi ? 'Hướng dẫn lắp đặt'   : 'Installation Guide', show: canHuongDan },
+    { key: 'technical',     icon: '📋', label: vi ? 'Tài liệu kỹ thuật'   : 'Technical Docs',     show: canTaiLieu  },
+    { key: 'certificates',  icon: '📜', label: vi ? 'Giấy chứng nhận'     : 'Certificates',       show: isAdmin || canTaiLieu },
   ]
+  const tabs = allTabs.filter(t => t.show)
 
   function renderContent() {
     if (activeTab === 'certificates') {

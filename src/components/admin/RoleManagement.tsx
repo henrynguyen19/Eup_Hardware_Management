@@ -52,6 +52,13 @@ const PERMISSION_GROUPS = [
     ],
   },
   {
+    label: 'Tai lieu ky thuat',
+    perms: [
+      { key: 'tai_lieu:read',   label: 'Xem tai lieu ky thuat' },
+      { key: 'huong_dan:read',  label: 'Xem huong dan lap dat & su dung' },
+    ],
+  },
+  {
     label: 'Giay chung nhan',
     perms: [
       { key: 'chung_nhan:read', label: 'Xem giay chung nhan' },
