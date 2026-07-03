@@ -311,11 +311,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Lỗi CRM: ${String(e)}` }, { status: 500 })
     }
 
-    // Map repair_id → IMEI hợp lệ (14-16 chữ số)
+    // Map repair_id → Device_Code từ CRM (IMEI hoặc serial)
+    // Chấp nhận bất kỳ Device_Code không rỗng (Fuel Sensor, C43, thẻ nhớ, v.v. không có IMEI)
     const repairIdToImei = new Map<number, string>()
     for (const r of crmRecords) {
-      const mapped = mapRecord(r)
-      if (isValidImei(mapped.imei)) repairIdToImei.set(r.Repair_ID, mapped.imei)
+      const deviceCode = (r.Device_Code as string || '').trim()
+      if (deviceCode && deviceCode.length >= 4) repairIdToImei.set(r.Repair_ID, deviceCode)
     }
 
     let fixed = 0
