@@ -38,9 +38,8 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
   const [saving, setSaving] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<Guide | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [contentEditor, setContentEditor] = useState<{ file: string; content: string } | null>(null)
-  const [contentSaving, setContentSaving] = useState(false)
-  const [contentLoading, setContentLoading] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -81,6 +80,11 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
   useEffect(() => { load() }, [])
 
   async function selectGuide(g: Guide, collapsePanel = true) {
+    if (editMode) {
+      const doc = iframeRef.current?.contentDocument
+      if (doc) doc.designMode = 'off'
+      setEditMode(false)
+    }
     setSelected(g)
     setIframeError(false)
     setIframeLoading(true)
@@ -132,38 +136,109 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
     await load()
   }
 
-  async function openContentEditor(g: Guide) {
-    setContentLoading(true)
-    try {
-      const res = await fetch(`/api/guide-content?file=${encodeURIComponent(g.file_name)}`)
-      if (!res.ok) throw new Error('Cannot read file')
-      const { content } = await res.json()
-      setContentEditor({ file: g.file_name, content })
-    } catch {
-      alert('Không thể đọc file. Hãy chắc chắn file đã được deploy lên server.')
-    } finally {
-      setContentLoading(false)
-    }
+  // ── WYSIWYG editor helpers ──────────────────────────────────────
+  function execCmd(cmd: string, value?: string) {
+    const doc = iframeRef.current?.contentDocument
+    if (doc) doc.execCommand(cmd, false, value ?? undefined)
   }
 
-  async function saveContent() {
-    if (!contentEditor) return
-    setContentSaving(true)
+  function enterEditMode() {
+    const doc = iframeRef.current?.contentDocument
+    if (!doc || iframeError || iframeLoading) return
+    doc.designMode = 'on'
+    setEditMode(true)
+    iframeRef.current?.contentWindow?.focus()
+  }
+
+  function exitEditMode() {
+    const doc = iframeRef.current?.contentDocument
+    if (doc) doc.designMode = 'off'
+    setEditMode(false)
+  }
+
+  async function saveEdit() {
+    if (!selected) return
+    const doc = iframeRef.current?.contentDocument
+    if (!doc) return
+    const html = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML
+    setEditSaving(true)
     try {
       const res = await fetch('/api/guide-content', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file: contentEditor.file, content: contentEditor.content }),
+        body: JSON.stringify({ file: selected.file_name, content: html }),
       })
       if (!res.ok) throw new Error('Save failed')
-      setContentEditor(null)
-      // Reload iframe
-      if (iframeRef.current) iframeRef.current.src = iframeRef.current.src
+      exitEditMode()
+      if (iframeRef.current) { const s = iframeRef.current.src; iframeRef.current.src = s }
     } catch {
       alert('Lưu thất bại. Vui lòng thử lại.')
     } finally {
-      setContentSaving(false)
+      setEditSaving(false)
     }
+  }
+
+  function getCell(): HTMLTableCellElement | null {
+    const win = iframeRef.current?.contentWindow as Window | null
+    if (!win) return null
+    const sel = win.getSelection()
+    if (!sel || sel.rangeCount === 0) return null
+    let node: Node | null = sel.anchorNode
+    while (node && node.nodeName !== 'TD' && node.nodeName !== 'TH') node = node.parentNode
+    return node as HTMLTableCellElement | null
+  }
+
+  function addRow() {
+    const cell = getCell()
+    const row = cell?.closest('tr') as HTMLTableRowElement | null
+    if (!row) return
+    const newRow = row.cloneNode(true) as HTMLTableRowElement
+    Array.from(newRow.cells).forEach(c => { c.innerHTML = '&nbsp;' })
+    row.insertAdjacentElement('afterend', newRow)
+  }
+
+  function deleteRow() {
+    const cell = getCell()
+    const row = cell?.closest('tr') as HTMLTableRowElement | null
+    row?.remove()
+  }
+
+  function addCol() {
+    const cell = getCell()
+    const table = cell?.closest('table') as HTMLTableElement | null
+    if (!table || cell == null) return
+    const idx = cell.cellIndex
+    Array.from(table.rows).forEach(row => {
+      const nc = row.insertCell(idx + 1)
+      nc.innerHTML = '&nbsp;'
+    })
+  }
+
+  function deleteCol() {
+    const cell = getCell()
+    const table = cell?.closest('table') as HTMLTableElement | null
+    if (!table || cell == null) return
+    const idx = cell.cellIndex
+    Array.from(table.rows).forEach(row => { if (row.cells[idx]) row.deleteCell(idx) })
+  }
+
+  function insertImage() {
+    const url = prompt(vi ? 'Nhập URL hình ảnh:' : 'Image URL:')
+    if (url) execCmd('insertImage', url)
+  }
+
+  function insertTable() {
+    const rows = parseInt(prompt(vi ? 'Số hàng:' : 'Rows:', '3') ?? '3')
+    const cols = parseInt(prompt(vi ? 'Số cột:' : 'Columns:', '3') ?? '3')
+    if (!rows || !cols) return
+    let html = '<table border="1" style="border-collapse:collapse;width:100%"><tbody>'
+    for (let r = 0; r < rows; r++) {
+      html += '<tr>'
+      for (let c = 0; c < cols; c++) html += `<td style="padding:6px 10px;border:1px solid #d1d5db">&nbsp;</td>`
+      html += '</tr>'
+    }
+    html += '</tbody></table>'
+    execCmd('insertHTML', html)
   }
 
   const guideUrl = selected ? `/guides/${selected.file_name}` : null
@@ -231,56 +306,6 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
                   {saving ? '⏳ Đang lưu...' : (modal === 'add' ? '➕ Thêm mới' : '💾 Lưu')}
                 </button>
               </div>
-            </div>
-          </div>
-        )}
-        {contentEditor && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '20px' }}>
-            <div style={{ background: '#1e1e2e', borderRadius: 14, width: '100%', maxWidth: 860, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
-              {/* Header */}
-              <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', gap: 12, background: '#16162a', flexShrink: 0 }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  ✏️ {vi ? 'Sửa nội dung' : 'Edit content'} — <span style={{ color: '#93c5fd', fontFamily: 'monospace', fontSize: 13 }}>{contentEditor.file}</span>
-                </span>
-                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                  <button onClick={() => setContentEditor(null)} style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.08)', color: '#e2e8f0', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
-                    {vi ? 'Hủy' : 'Cancel'}
-                  </button>
-                  <button onClick={saveContent} disabled={contentSaving} style={{ padding: '6px 16px', borderRadius: 7, border: 'none', background: contentSaving ? '#6b7280' : '#1a56db', color: '#fff', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
-                    {contentSaving ? '⏳ Đang lưu...' : '💾 Lưu'}
-                  </button>
-                </div>
-              </div>
-              {/* Hint */}
-              <div style={{ padding: '8px 20px', background: '#1a1a2e', borderBottom: '1px solid rgba(255,255,255,.07)', fontSize: 11.5, color: '#94a3b8', flexShrink: 0 }}>
-                💡 {vi ? 'Chỉnh sửa nội dung HTML. Lưu xong trang sẽ tự reload để hiển thị thay đổi.' : 'Edit HTML content. Save to reload the guide with changes.'}
-              </div>
-              {/* Code editor textarea */}
-              <textarea
-                value={contentEditor.content}
-                onChange={e => setContentEditor(prev => prev ? { ...prev, content: e.target.value } : null)}
-                spellCheck={false}
-                style={{
-                  flex: 1, resize: 'none', border: 'none', outline: 'none',
-                  background: '#1e1e2e', color: '#e2e8f0',
-                  fontFamily: "'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace",
-                  fontSize: 13, lineHeight: 1.6, padding: '16px 20px',
-                  tabSize: 2,
-                }}
-                onKeyDown={e => {
-                  // Tab key inserts 2 spaces
-                  if (e.key === 'Tab') {
-                    e.preventDefault()
-                    const el = e.target as HTMLTextAreaElement
-                    const start = el.selectionStart
-                    const end = el.selectionEnd
-                    const val = el.value
-                    const newVal = val.substring(0, start) + '  ' + val.substring(end)
-                    setContentEditor(prev => prev ? { ...prev, content: newVal } : null)
-                    setTimeout(() => { el.selectionStart = el.selectionEnd = start + 2 }, 0)
-                  }
-                }}
-              />
             </div>
           </div>
         )}
@@ -556,13 +581,12 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
               >
                 🔗 {vi ? 'Mở tab mới' : 'Open in tab'}
               </a>
-              {isAdmin && (
+              {isAdmin && !iframeError && !iframeLoading && (
                 <button
-                  onClick={() => openContentEditor(selected)}
-                  disabled={contentLoading}
+                  onMouseDown={e => { e.preventDefault(); enterEditMode() }}
                   style={{ fontSize: 12, color: '#b45309', background: '#fef3c7', padding: '4px 10px', borderRadius: 6, fontWeight: 500, flexShrink: 0, border: '1px solid #fde68a', cursor: 'pointer' }}
                 >
-                  {contentLoading ? '⏳' : '✏️'} {vi ? 'Sửa nội dung' : 'Edit content'}
+                  ✏️ {vi ? 'Sửa nội dung' : 'Edit content'}
                 </button>
               )}
             </>
@@ -572,6 +596,54 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
             </span>
           )}
         </div>
+
+        {/* ── WYSIWYG Edit Toolbar ── */}
+        {editMode && (
+          <div style={{ background: '#1e293b', borderBottom: '2px solid #f59e0b', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', flexShrink: 0 }}>
+            {/* Save / Exit */}
+            <button onMouseDown={e => { e.preventDefault(); saveEdit() }} disabled={editSaving}
+              style={{ padding: '5px 13px', borderRadius: 6, border: 'none', background: editSaving ? '#4b5563' : '#f59e0b', color: '#1e293b', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+              {editSaving ? '⏳ Đang lưu...' : '💾 Lưu'}
+            </button>
+            <button onMouseDown={e => { e.preventDefault(); exitEditMode() }}
+              style={{ padding: '5px 11px', borderRadius: 6, border: '1px solid #4b5563', background: 'transparent', color: '#94a3b8', fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>
+              ✕ {vi ? 'Thoát' : 'Exit'}
+            </button>
+            <div style={{ width: 1, height: 22, background: '#334155', margin: '0 4px', flexShrink: 0 }} />
+            {/* Text format */}
+            {([['bold','<strong>B</strong>'],['italic','<em>I</em>'],['underline','<u>U</u>']] as [string,string][]).map(([cmd,label]) => (
+              <button key={cmd} onMouseDown={e => { e.preventDefault(); execCmd(cmd) }}
+                style={tbBtn} title={cmd} dangerouslySetInnerHTML={{ __html: label }} />
+            ))}
+            <div style={{ width: 1, height: 22, background: '#334155', margin: '0 2px', flexShrink: 0 }} />
+            {/* Headings */}
+            {(['h1','h2','h3','p'] as string[]).map(tag => (
+              <button key={tag} onMouseDown={e => { e.preventDefault(); execCmd('formatBlock', tag) }}
+                style={tbBtn} title={tag}>{tag.toUpperCase()}</button>
+            ))}
+            <div style={{ width: 1, height: 22, background: '#334155', margin: '0 2px', flexShrink: 0 }} />
+            {/* Lists */}
+            <button onMouseDown={e => { e.preventDefault(); execCmd('insertUnorderedList') }} style={tbBtn} title="Bullet list">• List</button>
+            <button onMouseDown={e => { e.preventDefault(); execCmd('insertOrderedList') }} style={tbBtn} title="Numbered list">1. List</button>
+            <div style={{ width: 1, height: 22, background: '#334155', margin: '0 2px', flexShrink: 0 }} />
+            {/* Table ops */}
+            <button onMouseDown={e => { e.preventDefault(); insertTable() }} style={{ ...tbBtn, color: '#7dd3fc' }} title="Chèn bảng mới">📊 Bảng</button>
+            <button onMouseDown={e => { e.preventDefault(); addRow() }} style={tbBtn} title="Thêm hàng">+Hàng</button>
+            <button onMouseDown={e => { e.preventDefault(); deleteRow() }} style={{ ...tbBtn, color: '#fca5a5' }} title="Xóa hàng">-Hàng</button>
+            <button onMouseDown={e => { e.preventDefault(); addCol() }} style={tbBtn} title="Thêm cột">+Cột</button>
+            <button onMouseDown={e => { e.preventDefault(); deleteCol() }} style={{ ...tbBtn, color: '#fca5a5' }} title="Xóa cột">-Cột</button>
+            <div style={{ width: 1, height: 22, background: '#334155', margin: '0 2px', flexShrink: 0 }} />
+            {/* Image */}
+            <button onMouseDown={e => { e.preventDefault(); insertImage() }} style={{ ...tbBtn, color: '#86efac' }} title="Chèn ảnh">🖼️ Ảnh</button>
+            <div style={{ width: 1, height: 22, background: '#334155', margin: '0 2px', flexShrink: 0 }} />
+            {/* Undo / Redo */}
+            <button onMouseDown={e => { e.preventDefault(); execCmd('undo') }} style={tbBtn} title="Undo">↩</button>
+            <button onMouseDown={e => { e.preventDefault(); execCmd('redo') }} style={tbBtn} title="Redo">↪</button>
+            <span style={{ marginLeft: 8, fontSize: 11, color: '#64748b', flexShrink: 0 }}>
+              💡 {vi ? 'Nhấp vào nội dung để sửa trực tiếp' : 'Click content to edit directly'}
+            </span>
+          </div>
+        )}
 
         {/* iFrame viewer */}
         {guideUrl ? (
@@ -643,6 +715,11 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
   )
 }
 
+const tbBtn: React.CSSProperties = {
+  padding: '4px 8px', borderRadius: 5, border: '1px solid #334155',
+  background: 'rgba(255,255,255,0.06)', color: '#e2e8f0',
+  fontSize: 12, cursor: 'pointer', flexShrink: 0, lineHeight: 1.4,
+}
 const labelStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: '#374151'
 }
