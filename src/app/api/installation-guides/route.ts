@@ -73,7 +73,7 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ guide: data })
 }
 
-// DELETE — soft delete (set is_active = false) or hard delete
+// DELETE — hard delete
 export async function DELETE(req: NextRequest) {
   const auth = createSupabaseServerClient()
   const { data: { user } } = await auth.auth.getUser()
@@ -84,4 +84,9 @@ export async function DELETE(req: NextRequest) {
 
   const { error } = await adminClient()
     .from('installation_guides')
-   
+    .delete()
+    .eq('id', id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
