@@ -296,9 +296,12 @@ export async function POST(req: NextRequest) {
     const fixEnd   = `${fmt(now)} 23:59:59`
 
     let crmRecords: RepairRecord[] = []
+    let rawSample: unknown[] = []
     try {
       const res = await callGetDeviceRepair(fixSession, fixIdentity, fixStart, fixEnd)
       crmRecords = res.records
+      // Debug: lấy 3 records đầu (raw) để xem tất cả field CRM trả về
+      rawSample = (res.records as unknown[]).slice(0, 3)
     } catch (e) {
       return NextResponse.json({ error: `Lỗi CRM: ${String(e)}` }, { status: 500 })
     }
@@ -332,6 +335,7 @@ export async function POST(req: NextRequest) {
       crmTotal: crmRecords.length,
       dateRange: fixStart + ' → ' + fixEnd,
       errors: fixErrors.length > 0 ? fixErrors.slice(0, 5) : undefined,
+      debugSample: rawSample,
     })
 
   } else if (body.mode === 'refresh_in_repair') {
