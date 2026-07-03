@@ -27,7 +27,7 @@ interface KhoRecord {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 type DateRange = '7d' | '30d' | 'month' | 'custom'
-const PERSONS = ['Kai', 'Thor', 'Nick', 'Bop', 'Peter']
+const PERSONS = ['Kai', 'Thor', 'Nick', 'Bob', 'Peter']
 const DEVICES  = ['VN88-4G', 'Go Track', 'DVR-88', 'C43', 'H5', 'Bewin', 'MT99']
 // Danh sách thiết bị trong dropdown "tên thiết bị" của Other section — phải khớp chính xác GG Sheet
 const OTHER_DEVICES_LIST = [
@@ -1210,7 +1210,7 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
           <div className="bg-white rounded-lg shadow p-6 max-w-lg">
             <h3 className="font-semibold text-gray-700 mb-1">Đồng bộ từ Google Sheets</h3>
             <p className="text-sm text-gray-500 mb-4">
-              Đọc dữ liệu từ các sheet Kai, Thor, Nick, Bop, Peter và cập nhật vào hệ thống.
+              Đọc dữ liệu từ các sheet Kai, Thor, Nick, Bob, Peter và cập nhật vào hệ thống.
             </p>
             <div className="space-y-3">
               <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">

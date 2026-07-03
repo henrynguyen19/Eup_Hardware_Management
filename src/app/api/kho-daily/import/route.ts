@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { google } from 'googleapis'
 
 const SPREADSHEET_ID = '1q3rgjEmoYDPjAu8m-jTaathrl4fsrzHvwqUWKtkZWvo'
-const PERSONS = ['Kai', 'Thor', 'Nick', 'Bop', 'Peter']
+const PERSONS = ['Kai', 'Thor', 'Nick', 'Bob', 'Peter']
 
 function getSheetsClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
