@@ -272,7 +272,7 @@ export async function POST(req: NextRequest) {
     // Query CRM 1 lần từ tháng 6/2026 → nay, match bằng crm_repair_id để lấy đúng IMEI
     const { data: allRepairRows } = await db
       .from('repair_items')
-      .select('id, imei, crm_repair_id')
+      .select('id, imei, crm_repair_id, received_at')
       .not('imei', 'like', 'CRM-%')
 
     const badRows = (allRepairRows ?? []).filter(
@@ -291,8 +291,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Lỗi CRM session: ${String(e)}` }, { status: 400 })
     }
 
-    // Quét tháng 6/2026 → nay — đủ để lấy toàn bộ repair ID trong khoảng bị lỗi
-    const fixStart = '2026-06-01 00:00:00'
+    // Tính fixStart từ received_at sớm nhất của badRows (trừ 7 ngày buffer)
+    const timestamps = badRows
+      .map(r => new Date((r as {received_at: string}).received_at).getTime())
+      .filter(n => !isNaN(n))
+    const minTs = timestamps.length > 0 ? Math.min(...timestamps) : now.getTime()
+    const startDate = new Date(minTs - 7 * 86400000)
+    const fixStart = `${startDate.getFullYear()}-${pad(startDate.getMonth()+1)}-${pad(startDate.getDate())} 00:00:00`
     const fixEnd   = fmt(now).replace('00:00:00', '23:59:59')
 
     let crmRecords: RepairRecord[] = []
