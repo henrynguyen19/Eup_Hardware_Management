@@ -269,11 +269,12 @@ export async function POST(req: NextRequest) {
       errors: selErrors.length > 0 ? selErrors.slice(0, 5) : undefined,
     })
   } else if (body.mode === 'fix_bad_imeis') {
-    // Query CRM 1 lần từ tháng 6/2026 → nay, match bằng crm_repair_id để lấy đúng IMEI
+    // Filter ngay trên Supabase — tránh giới hạn 1000 rows mặc định khi có 27k+ records
     const { data: allRepairRows } = await db
       .from('repair_items')
       .select('id, imei, crm_repair_id, received_at')
-      .not('imei', 'like', 'CRM-%')
+      .like('imei', '99999%')
+      .not('crm_repair_id', 'is', null)
 
     const badRows = (allRepairRows ?? []).filter(
       r => r.imei && /^9{5,}/.test(r.imei as string) && r.crm_repair_id
