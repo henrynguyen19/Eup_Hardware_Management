@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tài Liệu Kỹ Thuật – Streamax F6N</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--nav:#0c1a2e;--nav-dark:#060f1c;--accent:#0ea5e9;--bg:#e0f2fe;--text:#0c4a6e}
+  body{font-family:'Segoe UI',sans-serif;background:#f0f4f8;color:#1f2937;display:flex;min-height:100vh}
+  nav{width:270px;min-width:270px;background:var(--nav);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav .logo{padding:22px 18px 14px;border-bottom:1px solid rgba(255,255,255,.12)}
+  nav .logo .brand{font-size:12px;font-weight:600;color:#94a3b8;letter-spacing:2px;text-transform:uppercase}
+  nav .logo .device{font-size:26px;font-weight:800;letter-spacing:1px;color:#0ea5e9;margin-top:2px}
+  nav .logo .sub{font-size:11px;opacity:.6;margin-top:3px}
+  nav .badge{display:inline-block;background:#0ea5e9;color:#0c1a2e;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;margin-top:6px}
+  nav ul{list-style:none;padding:10px 0;flex:1}
+  nav ul li a{display:flex;align-items:center;gap:10px;padding:9px 18px;font-size:13px;color:rgba(255,255,255,.75);text-decoration:none;transition:.15s;cursor:pointer}
+  nav ul li a:hover,nav ul li a.active{background:rgba(14,165,233,.18);color:#38bdf8}
+  nav ul li a .num{background:rgba(255,255,255,.12);border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;min-width:22px;text-align:center}
+  nav ul li a.active .num{background:#0ea5e9;color:#0c1a2e}
+  nav .footer{padding:14px 18px;border-top:1px solid rgba(255,255,255,.1);font-size:11px;opacity:.45}
+  main{flex:1;padding:28px 32px;max-width:980px}
+  .section{display:none;animation:fadeIn .2s ease}
+  .section.active{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:21px;font-weight:700;color:var(--nav-dark);margin-bottom:5px}
+  .subtitle{font-size:13px;color:#6b7280;margin-bottom:22px;padding-bottom:14px;border-bottom:2px solid var(--accent)}
+  .card{background:#fff;border-radius:12px;padding:18px 22px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid var(--accent)}
+  .card h3{font-size:14.5px;font-weight:700;color:var(--nav-dark);margin-bottom:10px}
+  .card p,.card li{font-size:13.5px;color:#374151;line-height:1.7}
+  .card ul{padding-left:18px;margin-top:6px}
+  .card li{margin-bottom:3px}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th{background:var(--nav);color:#38bdf8;padding:8px 12px;text-align:left;font-weight:600;font-size:12.5px}
+  td{padding:8px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top}
+  tr:nth-child(even) td{background:#f0f9ff}
+  td:first-child{font-weight:600;color:#374151;white-space:nowrap}
+  .vs-table th{background:#1e293b;color:#94a3b8}
+  .vs-table td.win{color:#059669;font-weight:700}
+  .vs-table td.header-col{background:#e0f2fe;color:var(--nav-dark);font-weight:700;font-size:11.5px}
+  .info{background:#e0f2fe;border:1px solid #7dd3fc;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#0c4a6e}
+  .alert{background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#92400e}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .highlight-box{background:linear-gradient(135deg,#0c1a2e,#0c3050);color:#fff;border-radius:12px;padding:20px 24px;margin-bottom:14px}
+  .highlight-box h3{color:#38bdf8;font-size:15px;font-weight:700;margin-bottom:10px}
+  .highlight-box p{font-size:13.5px;opacity:.9;line-height:1.7}
+  .stat-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  .stat-card{background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:130px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.07);border-top:3px solid var(--accent)}
+  .stat-card .val{font-size:22px;font-weight:800;color:var(--nav-dark)}
+  .stat-card .lbl{font-size:11px;color:#6b7280;margin-top:3px}
+  .badge-tag{display:inline-block;background:#e0f2fe;color:#0c4a6e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin:2px;border:1px solid #7dd3fc}
+  .nav-btns{display:flex;gap:10px;margin-top:24px}
+  .btn{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+  .btn-prev{background:#f3f4f6;color:#374151}.btn-prev:hover{background:#e5e7eb}
+  .btn-next{background:var(--nav);color:#38bdf8}.btn-next:hover{background:var(--nav-dark)}
+  @media print{nav{display:none}main{padding:10px}.section{display:block !important}}
+  @media(max-width:700px){body{flex-direction:column}nav{width:100%;height:auto;position:relative}main{padding:16px}.grid2,.grid3{grid-template-columns:1fr}.stat-row{gap:10px}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="logo">
+    <div class="brand">Streamax</div>
+    <div class="device">F6N</div>
+    <div class="sub">MDVR 5 kênh Full HD · AI DMS</div>
+    <span class="badge">EUPFIN VN – v1.0</span>
+  </div>
+  <ul>
+    <li><a href="#" onclick="show(0)" id="tab0" class="active"><span class="num">1</span> Tổng quan sản phẩm</a></li>
+    <li><a href="#" onclick="show(1)" id="tab1"><span class="num">2</span> Thông số kỹ thuật</a></li>
+    <li><a href="#" onclick="show(2)" id="tab2"><span class="num">3</span> Đặc điểm nổi bật</a></li>
+    <li><a href="#" onclick="show(3)" id="tab3"><span class="num">4</span> So sánh với sản phẩm khác</a></li>
+    <li><a href="#" onclick="show(4)" id="tab4"><span class="num">5</span> Kiểm tra chất lượng</a></li>
+    <li><a href="#" onclick="show(5)" id="tab5"><span class="num">6</span> Lưu ý lắp đặt</a></li>
+  </ul>
+  <div class="footer">📅 2024 · Streamax Electronics VN · EUPFIN VN</div>
+</nav>
+
+<main>
+<!-- S0: Tổng quan -->
+<section class="section active" id="s0">
+  <h2>📹 Tài Liệu Kỹ Thuật – Streamax F6N</h2>
+  <p class="subtitle">MDVR 5 kênh Full HD 1080P · H.265 · AI DMS · 4G LTE · GNSS 4 hệ</p>
+
+  <div class="highlight-box">
+    <h3>Powerful · Reliable · Yet Affordable</h3>
+    <p>F6N là MDVR 5 kênh Full HD thế hệ mới từ Streamax, thiết kế trên một PCB duy nhất giúp đơn giản hóa kiến trúc phần cứng, tăng độ ổn định vận hành lâu dài. Tích hợp AI DMS, 4G LTE, GNSS 4 chòm sao và bộ nhớ lên đến 1TB.</p>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-card"><div class="val">5ch</div><div class="lbl">Camera Full HD</div></div>
+    <div class="stat-card"><div class="val">1TB</div><div class="lbl">Dung lượng lưu trữ</div></div>
+    <div class="stat-card"><div class="val">H.265</div><div class="lbl">Mã hóa video</div></div>
+    <div class="stat-card"><div class="val">4G</div><div class="lbl">Kết nối LTE</div></div>
+    <div class="stat-card"><div class="val">6-axis</div><div class="lbl">Cảm biến gia tốc</div></div>
+  </div>
+
+  <div class="card">
+    <h3>Thành phần trong hộp</h3>
+    <ul>
+      <li>01 Thiết bị MDVR Streamax F6N</li>
+      <li>01 Camera hướng đường (Road Facing) + giá đỡ</li>
+      <li>01 Camera DMS (Driver Monitoring) – tùy chọn</li>
+      <li>02 Camera bên (Side Camera) – tùy chọn</li>
+      <li>01 Camera hậu (Rear View) – tùy chọn</li>
+      <li>01 Module GPS ngoài – tùy chọn</li>
+      <li>01 Bộ dây nguồn và tín hiệu</li>
+      <li>01 Điều khiển IR (Remote Control)</li>
+      <li>01 Sách hướng dẫn sử dụng</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Chứng nhận tuân thủ</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <span class="badge-tag">ISO 9001:2015</span>
+      <span class="badge-tag">ISO 16750</span>
+      <span class="badge-tag">Automotive Grade</span>
+    </div>
+  </div>
+
+  <div class="nav-btns"><button class="btn btn-next" onclick="show(1)">Tiếp theo →</button></div>
+</section>
+
+<!-- S1: Thông số kỹ thuật -->
+<section class="section" id="s1">
+  <h2>📊 Thông Số Kỹ Thuật</h2>
+  <p class="subtitle">Bảng đặc tả F6N Specification (Slide 6 – Tài liệu gốc)</p>
+
+  <div class="card">
+    <h3>Nguồn điện & Vật lý</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Điện áp hoạt động</td><td><strong>9 ÷ 36 VDC</strong></td></tr>
+      <tr><td>Điện áp danh định</td><td>12 VDC</td></tr>
+      <tr><td>Nguồn cấp</td><td>Ắc quy xe (Lead-acid battery)</td></tr>
+      <tr><td>Kích thước (L×W×H)</td><td>120 × 195.6 × 35 mm</td></tr>
+      <tr><td>Nhiệt độ hoạt động</td><td>-40 ÷ 70°C</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Video</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Mã hóa video</td><td><strong>H.265</strong></td></tr>
+      <tr><td>Video Input</td><td>4×AHD + 1×IPC</td></tr>
+      <tr><td>Khả năng mã hóa</td><td>4×1080P@30fps AHD + 1×1080P@30fps IPC</td></tr>
+      <tr><td>Video Output</td><td>1×CVBS</td></tr>
+      <tr><td>HD Video Output</td><td>1×VGA</td></tr>
+      <tr><td>Audio Output</td><td>1×Analog Audio Out</td></tr>
+      <tr><td>AI</td><td>1 channel DMS (Driver Monitoring System)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Kết nối & Truyền thông</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>4G LTE</td><td>FDD: B1/B3/B7/B8/B20/B28A · Physical SIM + Optional E-SIM</td></tr>
+      <tr><td>Wi-Fi</td><td>Hỗ trợ</td></tr>
+      <tr><td>GNSS</td><td>GPS + BeiDou + Galileo + GLONASS (4 chòm sao)</td></tr>
+      <tr><td>Module GPS</td><td>Optional (GPS ngoài)</td></tr>
+      <tr><td>Antenna GPS</td><td>FAKRA connector · 36×36×4mm · IP67 · -40~105°C</td></tr>
+      <tr><td>Serial</td><td>1×RS232 + 1×RS485</td></tr>
+      <tr><td>I/O</td><td>4 Digital IN + 1 Digital OUT</td></tr>
+      <tr><td>USB</td><td>1×USB2.0</td></tr>
+      <tr><td>IR Remote Control</td><td>Hỗ trợ</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Bộ nhớ & CPU</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>RAM</td><td>1 GB</td></tr>
+      <tr><td>ROM (Internal)</td><td>8 GB</td></tr>
+      <tr><td>Khe MicroSD</td><td>2 khe, tối đa 2×512 GB (tổng <strong>1 TB</strong>)</td></tr>
+      <tr><td>Cảm biến gia tốc</td><td>6 trục</td></tr>
+    </table>
+  </div>
+
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(0)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(2)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S2: Đặc điểm nổi bật -->
+<section class="section" id="s2">
+  <h2>⭐ Đặc Điểm Nổi Bật</h2>
+  <p class="subtitle">7 lợi thế cạnh tranh của F6N</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>🎥 Full HD · Full Frame · Dual Storage</h3>
+      <p>5 kênh 1080P@30fps, mã hóa H.265. Hai khe MicroSD lưu tối đa 1TB, không bỏ sót hành trình.</p>
+    </div>
+    <div class="card">
+      <h3>🧠 Built-in AI DMS</h3>
+      <p>1 kênh AI phát hiện mệt mỏi, phân tâm lái xe. Cảnh báo thời gian thực qua màn hình và âm thanh.</p>
+    </div>
+    <div class="card">
+      <h3>🛰️ GNSS 4 chòm sao</h3>
+      <p>GPS + BeiDou + Galileo + GLONASS. Thu được nhiều vệ tinh hơn → định vị chính xác trong hầm, đô thị cao tầng.</p>
+    </div>
+    <div class="card">
+      <h3>📶 Up-to-Date Connectivity</h3>
+      <p>4G LTE + Wi-Fi + Optional E-SIM. Truyền tải video và dữ liệu về trung tâm liên tục, không gián đoạn.</p>
+    </div>
+    <div class="card">
+      <h3>🔌 Rich Peripheral</h3>
+      <p>RS232 + RS485 + 4DIN/1DOUT + USB2.0. Kết nối được cảm biến nhiên liệu, nhiệt độ, máy in vé, hệ thống ADAS bổ sung.</p>
+    </div>
+    <div class="card">
+      <h3>🏗️ One-piece PCB Design</h3>
+      <p>1 PCB, 0 cáp nội bộ. Kiến trúc đơn giản, giảm nguy cơ hỏng hóc, vận hành ổn định lâu dài.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🔬 Thiết kế theo chuẩn ô tô – ISO 16750</h3>
+    <ul>
+      <li>Linh kiện cấp ô tô (Automotive Grade Components)</li>
+      <li>Board mạch thiết kế tinh vi (Sophisticated Board Design)</li>
+      <li>Tuân thủ đầy đủ ISO 16750 (điện, rung, nhiệt, nhiễu điện từ)</li>
+      <li>Vận hành tin cậy trong điều kiện xe tải: nhiệt độ -40~70°C, rung lắc liên tục</li>
+    </ul>
+  </div>
+
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(1)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(3)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S3: So sánh -->
+<section class="section" id="s3">
+  <h2>⚖️ So Sánh Với Sản Phẩm Khác</h2>
+  <p class="subtitle">F6N vượt trội về phần cứng so với thiết bị thông thường trên thị trường</p>
+
+  <div class="card">
+    <h3>Thiết kế PCB</h3>
+    <table class="vs-table">
+      <tr><th></th><th>F6N ✅</th><th>Sản phẩm khác</th></tr>
+      <tr><td>Kiến trúc</td><td class="win">1 PCB · 0 cáp nội bộ</td><td>Nhiều PCB + nhiều cáp</td></tr>
+      <tr><td>Độ ổn định dài hạn</td><td class="win">Cao (ít điểm hỏng hóc)</td><td>Thấp hơn (cáp dễ long, oxy hóa)</td></tr>
+      <tr><td>Rủi ro chất lượng</td><td class="win">Thấp</td><td>Cao hơn</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Module GNSS</h3>
+    <table class="vs-table">
+      <tr><th></th><th>F6N ✅</th><th>Sản phẩm khác</th></tr>
+      <tr><td>Chòm sao hỗ trợ</td><td class="win">GPS + BDS + GLONASS + Galileo</td><td>1–2 chòm sao</td></tr>
+      <tr><td>Độ chính xác</td><td class="win">Tốt hơn ở vùng kín, đô thị</td><td>Giảm ở vùng tín hiệu yếu</td></tr>
+      <tr><td>Ăng-ten</td><td class="win">36×36×4mm · IP67 · -40~105°C</td><td>25×25×4mm · IP65 · -40~85°C</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Connector Ăng-ten (FAKRA vs SMA)</h3>
+    <table class="vs-table">
+      <tr><th>Tiêu chí</th><th>F6N – FAKRA ✅</th><th>Sản phẩm khác – SMA</th></tr>
+      <tr><td>Vật liệu</td><td class="win">Đồng mạ hợp kim</td><td>Đồng thau mạ</td></tr>
+      <tr><td>Tần số tối đa</td><td class="win">6 GHz</td><td>3 GHz</td></tr>
+      <tr><td>Chống cắm nhầm</td><td class="win">Có (chống nhầm GNSS/4G)</td><td>Không có</td></tr>
+      <tr><td>Lắp đặt</td><td class="win">Snap-on, dễ dàng</td><td>Vặn tay, dễ lỏng khi rung</td></tr>
+      <tr><td>ESD</td><td class="win">Vỏ nhựa, chống tĩnh điện</td><td>Vỏ kim loại, cần thiết kế thêm</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Khe SIM & Bộ nhớ</h3>
+    <table class="vs-table">
+      <tr><th>Tiêu chí</th><th>F6N ✅</th><th>Sản phẩm khác</th></tr>
+      <tr><td>Khe SIM</td><td class="win">Snap-In (bền, chống rung)</td><td>Push-Push (dễ tiếp xúc kém)</td></tr>
+      <tr><td>RAM</td><td class="win">1 GB</td><td>512 MB</td></tr>
+      <tr><td>ROM (Flash)</td><td class="win">8 GB</td><td>32 MB</td></tr>
+      <tr><td>Tổng lưu trữ</td><td class="win">2×512 GB MicroSD = 1 TB</td><td>Thường 1×SD</td></tr>
+    </table>
+  </div>
+
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(2)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(4)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S4: Kiểm tra chất lượng -->
+<section class="section" id="s4">
+  <h2>🔬 Kiểm Tra Chất Lượng</h2>
+  <p class="subtitle">F6N tuân thủ ISO 16750 — 5 nhóm kiểm tra toàn diện</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>⚡ Kiểm tra tải điện</h3>
+      <p><strong>Electrical Compliance Test</strong></p>
+      <p style="margin-top:6px">Mô phỏng biến động tải điện khi động cơ xe khởi động và vận hành. Đảm bảo F6N không bị ảnh hưởng bởi xung điện áp từ ắc quy.</p>
+    </div>
+    <div class="card">
+      <h3>📳 Kiểm tra rung động</h3>
+      <p><strong>Mechanical Compliance Test</strong></p>
+      <p style="margin-top:6px">Mô phỏng độ ổn định của MDVR trong môi trường rung lắc của xe tải vận hành trên đường thực tế.</p>
+    </div>
+    <div class="card">
+      <h3>🌡️ Kiểm tra nhiệt độ</h3>
+      <p><strong>Thermal Performance Test</strong></p>
+      <p style="margin-top:6px">Mô phỏng độ ổn định trong dải nhiệt độ <strong>-40°C ÷ 70°C</strong> — từ đông lạnh cực độ đến nắng nóng trong cabin xe.</p>
+    </div>
+    <div class="card">
+      <h3>🔌 Kiểm tra nhiễu điện</h3>
+      <p><strong>Electrical Disturbances Test</strong></p>
+      <p style="margin-top:6px">Mô phỏng nhiễu từ xung điện áp ắc quy xe khi các thiết bị điện khác trên xe hoạt động đồng thời.</p>
+    </div>
+    <div class="card" style="grid-column: 1 / -1">
+      <h3>📡 Kiểm tra tương thích điện từ (EMC)</h3>
+      <p><strong>ESD Test + Anti-interference Test</strong></p>
+      <p style="margin-top:6px">Mô phỏng nhiễu EMC của xe tác động lên MDVR. Bao gồm kiểm tra tĩnh điện (ESD) và kiểm tra chống nhiễu để đảm bảo tín hiệu video và GPS không bị ảnh hưởng.</p>
+    </div>
+  </div>
+
+  <div class="info">✅ F6N vượt qua đầy đủ 5 nhóm kiểm tra ISO 16750 — tiêu chuẩn cấp ô tô dành cho thiết bị điện tử lắp trên xe.</div>
+
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(3)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(5)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S5: Lưu ý lắp đặt -->
+<section class="section" id="s5">
+  <h2>⚠️ Lưu Ý Lắp Đặt</h2>
+  <p class="subtitle">Hướng dẫn lắp đặt đúng kỹ thuật cho Streamax F6N</p>
+
+  <div class="card">
+    <h3>Vị trí lắp đặt MDVR</h3>
+    <ul>
+      <li>Lắp trong khoang cabin, tránh ánh nắng trực tiếp và nguồn nhiệt</li>
+      <li>Đảm bảo thông thoáng xung quanh thiết bị (≥5cm mỗi chiều)</li>
+      <li>Cố định chắc chắn để tránh rung lắc làm lỏng connector</li>
+      <li>Tránh gần loa công suất lớn hoặc động cơ (nhiễu từ)</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Lắp đặt camera</h3>
+    <ul>
+      <li><strong>Camera đường (Road Facing – CAM1):</strong> Lắp sau gương chiếu hậu, hướng về phía trước. Bao phủ toàn bộ đường và xe phía trước</li>
+      <li><strong>Camera DMS (Driver Monitoring):</strong> Lắp cột A hoặc phía trên bảng điều khiển, hướng vào mặt lái xe</li>
+      <li><strong>Camera bên (Side Camera):</strong> Lắp gương bên trái/phải, góc nhìn phủ vùng mù bên sườn xe</li>
+      <li><strong>Camera hậu (Rear View):</strong> Lắp đuôi xe, trên cửa hậu hoặc thanh bumper</li>
+      <li>Dùng connector FAKRA — snap-on, không cần vặn tay. Kiểm tra khóa chắc trước khi dán dây</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Lắp ăng-ten GPS</h3>
+    <ul>
+      <li>Mặt phẳng ăng-ten hướng <strong>thẳng lên bầu trời</strong></li>
+      <li>Dán trên mái xe (ngoài) hoặc kính trước bên trong (nếu dùng ăng-ten gắn kính)</li>
+      <li>Connector FAKRA — cắm đúng màu (GNSS ≠ 4G để tránh nhầm nhờ anti-dumbing)</li>
+      <li>Dây ăng-ten không uốn gấp khúc &lt; 90°</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Thẻ MicroSD</h3>
+    <ul>
+      <li>Sử dụng MicroSD Class 10 / UHS-I trở lên, khuyến nghị loại Endurance (SanDisk, Kingston)</li>
+      <li>F6N có <strong>2 khe SD</strong> — cắm cả 2 để đạt dung lượng tối đa 1TB</li>
+      <li>Format thẻ định kỳ mỗi 3 tháng</li>
+      <li>Rút thẻ khi thiết bị đã tắt hoàn toàn</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Kết nối nguồn điện</h3>
+    <ul>
+      <li>Dải điện áp: <strong>9–36 VDC</strong>, phù hợp xe 12V và 24V</li>
+      <li>Đấu dây nguồn trước khi đấu ACC/Ignition</li>
+      <li>Kiểm tra đúng cực (+)/(-) trước khi bật ACC</li>
+      <li>Không tháo lắp khi thiết bị đang có nguồn</li>
+    </ul>
+  </div>
+
+  <div class="alert">⚠️ Chỉ nhân viên kỹ thuật được đào tạo mới được phép lắp đặt và cấu hình F6N. Không tự ý tháo vỏ thiết bị.</div>
+
+  <div class="card">
+    <h3>Hỗ trợ & Bảo hành</h3>
+    <p>Liên hệ bộ phận kỹ thuật EUPFIN VN để được hỗ trợ cấu hình phần mềm, cập nhật firmware OTA, và bảo hành thiết bị.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+      <span class="badge-tag">Bảo hành 12 tháng</span>
+      <span class="badge-tag">Firmware OTA</span>
+      <span class="badge-tag">ISO 9001:2015</span>
+    </div>
+  </div>
+
+  <div class="nav-btns"><button class="btn btn-prev" onclick="show(4)">← Quay lại</button></div>
+</section>
+</main>
+
+<script>
+function show(i){
+  document.querySelectorAll('.section').forEach((s,idx)=>s.classList.toggle('active',idx===i));
+  document.querySelectorAll('nav ul li a').forEach((a,idx)=>a.classList.toggle('active',idx===i));
+  window.scrollTo({top:0,behavior:'smooth'});
+  return false;
+}
+</script>
+</body>
+</html>
