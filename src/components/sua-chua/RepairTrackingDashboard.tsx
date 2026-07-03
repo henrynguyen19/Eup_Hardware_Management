@@ -742,8 +742,12 @@ function RepairRow({ item, onAction, onSynced, t }: { item:RepairItem; onAction:
   const waitDays   = daysBetween(item.received_at, item.sent_at)
   const statusLabel = t(STATUS_LABEL_VI[item.status], STATUS_LABEL_EN[item.status])
   const tags = item.notes?.match(/#([^\s#,;.!?()[\]{}"']+)/g) ?? []
-  const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState('')
+  const [syncing, setSyncing]       = useState(false)
+  const [syncMsg, setSyncMsg]       = useState('')
+  const [editingImei, setEditingImei] = useState(false)
+  const [imeiInput, setImeiInput]   = useState('')
+  const [savingImei, setSavingImei] = useState(false)
+  const [imeiMsg, setImeiMsg]       = useState('')
   const isBadImei = item.imei && item.imei.length < 14
 
   async function handleSyncCRM() {
@@ -760,13 +764,51 @@ function RepairRow({ item, onAction, onSynced, t }: { item:RepairItem; onAction:
     setTimeout(() => setSyncMsg(''), 3000)
   }
 
+  async function handleSaveImei() {
+    const v = imeiInput.trim()
+    if (!/^\d{14,16}$/.test(v)) { setImeiMsg(t('⚠ IMEI phải 14-16 chữ số','⚠ IMEI must be 14-16 digits')); return }
+    setSavingImei(true); setImeiMsg('')
+    try {
+      const res = await fetch(`/api/repair-tracking/${item.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imei: v }),
+      })
+      const d = await res.json()
+      if (res.ok) { setImeiMsg('✅'); setEditingImei(false); onSynced() }
+      else setImeiMsg(`⚠ ${d.error ?? 'Lỗi lưu'}`)
+    } catch(e) { setImeiMsg(`❌ ${String(e)}`) } finally { setSavingImei(false) }
+    setTimeout(() => setImeiMsg(''), 3000)
+  }
+
   return (
     <tr className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${isBadImei ? 'bg-rose-50' : ''}`}>
       <td className="px-4 py-3">
         <p className="text-sm font-medium text-gray-800">{item.product_name}</p>
-        <p className={`text-xs font-mono ${isBadImei ? 'text-rose-500 font-semibold' : 'text-gray-400'}`}>
-          {item.imei}{isBadImei && ' ⚠'}
-        </p>
+        {editingImei ? (
+          <div className="flex flex-col gap-1 mt-1">
+            <input autoFocus value={imeiInput} onChange={e=>setImeiInput(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter') handleSaveImei(); if(e.key==='Escape') setEditingImei(false) }}
+              placeholder="Nhập IMEI (14-16 số)" maxLength={16}
+              className="text-xs font-mono border border-rose-300 rounded px-1 py-0.5 w-36 focus:outline-none focus:ring-1 focus:ring-rose-400" />
+            <div className="flex gap-1">
+              <button onClick={handleSaveImei} disabled={savingImei}
+                className="px-1.5 py-0.5 text-xs bg-emerald-500 text-white rounded hover:bg-emerald-600 disabled:opacity-50">
+                {savingImei ? '…' : '✓'}
+              </button>
+              <button onClick={()=>setEditingImei(false)}
+                className="px-1.5 py-0.5 text-xs bg-gray-200 text-gray-600 rounded hover:bg-gray-300">✕</button>
+            </div>
+            {imeiMsg && <span className="text-xs text-rose-600">{imeiMsg}</span>}
+          </div>
+        ) : (
+          <p className={`text-xs font-mono ${isBadImei ? 'text-rose-500 font-semibold' : 'text-gray-400'}`}>
+            {item.imei}
+            {isBadImei && (
+              <button onClick={()=>{ setImeiInput(item.imei||''); setEditingImei(true) }}
+                className="ml-1 text-rose-400 hover:text-rose-600" title={t('Sửa IMEI thủ công','Edit IMEI manually')}>✏️</button>
+            )}
+          </p>
+        )}
         {item.crm_repair_id && <p className="text-xs text-blue-400">CRM#{item.crm_repair_id}</p>}
       </td>
       <td className="px-4 py-3">
