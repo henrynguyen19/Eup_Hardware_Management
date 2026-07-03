@@ -75,11 +75,19 @@ function parseDate(s: string | null): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
+function isValidImei(s: string) { return /^\d{14,16}$/.test(s.trim()) }
+
 function mapRecord(r: RepairRecord) {
   const status       = mapStatus(r)
   const finish_reason = mapFinishReason(r)
   const destination  = mapDestination(finish_reason)
-  const imei         = (r.Unicode || r.Device_Code || '').trim()
+  const raw1 = (r.Unicode     || '').trim()
+  const raw2 = (r.Device_Code || '').trim()
+  // Prefer the field that looks like a real IMEI (14-16 digits).
+  // Unicode sometimes contains internal serial numbers (e.g. 999999xxx, 9 digits) — skip those.
+  const imei = isValidImei(raw1) ? raw1
+             : isValidImei(raw2) ? raw2
+             : raw1 || raw2
 
   return {
     crm_repair_id:   r.Repair_ID,
@@ -243,6 +251,7 @@ export async function POST(req: NextRequest) {
     }
     for (const row of selUpdate) {
       const { error } = await db.from('repair_items').update({
+        imei: row.imei, product_name: row.product_name,
         status: row.status, sent_at: row.sent_at, completed_at: row.completed_at,
         finish_reason: row.finish_reason, destination: row.destination, notes: row.notes,
         repair_warehouse: row.repair_warehouse, sender_name: row.sender_name, completer_name: row.completer_name,
@@ -327,7 +336,8 @@ export async function POST(req: NextRequest) {
         // Fallback: update từng record
         for (const row of batch) {
           const { error: e2 } = await db.from('repair_items')
-            .update({ status: row.status, sent_at: row.sent_at, completed_at: row.completed_at,
+            .update({ imei: row.imei, product_name: row.product_name,
+                      status: row.status, sent_at: row.sent_at, completed_at: row.completed_at,
                       finish_reason: row.finish_reason, destination: row.destination,
                       notes: row.notes, repair_warehouse: row.repair_warehouse,
                       sender_name: row.sender_name, completer_name: row.completer_name })
@@ -473,6 +483,8 @@ export async function POST(req: NextRequest) {
     const { error } = await db
       .from('repair_items')
       .update({
+        imei:             row.imei,          // fix bad imei (serial → real imei)
+        product_name:     row.product_name,
         status:           row.status,
         sent_at:          row.sent_at,
         completed_at:     row.completed_at,
@@ -484,26 +496,4 @@ export async function POST(req: NextRequest) {
         completer_name:   row.completer_name,
       })
       .eq('crm_repair_id', row.crm_repair_id)
-    if (error) errors.push(`update ${row.crm_repair_id}: ${error.message}`)
-    else updated++
-  }
-
-  console.log(`[repair/sync-crm] insert=${inserted} update=${updated} skip=${skipped} errors=${errors.length}`)
-
-  return NextResponse.json({
-    ok:       errors.length === 0,
-    total:    records.length,
-    inserted,
-    updated,
-    skipped,
-    upserted: inserted + updated,
-    startTime,
-    endTime,
-    errors:   errors.length > 0 ? errors.slice(0, 5) : undefined,
-  })
-
-  } catch (err) {
-    console.error('[repair/sync-crm] Unhandled error:', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
-  }
-}
+    if (error

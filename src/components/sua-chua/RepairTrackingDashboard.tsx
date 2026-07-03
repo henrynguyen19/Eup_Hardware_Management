@@ -118,12 +118,13 @@ interface SyncResult {
 function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:string)=>string }) {
   const [from, setFrom]       = useState(monthAgoStr())
   const [to, setTo]           = useState(todayStr())
-  const [loading, setLoading] = useState<false | 'new' | 'stale' | 'date'>(false)
+  const [loading, setLoading] = useState<false | 'new' | 'stale' | 'date' | 'fix_imei'>(false)
   const [result, setResult]   = useState<SyncResult | null>(null)
   const [err, setErr]         = useState('')
+  const [staleLog, setStaleLog] = useState<string[]>([])
 
-  async function doSync(payload: object, kind: 'new' | 'stale' | 'date') {
-    setLoading(kind); setErr(''); setResult(null)
+  async function doSync(payload: object, kind: 'new' | 'date') {
+    setLoading(kind); setErr(''); setResult(null); setStaleLog([])
     try {
       const res = await fetch('/api/repair-tracking/sync-crm', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
       const txt = await res.text()
@@ -133,6 +134,70 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
       if (!res.ok) { setErr((d.error as string)||'Sync error'); return }
       setResult(d as SyncResult)
       if (d.ok) onSynced()
+    } catch(e) { setErr(String(e)) } finally { setLoading(false) }
+  }
+
+  // Chunked stale sync — tránh timeout khi có nhiều thiết bị
+  async function doChunkedStaleSync(mode: 'stale' | 'fix_imei') {
+    setLoading(mode); setErr(''); setResult(null); setStaleLog([])
+    try {
+      // 1. Lấy danh sách IMEI cần sync
+      let imeis: string[]
+      if (mode === 'fix_imei') {
+        // Lấy các record có IMEI ngắn (<14 ký tự) — likely serial numbers
+        const res = await fetch('/api/repair-tracking?limit=500&offset=0')
+        const d   = await res.json()
+        const badItems = (d.items as {imei:string}[] ?? []).filter(i => i.imei && i.imei.length < 14)
+        imeis = [...new Set(badItems.map(i => i.imei))]
+        if (imeis.length === 0) {
+          setResult({ ok: true, total: 0, upserted: 0, message: t('Không tìm thấy IMEI sai (đã đúng hết)','No bad IMEIs found — all look correct') })
+          setLoading(false); return
+        }
+        setStaleLog([t(`Tìm thấy ${imeis.length} IMEI cần sửa...`, `Found ${imeis.length} bad IMEIs...`)])
+      } else {
+        const res = await fetch('/api/repair-tracking/stale-devices')
+        const d   = await res.json()
+        imeis = [...new Set((d.items as {imei:string}[] ?? []).map(i => i.imei).filter(Boolean))]
+        if (imeis.length === 0) {
+          setResult({ ok: true, total: 0, upserted: 0, message: t('Không có thiết bị nào quá 7 ngày','No stale devices') })
+          setLoading(false); return
+        }
+        setStaleLog([t(`Tìm thấy ${imeis.length} thiết bị cần cập nhật...`, `Found ${imeis.length} devices to update...`)])
+      }
+
+      // 2. Chunk 10 IMEIs mỗi lần, delay 600ms giữa các batch
+      const CHUNK = 10
+      let totalUpserted = 0, totalChecked = 0
+      const allErrors: string[] = []
+
+      for (let i = 0; i < imeis.length; i += CHUNK) {
+        const chunk = imeis.slice(i, i + CHUNK)
+        const batchNum = Math.floor(i / CHUNK) + 1
+        const totalBatches = Math.ceil(imeis.length / CHUNK)
+        try {
+          const r = await fetch('/api/repair-tracking/sync-crm', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'refresh_selected', imeis: chunk }),
+          })
+          const d = await r.json()
+          totalUpserted += (d.upserted ?? 0)
+          totalChecked += chunk.length
+          if (d.errors?.length) allErrors.push(...d.errors)
+          setStaleLog(p => [...p, `[${batchNum}/${totalBatches}] ✅ ${chunk.length} IMEI → cập nhật ${d.updated??0}, thêm ${d.inserted??0}`])
+        } catch (e) {
+          allErrors.push(String(e))
+          setStaleLog(p => [...p, `[${batchNum}/${totalBatches}] ❌ ${String(e).substring(0,60)}`])
+        }
+        if (i + CHUNK < imeis.length) await new Promise(r => setTimeout(r, 600))
+      }
+
+      setResult({
+        ok: allErrors.length === 0,
+        total: imeis.length, upserted: totalUpserted, imeiChecked: totalChecked,
+        errors: allErrors.length > 0 ? allErrors.slice(0, 5) : undefined,
+        message: t(`Hoàn tất ${totalChecked}/${imeis.length} thiết bị`, `Done ${totalChecked}/${imeis.length} devices`),
+      })
+      onSynced()
     } catch(e) { setErr(String(e)) } finally { setLoading(false) }
   }
 
@@ -177,12 +242,23 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-sm">
           {loading === 'new' ? <><span className="animate-spin inline-block">⟳</span> {t('Đang tải...','Loading...')}</> : <>⚡ {t('Sync dữ liệu mới','Sync new data')}</>}
         </button>
-        <button onClick={() => doSync({ mode: 'refresh_in_repair' }, 'stale')} disabled={!!loading}
+        <button onClick={() => doChunkedStaleSync('stale')} disabled={!!loading}
           className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white text-sm rounded-xl hover:bg-amber-600 disabled:opacity-50 shadow-sm">
           {loading === 'stale' ? <><span className="animate-spin inline-block">⟳</span> {t('Đang cập nhật...','Updating...')}</> : <>🔄 {t('Cập nhật thiết bị >7 ngày','Refresh stale >7d')}</>}
         </button>
+        <button onClick={() => doChunkedStaleSync('fix_imei')} disabled={!!loading}
+          title={t('Sửa thiết bị có IMEI sai (số serial 9 chữ số, bắt đầu bằng 9999...)','Fix devices with bad IMEI (9-digit serials)')}
+          className="flex items-center gap-2 px-4 py-2 bg-rose-500 text-white text-sm rounded-xl hover:bg-rose-600 disabled:opacity-50 shadow-sm">
+          {loading === 'fix_imei' ? <><span className="animate-spin inline-block">⟳</span> {t('Đang sửa IMEI...','Fixing IMEIs...')}</> : <>🔧 {t('Sửa IMEI sai','Fix Bad IMEIs')}</>}
+        </button>
         <p className="text-xs text-blue-500">{t('Sync mới: 14 ngày gần nhất • Cập nhật: thiết bị chờ/sửa quá 7 ngày','New: last 14 days • Refresh: stale devices >7 days')}</p>
       </div>
+      {staleLog.length > 0 && (
+        <div className="bg-white border border-blue-100 rounded-lg p-2 max-h-28 overflow-y-auto">
+          {staleLog.map((line,i) => <p key={i} className="text-xs font-mono text-gray-600">{line}</p>)}
+          {!!loading && <p className="text-xs font-mono text-blue-500 animate-pulse">⏳ {t('Đang xử lý...','Processing...')}</p>}
+        </div>
+      )}
       <details className="group">
         <summary className="text-xs text-blue-500 cursor-pointer hover:underline list-none">▸ {t('Sync theo khoảng thời gian cụ thể','Sync by date range')}</summary>
         <div className="flex flex-wrap items-end gap-3 mt-2">
@@ -196,6 +272,7 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
             className="px-4 py-1.5 bg-gray-600 text-white text-sm rounded-xl hover:bg-gray-700 disabled:opacity-50">
             {loading === 'date' ? <span className="animate-spin inline-block">⟳</span> : '🔄'} {t('Đồng bộ theo ngày','Sync by date')}
           </button>
+          <p className="text-xs text-gray-500 mt-1">{t('💡 Sync theo ngày sẽ tự sửa IMEI sai trong khoảng đó','💡 Date-range sync also fixes bad IMEIs in that period')}</p>
         </div>
       </details>
       {err    && <p className="text-xs text-red-600">⚠ {err}</p>}
@@ -651,16 +728,36 @@ function StatsBar({ counts, t }: { counts: StatusCounts; t:(vi:string,en:string)
   )
 }
 
-function RepairRow({ item, onAction, t }: { item:RepairItem; onAction:(item:RepairItem,act:'send'|'complete')=>void; t:(vi:string,en:string)=>string }) {
+function RepairRow({ item, onAction, onSynced, t }: { item:RepairItem; onAction:(item:RepairItem,act:'send'|'complete')=>void; onSynced:()=>void; t:(vi:string,en:string)=>string }) {
   const repairDays = daysBetween(item.sent_at, item.completed_at)
   const waitDays   = daysBetween(item.received_at, item.sent_at)
   const statusLabel = t(STATUS_LABEL_VI[item.status], STATUS_LABEL_EN[item.status])
   const tags = item.notes?.match(/#([^\s#,;.!?()[\]{}"']+)/g) ?? []
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
+  const isBadImei = item.imei && item.imei.length < 14
+
+  async function handleSyncCRM() {
+    setSyncing(true); setSyncMsg('')
+    try {
+      const res = await fetch('/api/repair-tracking/sync-crm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'refresh_selected', imeis: [item.imei] }),
+      })
+      const d = await res.json()
+      if (d.ok) { setSyncMsg(t('✅ Đã cập nhật','✅ Updated')); onSynced() }
+      else setSyncMsg(`⚠ ${d.error ?? t('Lỗi sync','Sync error')}`)
+    } catch(e) { setSyncMsg(`❌ ${String(e)}`) } finally { setSyncing(false) }
+    setTimeout(() => setSyncMsg(''), 3000)
+  }
+
   return (
-    <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+    <tr className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${isBadImei ? 'bg-rose-50' : ''}`}>
       <td className="px-4 py-3">
         <p className="text-sm font-medium text-gray-800">{item.product_name}</p>
-        <p className="text-xs font-mono text-gray-400">{item.imei}</p>
+        <p className={`text-xs font-mono ${isBadImei ? 'text-rose-500 font-semibold' : 'text-gray-400'}`}>
+          {item.imei}{isBadImei && ' ⚠'}
+        </p>
         {item.crm_repair_id && <p className="text-xs text-blue-400">CRM#{item.crm_repair_id}</p>}
       </td>
       <td className="px-4 py-3">
@@ -699,8 +796,17 @@ function RepairRow({ item, onAction, t }: { item:RepairItem; onAction:(item:Repa
         ) : <span className="text-gray-300 italic text-xs">{item.notes?.substring(0,40) || '—'}</span>}
       </td>
       <td className="px-4 py-3">
-        {item.status==='cho_gui' && <button onClick={()=>onAction(item,'send')} className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-200 whitespace-nowrap">{t('Gửi sửa','Send')}</button>}
-        {item.status==='da_gui'  && <button onClick={()=>onAction(item,'complete')} className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 border border-emerald-200 whitespace-nowrap">{t('Nhận về','Return')}</button>}
+        <div className="flex flex-col gap-1 items-start">
+          {item.status==='cho_gui' && <button onClick={()=>onAction(item,'send')} className="px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 border border-blue-200 whitespace-nowrap">{t('Gửi sửa','Send')}</button>}
+          {item.status==='da_gui'  && <button onClick={()=>onAction(item,'complete')} className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 border border-emerald-200 whitespace-nowrap">{t('Nhận về','Return')}</button>}
+          {item.crm_repair_id && (
+            <button onClick={handleSyncCRM} disabled={syncing}
+              className="px-2 py-1 text-xs bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 border border-indigo-200 whitespace-nowrap disabled:opacity-50">
+              {syncing ? <span className="animate-spin inline-block">⟳</span> : '🔄'} {t('Đồng bộ CRM','Sync CRM')}
+            </button>
+          )}
+          {syncMsg && <span className="text-xs text-emerald-600">{syncMsg}</span>}
+        </div>
       </td>
     </tr>
   )
@@ -1109,12 +1215,13 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
   )
 }
 
-function StatsTab({ t, onFilterByTag }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void }) {
+function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void; active: boolean }) {
   const [section, setSection] = useState<'repair'|'failure'|'hashtag'>('repair')
   const [stats, setStats]     = useState<StatsData|null>(null)
   const [loadingS, setLoadingS] = useState(true)
   const [from, setFrom]       = useState('')
   const [to, setTo]           = useState('')
+  const [statsLoaded, setStatsLoaded] = useState(false)
   const loadStats = useCallback(async()=>{
     setLoadingS(true)
     const params = new URLSearchParams()
@@ -1124,7 +1231,10 @@ function StatsTab({ t, onFilterByTag }: { t:(vi:string,en:string)=>string; onFil
     const d   = await res.json()
     setStats(d); setLoadingS(false)
   },[from,to])
-  useEffect(()=>{loadStats()},[loadStats])
+  // Lazy load: only fetch when tab becomes active for the first time
+  useEffect(()=>{
+    if (active && !statsLoaded) { setStatsLoaded(true); loadStats() }
+  },[active, statsLoaded, loadStats])
 
   const [invStats, setInvStats]   = useState<InventoryStats|null>(null)
   const [loadingI, setLoadingI]   = useState(true)
@@ -1313,9 +1423,11 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
   const lang  = externalLang ?? internal.lang
   const toggle = internal.toggle
   const t = (vi: string, en: string) => lang === 'vi' ? vi : en
+  const PAGE_SIZE = 50
   const [activeTab, setActiveTab]   = useState<'list'|'stats'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
+  const [page, setPage]             = useState(0)
   const [counts, setCounts]         = useState<StatusCounts>({ cho_gui:0, da_gui:0, da_sua_xong:0, old_device:0, scrap:0, supplier:0 })
   const [loading, setLoading]       = useState(true)
   const [filterStatus, setFilter]   = useState<string>('')
@@ -1332,14 +1444,17 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
     if (filterStatus)  params.set('status',filterStatus)
     if (filterProduct) params.set('product',filterProduct)
     if (filterImei)    params.set('imei',filterImei)
-    params.set('limit','200')
+    params.set('limit', String(PAGE_SIZE))
+    params.set('offset', String(page * PAGE_SIZE))
     const res = await fetch('/api/repair-tracking?'+params.toString())
     const d   = await res.json()
     setItems(d.items??[]); setTotal(d.total??0)
     if (d.statusCounts) setCounts(d.statusCounts)
     setLoading(false)
-  },[filterStatus,filterProduct,filterImei])
+  },[filterStatus,filterProduct,filterImei,page])
 
+  // Reset page when filters change
+  useEffect(()=>{ setPage(0) },[filterStatus,filterProduct,filterImei])
   useEffect(()=>{ load() },[load])
 
   const displayItems = filterTag
@@ -1370,104 +1485,4 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-gray-800">{t('Theo dõi sửa chữa','Repair Tracking')}</h1>
-          <p className="text-xs text-gray-500 mt-0.5">{total.toLocaleString()} {t('thiết bị','devices')}</p>
-        </div>
-        {!externalLang && (
-          <button onClick={toggle} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50">
-            🌐 {lang === 'vi' ? 'VI | EN' : 'EN | VI'}
-          </button>
-        )}
-      </div>
-
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {([['list', t('📋 Danh sách','📋 List')], ['stats', t('📊 Thống kê','📊 Statistics')]] as const).map(([tab,label])=>(
-          <button key={tab} onClick={()=>setActiveTab(tab)}
-            className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${activeTab===tab?'bg-white text-gray-800 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab==='list' ? (
-        <>
-          <SyncCRMPanel onSynced={load} t={t} />
-          <StaleDevicesPanel onRefreshed={load} t={t} />
-          <StatsBar counts={counts} t={t} />
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="flex items-center gap-1">
-              <input value={imeiInput} onChange={e=>setImeiInput(e.target.value)}
-                onKeyDown={e=>{ if(e.key==='Enter') setFilterImei(imeiInput.trim()) }}
-                placeholder={t('Tìm mã thiết bị (IMEI)...','Search IMEI...')}
-                className="border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-52 bg-blue-50" />
-              <button onClick={()=>setFilterImei(imeiInput.trim())} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">🔍</button>
-              {filterImei && <button onClick={()=>{setImeiInput('');setFilterImei('')}} className="px-2 py-1.5 text-xs text-gray-400 hover:text-gray-600">✕</button>}
-            </div>
-            <select value={filterStatus} onChange={e=>setFilter(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
-              <option value="">{t('Tất cả trạng thái','All statuses')}</option>
-              <option value="cho_gui">{t('Chờ gửi sửa','Pending Send')}</option>
-              <option value="da_gui">{t('Đã gửi sửa','In Repair')}</option>
-              <option value="da_sua_xong">{t('Đã sửa xong','Completed')}</option>
-            </select>
-            <input value={filterProduct} onChange={e=>setFilterP(e.target.value)}
-              placeholder={t('Lọc loại thiết bị...','Filter device type...')}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 w-44" />
-            <button onClick={load} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">🔄</button>
-            <button onClick={handleExport} disabled={exporting}
-              className="ml-auto flex items-center gap-2 px-4 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
-              {exporting ? t('Đang xuất...','Exporting...') : `⬇ ${t('Xuất Excel','Export Excel')}`}
-            </button>
-          </div>
-          {(filterImei || filterTag) && (
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {filterImei && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-mono">🔍 IMEI: {filterImei}</span>}
-              {filterTag  && (
-                <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
-                  🏷 #{filterTag}
-                  <button onClick={()=>setFilterTag('')} className="text-indigo-400 hover:text-indigo-700 ml-0.5">✕</button>
-                </span>
-              )}
-              <span className="text-gray-400">{displayItems.length} {t('kết quả','results')}</span>
-            </div>
-          )}
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                    <th className="px-4 py-3">{t('Thiết bị / IMEI','Device / IMEI')}</th>
-                    <th className="px-4 py-3">{t('Trạng thái','Status')}</th>
-                    <th className="px-4 py-3">{t('Nhận về kho','Received')}</th>
-                    <th className="px-4 py-3">{t('Gửi sửa','Sent')}</th>
-                    <th className="px-4 py-3">{t('Hoàn thành','Completed')}</th>
-                    <th className="px-4 py-3">{t('Kết quả','Result')}</th>
-                    <th className="px-4 py-3">{t('Ghi chú / Tags','Notes / Tags')}</th>
-                    <th className="px-4 py-3">{t('Thao tác','Action')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading
-                    ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">{t('Đang tải...','Loading...')}</td></tr>
-                    : displayItems.length===0
-                      ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">
-                          {filterImei ? t(`Không tìm thấy IMEI "${filterImei}"`,`No device with IMEI "${filterImei}"`)
-                           : filterTag ? t(`Không có ghi chú chứa #${filterTag}`,`No notes with #${filterTag}`)
-                           : t('Chưa có dữ liệu','No data')}
-                        </td></tr>
-                      : displayItems.map(item=>(
-                          <RepairRow key={item.id} item={item} onAction={(i,a)=>setModal({type:a,item:i})} t={t} />
-                        ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      ) : (
-        <StatsTab t={t} onFilterByTag={handleFilterByTag} />
-      )}
-
-      {modal?.type==='send'     && <SendModal    item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
-      {modal?.type==='complete' && <CompleteModal item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
-    </div>
-  )
-}
+          <p cla
