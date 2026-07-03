@@ -496,4 +496,26 @@ export async function POST(req: NextRequest) {
         completer_name:   row.completer_name,
       })
       .eq('crm_repair_id', row.crm_repair_id)
-    if (error
+    if (error) errors.push(`update ${row.crm_repair_id}: ${error.message}`)
+    else updated++
+  }
+
+  console.log(`[repair/sync-crm] insert=${inserted} update=${updated} skip=${skipped} errors=${errors.length}`)
+
+  return NextResponse.json({
+    ok:       errors.length === 0,
+    total:    records.length,
+    inserted,
+    updated,
+    skipped,
+    upserted: inserted + updated,
+    startTime,
+    endTime,
+    errors:   errors.length > 0 ? errors.slice(0, 5) : undefined,
+  })
+
+  } catch (err) {
+    console.error('[repair/sync-crm] Unhandled error:', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}
