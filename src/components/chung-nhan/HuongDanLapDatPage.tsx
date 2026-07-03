@@ -13,11 +13,12 @@ interface Guide {
   is_active: boolean
   created_at: string
   updated_at: string
+  category: string
 }
 
-const EMPTY_FORM = { title: '', description: '', device_model: '', file_name: '', sort_order: 0, is_active: true }
+const EMPTY_FORM = { title: '', description: '', device_model: '', file_name: '', sort_order: 0, is_active: true, category: 'installation' as string }
 
-export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: boolean }) {
+export default function HuongDanLapDatPage({ isAdmin = false, category = 'installation' }: { isAdmin?: boolean; category?: 'installation' | 'technical' }) {
   const { lang } = useLanguage()
   const vi = lang === 'vi'
 
@@ -56,7 +57,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
   async function load() {
     setLoading(true)
     try {
-      const res = await fetch(`/api/installation-guides${isAdmin ? '?all=1' : ''}`)
+      const res = await fetch(`/api/installation-guides?category=${category}${isAdmin ? '&all=1' : ''}`)
       if (!res.ok) throw new Error(`API error ${res.status}`)
       const json = await res.json()
       const list: Guide[] = json.guides ?? []
@@ -118,7 +119,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
     setSaving(true)
     try {
       if (modal === 'add') {
-        await fetch('/api/installation-guides', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+        await fetch('/api/installation-guides', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, category }) })
       } else {
         await fetch('/api/installation-guides', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingId, ...form }) })
       }
@@ -288,6 +289,14 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
                     rows={3} placeholder="Mô tả nội dung hướng dẫn..."
                     style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
                 </label>
+                <label style={labelStyle}>
+                  Phân loại
+                  <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                    style={{ ...inputStyle }}>
+                    <option value="installation">🔧 Hướng dẫn lắp đặt</option>
+                    <option value="technical">📋 Tài liệu kỹ thuật</option>
+                  </select>
+                </label>
                 <div style={{ display: 'flex', gap: 14 }}>
                   <label style={{ ...labelStyle, flex: 1 }}>
                     Thứ tự sắp xếp
@@ -383,7 +392,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
       <div style={{ background: '#f3f4f6', minHeight: 'calc(100vh - 56px)' }}>
         {/* Header */}
         <div style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontWeight: 700, fontSize: 15, color: '#111827' }}>🔧 {vi ? 'Hướng dẫn lắp đặt' : 'Installation Guides'}</span>
+          <span style={{ fontWeight: 700, fontSize: 15, color: '#111827' }}>{category === 'technical' ? '📋' : '🔧'} {vi ? (category === 'technical' ? 'Tài liệu kỹ thuật' : 'Hướng dẫn lắp đặt') : (category === 'technical' ? 'Technical Docs' : 'Installation Guides')}</span>
           {isAdmin && (
             <button onClick={openAdd} style={{ background: '#1a56db', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
               + {vi ? 'Thêm' : 'Add'}
@@ -466,7 +475,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
               title="Thu gọn"
             >◀</button>
             <span style={{ fontWeight: 700, fontSize: 12.5, color: '#111827', flex: 1, whiteSpace: 'nowrap' }}>
-              🔧 {vi ? 'Hướng dẫn lắp đặt' : 'Installation Guides'}
+              {category === 'technical' ? '📋' : '🔧'} {vi ? (category === 'technical' ? 'Tài liệu kỹ thuật' : 'Hướng dẫn lắp đặt') : (category === 'technical' ? 'Technical Docs' : 'Installation Guides')}
             </span>
             {isAdmin && (
               <button onClick={openAdd} style={{
@@ -692,7 +701,7 @@ export default function HuongDanLapDatPage({ isAdmin = false }: { isAdmin?: bool
           </div>
         ) : (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#9ca3af' }}>
-            <div style={{ fontSize: 52 }}>🔧</div>
+            <div style={{ fontSize: 52 }}>{category === 'technical' ? '📋' : '🔧'}</div>
             <div style={{ fontSize: 16, fontWeight: 600, color: '#6b7280' }}>
               {vi ? 'Chọn một hướng dẫn để xem' : 'Select a guide to view'}
             </div>

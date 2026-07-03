@@ -13,6 +13,7 @@ function adminClient() {
 export async function GET(req: NextRequest) {
   const supabase = adminClient()
   const showAll = req.nextUrl.searchParams.get('all') === '1'
+  const category = req.nextUrl.searchParams.get('category') // 'installation' | 'technical' | null
 
   let query = supabase
     .from('installation_guides')
@@ -21,6 +22,7 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: true })
 
   if (!showAll) query = query.eq('is_active', true)
+  if (category) query = query.eq('category', category)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -82,9 +84,4 @@ export async function DELETE(req: NextRequest) {
 
   const { error } = await adminClient()
     .from('installation_guides')
-    .delete()
-    .eq('id', id)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
-}
+   

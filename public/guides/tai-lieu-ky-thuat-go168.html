@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tài Liệu Kỹ Thuật – Go-168</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--nav:#1e3a8a;--nav-dark:#1e3a5f;--accent:#60a5fa;--bg:#eff6ff;--text:#1e3a8a}
+  body{font-family:'Segoe UI',sans-serif;background:#f8f9fa;color:#1f2937;display:flex;min-height:100vh}
+  nav{width:260px;min-width:260px;background:var(--nav);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav .logo{padding:22px 18px 14px;border-bottom:1px solid rgba(255,255,255,.15)}
+  nav .logo .device{font-size:22px;font-weight:800;letter-spacing:1px;color:#fff}
+  nav .logo .sub{font-size:11px;opacity:.7;margin-top:2px}
+  nav .badge{display:inline-block;background:var(--accent);color:var(--nav-dark);font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;margin-top:6px}
+  nav ul{list-style:none;padding:10px 0;flex:1}
+  nav ul li a{display:flex;align-items:center;gap:10px;padding:9px 18px;font-size:13px;color:rgba(255,255,255,.85);text-decoration:none;transition:.15s;cursor:pointer}
+  nav ul li a:hover,nav ul li a.active{background:rgba(255,255,255,.15);color:#fff}
+  nav ul li a .num{background:rgba(255,255,255,.2);border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;min-width:22px;text-align:center}
+  nav ul li a.active .num{background:#fff;color:var(--nav)}
+  nav .footer{padding:14px 18px;border-top:1px solid rgba(255,255,255,.12);font-size:11px;opacity:.55}
+  main{flex:1;padding:28px 32px;max-width:960px}
+  .section{display:none;animation:fadeIn .2s ease}
+  .section.active{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:21px;font-weight:700;color:var(--nav-dark);margin-bottom:5px}
+  .subtitle{font-size:13px;color:#6b7280;margin-bottom:22px;padding-bottom:14px;border-bottom:2px solid var(--accent)}
+  .card{background:#fff;border-radius:12px;padding:18px 22px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid var(--accent)}
+  .card h3{font-size:14.5px;font-weight:700;color:var(--nav-dark);margin-bottom:10px}
+  .card p,.card li{font-size:13.5px;color:#374151;line-height:1.7}
+  .card ul{padding-left:18px;margin-top:6px}
+  .card li{margin-bottom:3px}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th{background:var(--nav);color:#fff;padding:8px 12px;text-align:left;font-weight:600;font-size:12.5px}
+  td{padding:8px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top}
+  tr:nth-child(even) td{background:#f8faff}
+  td:first-child{font-weight:600;color:var(--nav-dark);white-space:nowrap}
+  .spec-section{margin-bottom:10px}
+  .spec-section .section-title{background:#e0e7ff;color:var(--nav-dark);font-weight:700;font-size:12px;padding:5px 12px;border-radius:4px 4px 0 0;border-bottom:2px solid var(--accent)}
+  .led-table td:nth-child(2){font-size:12.5px;color:#6b7280;font-style:italic}
+  .led-table td:nth-child(3){color:#374151}
+  .wire-dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:middle;border:1px solid rgba(0,0,0,.15)}
+  .info{background:var(--bg);border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:var(--text)}
+  .alert{background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#92400e}
+  .badge-tag{display:inline-block;background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin:2px}
+  .nav-btns{display:flex;gap:10px;margin-top:24px}
+  .btn{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+  .btn-prev{background:#f3f4f6;color:#374151}.btn-prev:hover{background:#e5e7eb}
+  .btn-next{background:var(--nav);color:#fff}.btn-next:hover{background:var(--nav-dark)}
+  @media print{nav{display:none}main{padding:10px}.section{display:block !important}}
+  @media(max-width:700px){body{flex-direction:column}nav{width:100%;height:auto;position:relative}main{padding:16px}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="logo">
+    <div class="device">Go-168</div>
+    <div class="sub">Thiết bị giám sát hành trình 4G</div>
+    <span class="badge">EUPFIN VN – v1.0</span>
+  </div>
+  <ul>
+    <li><a href="#" onclick="show(0)" id="tab0" class="active"><span class="num">1</span> Tổng quan sản phẩm</a></li>
+    <li><a href="#" onclick="show(1)" id="tab1"><span class="num">2</span> Thông số kỹ thuật</a></li>
+    <li><a href="#" onclick="show(2)" id="tab2"><span class="num">3</span> Đèn LED & Còi chỉ thị</a></li>
+    <li><a href="#" onclick="show(3)" id="tab3"><span class="num">4</span> Cổng tín hiệu & Đấu dây</a></li>
+    <li><a href="#" onclick="show(4)" id="tab4"><span class="num">5</span> Lắp đặt SIM & Vị trí</a></li>
+    <li><a href="#" onclick="show(5)" id="tab5"><span class="num">6</span> Lưu ý kỹ thuật</a></li>
+  </ul>
+  <div class="footer">📅 08/2022 · Tác giả: Henry · EUPFIN VN</div>
+</nav>
+
+<main>
+<!-- S0: Tổng quan -->
+<section class="section active" id="s0">
+  <h2>📡 Tài Liệu Kỹ Thuật – Go-168</h2>
+  <p class="subtitle">Thiết bị giám sát hành trình sử dụng GPS + 4G LTE · v1.0</p>
+  <div class="card">
+    <h3>Giới thiệu</h3>
+    <p>Go-168 là thiết bị giám sát hành trình sử dụng hệ thống định vị vệ tinh toàn cầu (GNSS) và hệ thống thông tin liên lạc <strong>4G LTE</strong>. Thiết bị có khả năng định vị và truyền tải vị trí, trạng thái về máy chủ theo thời gian thực.</p>
+    <p style="margin-top:8px">Thiết kế tối ưu — dễ lắp đặt, bảo trì, tiêu thụ điện thấp, giá thành cạnh tranh.</p>
+  </div>
+  <div class="card">
+    <h3>Thành phần trong hộp</h3>
+    <ul>
+      <li>01 Thiết bị Go-168</li>
+      <li>01 Bộ cáp tín hiệu (loại 2×3)</li>
+      <li>01 Tem decal niêm phong sau khi lắp SIM</li>
+      <li>01 Sách hướng dẫn sử dụng</li>
+      <li>01 SIM card (tùy chọn)</li>
+      <li>02 Thẻ lái xe RFID (tùy chọn)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Chứng chỉ hợp chuẩn</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+      <span class="badge-tag">QCVN 117:2018/BTTTT</span>
+      <span class="badge-tag">QCVN 86:2019/BTTTT</span>
+      <span class="badge-tag">QCVN 55:2011/BTTTT</span>
+      <span class="badge-tag">QCVN 96:2015/BTTTT</span>
+    </div>
+  </div>
+  <div class="nav-btns"><button class="btn btn-next" onclick="show(1)">Tiếp theo →</button></div>
+</section>
+
+<!-- S1: Thông số kỹ thuật -->
+<section class="section" id="s1">
+  <h2>📊 Thông Số Kỹ Thuật</h2>
+  <p class="subtitle">Bảng đặc tả đầy đủ theo Bảng 2 – Tài liệu kỹ thuật v1.0</p>
+
+  <div class="card">
+    <h3>Môi trường & Điện năng</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Nhiệt độ hoạt động</td><td>-20 ÷ 85°C (±0.5%)</td></tr>
+      <tr><td>Nhiệt độ lưu trữ</td><td>0 ÷ 60°C</td></tr>
+      <tr><td>Độ ẩm</td><td>5 ÷ 90% (±2.5%)</td></tr>
+      <tr><td>Dải điện áp hoạt động</td><td><strong>9 ÷ 36 VDC</strong></td></tr>
+      <tr><td>Điện áp danh định</td><td>12 / 24 VDC</td></tr>
+      <tr><td>Dòng tiêu thụ – Active</td><td>48 ÷ 60 mA @12VDC</td></tr>
+      <tr><td>Dòng tiêu thụ – Idle</td><td>22 ÷ 24 mA</td></tr>
+      <tr><td>Dòng tiêu thụ – GPS sleep</td><td>10 ÷ 12 mA</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Vật lý</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Kích thước</td><td>94.0 × 55.0 × 16.8 mm</td></tr>
+      <tr><td>Trọng lượng</td><td>200 gram</td></tr>
+      <tr><td>Vỏ máy</td><td>Nhựa ABS + PC, không cháy</td></tr>
+      <tr><td>Connector</td><td>Molex Micro-Fit 3.0, 2×3 pin</td></tr>
+      <tr><td>Ăng-ten</td><td>Built-in</td></tr>
+      <tr><td>SIM card</td><td>Nano SIM Card</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Module 4G LTE (SIMCOM A7672S)</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Băng tần TDD-LTE</td><td>B34/B38/B39/B40/B41</td></tr>
+      <tr><td>Băng tần FDD-LTE</td><td>B1/B3/B5/B8</td></tr>
+      <tr><td>GSM/GPRS/EDGE</td><td>900/1800 MHz</td></tr>
+      <tr><td>Tốc độ LTE CAT1</td><td>10 Mbps (DL) / 5 Mbps (UL)</td></tr>
+      <tr><td>GPRS/EDGE</td><td>236.8 Kbps (DL/UL)</td></tr>
+      <tr><td>Giao thức</td><td>TCP/IP · SMS</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Module GNSS (ATGM336H-5N-31 – AT6558)</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Hệ thống định vị</td><td>GPS + GLONASS + BeiDou</td></tr>
+      <tr><td>Tracking sensitivity</td><td>-162 dBm</td></tr>
+      <tr><td>Cold Start TTFF</td><td>35 giây</td></tr>
+      <tr><td>Hot Start TTFF</td><td>≤ 1 giây</td></tr>
+      <tr><td>Độ chính xác vị trí</td><td>&lt; 10 m</td></tr>
+      <tr><td>Ăng-ten</td><td>Built-in ceramic patch + LNA</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Đầu đọc RFID (CR95HF)</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Tần số</td><td>13,553 ÷ 13,567 MHz</td></tr>
+      <tr><td>Tiêu chuẩn</td><td>ISO/IEC 14443 Type A/B · ISO/IEC 15693 · ISO/IEC 18092</td></tr>
+      <tr><td>Khoảng cách đọc</td><td>Tối đa 3 cm</td></tr>
+      <tr><td>Thẻ tương thích</td><td>I.CODE SLI, TAG_IT</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>CPU & Bộ nhớ (HT32F52367 – Holtek)</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>CPU Core</td><td>ARM® Cortex®-M0+ @ 60 MHz</td></tr>
+      <tr><td>Internal Flash</td><td>256 KB</td></tr>
+      <tr><td>SRAM</td><td>32 KB</td></tr>
+      <tr><td>External Flash</td><td>8–32 MB</td></tr>
+      <tr><td>Cảm biến gia tốc</td><td>3 trục, dải 2÷16g, độ phân giải 16-bit</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Tính năng phần mềm</h3>
+    <ul>
+      <li>Định vị & giám sát hành trình thời gian thực</li>
+      <li>Xác định lái xe qua thẻ RFID</li>
+      <li>Giám sát nhiên liệu, nhiệt độ, hình ảnh</li>
+      <li>Cảnh báo tốc độ, thời gian lái xe liên tục</li>
+      <li>Lưu trữ và truyền lại dữ liệu 30 ngày</li>
+      <li>Cập nhật firmware từ xa (OTA)</li>
+      <li>Đồng bộ thời gian NTP + GPS</li>
+      <li>Phát hiện phá sóng; hỗ trợ nguồn dự phòng</li>
+    </ul>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(0)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(2)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S2: LED & Còi -->
+<section class="section" id="s2">
+  <h2>💡 Đèn LED & Còi Chỉ Thị</h2>
+  <p class="subtitle">Go-168 có 4 đèn LED: Driver · GNSS · CELLULAR · MEMORY</p>
+
+  <div class="card">
+    <h3>Bảng LED chỉ thị</h3>
+    <table class="led-table">
+      <tr><th>LED</th><th>Kiểu sáng</th><th>Trạng thái</th></tr>
+      <tr><td rowspan="3" style="background:#e0e7ff;font-weight:700;color:#1e3a8a">DRIVER</td><td>Sáng ổn định</td><td>Tài xế đã đăng nhập</td></tr>
+      <tr><td>Không sáng</td><td>Chưa có tài xế đăng nhập</td></tr>
+      <tr><td>Chớp chậm (**)</td><td>Xe chạy nhưng chưa có lái xe đăng nhập</td></tr>
+      <tr><td rowspan="4" style="background:#e0e7ff;font-weight:700;color:#1e3a8a">GNSS</td><td>Sáng ổn định</td><td>Đang dò sóng vệ tinh</td></tr>
+      <tr><td>Không sáng</td><td>Module GNSS gặp sự cố</td></tr>
+      <tr><td>Chớp nhanh (*)</td><td>Đang ở trạng thái ngủ</td></tr>
+      <tr><td>Chớp chậm (**)</td><td>✅ Tín hiệu tốt — đang cập nhật vị trí thời gian thực</td></tr>
+      <tr><td rowspan="3" style="background:#e0e7ff;font-weight:700;color:#1e3a8a">CELLULAR</td><td>Sáng ổn định</td><td>Đã đăng ký mạng & đang kết nối máy chủ</td></tr>
+      <tr><td>Không sáng</td><td>Chưa đăng ký mạng / không cài SIM / sự cố</td></tr>
+      <tr><td>Chớp chậm (**)</td><td>✅ Đã kết nối máy chủ thành công</td></tr>
+      <tr><td rowspan="3" style="background:#e0e7ff;font-weight:700;color:#1e3a8a">MEMORY</td><td>Sáng ổn định</td><td>Bộ nhớ bình thường</td></tr>
+      <tr><td>Không sáng</td><td>Bộ nhớ gặp lỗi/sự cố</td></tr>
+      <tr><td>Chớp nhanh</td><td>Đang truy cập bộ nhớ</td></tr>
+    </table>
+    <div class="info" style="margin-top:12px">
+      (*) <strong>Chớp nhanh:</strong> thời gian sáng ngắn hơn thời gian tắt (chu kỳ 1s)<br>
+      (**) <strong>Chớp chậm:</strong> thời gian sáng dài hơn thời gian tắt (chu kỳ 1s)
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Còi chỉ thị (Buzzer)</h3>
+    <table>
+      <tr><th>#</th><th>Kiểu còi</th><th>Ý nghĩa</th></tr>
+      <tr><td>1</td><td>1 tiếng bip</td><td>Thiết bị vừa được khởi động nguồn</td></tr>
+      <tr><td>2</td><td>1 bip, 1 phút/lần</td><td>Xe đang di chuyển nhưng chưa có lái xe đăng nhập</td></tr>
+      <tr><td>3</td><td>2 tiếng bip</td><td>Lái xe vừa đăng nhập thành công</td></tr>
+      <tr><td>4</td><td>3 tiếng bip</td><td>Lái xe vừa đăng xuất</td></tr>
+      <tr><td>5</td><td>Bip nhanh liên tục</td><td>⚠️ Đang vượt tốc độ cho phép</td></tr>
+      <tr><td>6</td><td>Bip chậm liên tục (1s/lần)</td><td>⚠️ Quá thời gian lái xe liên tục</td></tr>
+      <tr><td>7</td><td>Bip liên tục (500ms/lần)</td><td>⚠️ Vừa quá tốc độ VÀ quá thời gian lái liên tục</td></tr>
+    </table>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(1)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(3)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S3: Cổng tín hiệu -->
+<section class="section" id="s3">
+  <h2>🔌 Cổng Tín Hiệu & Đấu Dây</h2>
+  <p class="subtitle">Go-168 có 2 cổng kết nối: Cổng A và Cổng B (Molex 2×3)</p>
+  <div class="alert">⚠️ Chú ý: tên tín hiệu được ghi lên mặt dưới của thân vỏ thiết bị. Tắt nguồn xe trước khi đấu dây!</div>
+
+  <div class="card">
+    <h3>Cổng A</h3>
+    <table>
+      <tr><th>Pin / Tên</th><th>Màu dây</th><th>Mô tả</th></tr>
+      <tr><td>RS232_TX0</td><td><span class="wire-dot" style="background:#eab308"></span>Vàng</td><td>Kết nối RX/TX (nối chéo) của cảm biến RS232</td></tr>
+      <tr><td>RS232_RX0</td><td><span class="wire-dot" style="background:#22c55e"></span>Xanh lá</td><td>Kết nối RX/TX (nối chéo) của cảm biến RS232</td></tr>
+      <tr><td>ALT0</td><td><span class="wire-dot" style="background:#fff;border:1px solid #ccc"></span>Trắng</td><td>Đầu vào số – mức tích cực có thể cấu hình</td></tr>
+      <tr><td>Ignition (ACC)</td><td><span class="wire-dot" style="background:#f97316"></span>Cam</td><td>Tín hiệu khóa điện xe, tích cực dương</td></tr>
+      <tr><td>VDC_in</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>Nguồn dương 12/24 VDC</td></tr>
+      <tr><td>GND</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>Mass (nối mát vỏ xe)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Cổng B</h3>
+    <table>
+      <tr><th>Pin / Tên</th><th>Màu dây</th><th>Mô tả</th></tr>
+      <tr><td>RS232_TX1</td><td><span class="wire-dot" style="background:#eab308"></span>Vàng</td><td>Kết nối RX/TX cảm biến RS232</td></tr>
+      <tr><td>RS232_RX1</td><td><span class="wire-dot" style="background:#22c55e"></span>Xanh lá</td><td>Kết nối RX/TX cảm biến RS232</td></tr>
+      <tr><td>DOUT</td><td><span class="wire-dot" style="background:#fff;border:1px solid #ccc"></span>Trắng</td><td>Điều khiển ra – tích cực âm (hỗ trợ trigger và xung)</td></tr>
+      <tr><td>ENGINE</td><td><span class="wire-dot" style="background:#f97316"></span>Cam</td><td>Tín hiệu động cơ xe, tích cực dương</td></tr>
+      <tr><td>ALT1</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>Đầu vào số – mức tích cực có thể cấu hình</td></tr>
+      <tr><td>ADC</td><td><span class="wire-dot" style="background:#374151"></span>Đen</td><td>Đầu vào tín hiệu Analog 0–5V</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Bảo vệ điện</h3>
+    <ul>
+      <li>Chống ngắn mạch, quá dòng</li>
+      <li>Chống quá áp, triệt tiêu xung điện áp</li>
+      <li>Chống ngược cực</li>
+      <li>Digital Output: tải tối đa 50 mA · 24 VDC</li>
+      <li>Digital Input: 0–36 VDC, ngưỡng logic 4V</li>
+    </ul>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(2)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(4)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S4: SIM & Vị trí lắp đặt -->
+<section class="section" id="s4">
+  <h2>📍 Lắp SIM & Vị Trí Lắp Đặt</h2>
+  <p class="subtitle">Hướng dẫn lắp thẻ SIM và chọn vị trí tốt nhất trên xe</p>
+  <div class="card">
+    <h3>Lắp Nano SIM Card</h3>
+    <ul>
+      <li>Go-168 sử dụng <strong>Nano SIM Card</strong></li>
+      <li>Khe cắm SIM nằm trên thân thiết bị</li>
+      <li>Chú ý hướng cài SIM (xem hình trong tài liệu gốc – Hình 6)</li>
+      <li>Dán tem niêm phong sau khi lắp SIM xong</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Vị trí lắp đặt tối ưu</h3>
+    <p>Go-168 sử dụng <strong>ăng-ten nội tích hợp hoàn toàn</strong>. Để thu tín hiệu tốt nhất:</p>
+    <ul style="margin-top:8px">
+      <li>Mặt logo <strong>"Go-168"</strong> phải hướng thẳng lên bầu trời</li>
+      <li>Có thể lắp ngay dưới tấm panel nhựa của táp lô</li>
+      <li>Tránh để bị che chắn bởi kim loại dày</li>
+      <li>Tránh gần nguồn nhiệt, ẩm, tia điện</li>
+    </ul>
+  </div>
+  <div class="info">📌 Khu vực khuyến nghị: Dán trên bề mặt nhựa bên trong táp lô — phía trên, gần kính trước xe, không bị che khuất bởi kim loại.</div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(3)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(5)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S5: Lưu ý kỹ thuật -->
+<section class="section" id="s5">
+  <h2>⚠️ Lưu Ý Kỹ Thuật</h2>
+  <p class="subtitle">Các chú ý quan trọng khi lắp đặt và vận hành Go-168</p>
+  <div class="card">
+    <h3>Kết nối dây</h3>
+    <ul>
+      <li>Buộc gọn và cố định dây vào các phần cố định gần đó</li>
+      <li>Tránh đi dây gần nguồn nhiệt hoặc đối tượng chuyển động</li>
+      <li>Nếu đi dây ngoài trời: bổ sung ống cách ly chống ẩm, nhiệt</li>
+      <li>Tháo bỏ cáp kết nối máy tính sau khi cấu hình xong</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Kết nối nguồn điện</h3>
+    <ul>
+      <li>Nguồn điện đúng dải: <strong>9–36 VDC</strong></li>
+      <li>Dây <span style="color:#ef4444;font-weight:700">đỏ</span> → nguồn (+) · Dây <span style="color:#374151;font-weight:700">đen</span> → nguồn (-)</li>
+      <li>Kiểm tra điện áp khóa điện ON/OFF trước khi đấu dây ACC</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Kết nối dây mass (GND)</h3>
+    <p>Nối dây đen trực tiếp vào <strong>phần kim loại cố định</strong> trên khung sườn kim loại của xe. Không nối vào vỏ nhựa.</p>
+  </div>
+  <div class="alert">
+    <strong>⚠️ An toàn:</strong>
+    <ul style="margin-top:6px;padding-left:16px">
+      <li>Không tháo lắp khi thiết bị đang có nguồn</li>
+      <li>Chỉ nhân viên kỹ thuật có chuyên môn được phép tháo lắp</li>
+      <li>Không cài đặt khi có sấm sét</li>
+      <li>Không lắp tại nơi tiếp xúc nguồn ẩm, nhiệt, tia điện</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Thuật ngữ viết tắt</h3>
+    <table>
+      <tr><th>Từ viết tắt</th><th>Nghĩa</th></tr>
+      <tr><td>GPS</td><td>Global Positioning System – Hệ thống định vị toàn cầu</td></tr>
+      <tr><td>GNSS</td><td>Global Navigation Satellite System</td></tr>
+      <tr><td>GSM/GPRS</td><td>Mạng di động / Gói dữ liệu vô tuyến</td></tr>
+      <tr><td>I/O</td><td>Input/Output – cổng tín hiệu vào ra</td></tr>
+      <tr><td>OTA</td><td>Over The Air – Cập nhật firmware từ xa</td></tr>
+      <tr><td>RFID</td><td>Radio Frequency Identification – Nhận dạng tần số vô tuyến</td></tr>
+      <tr><td>AVL</td><td>Automatic Vehicle Location – Định vị phương tiện tự động</td></tr>
+    </table>
+  </div>
+  <div class="nav-btns"><button class="btn btn-prev" onclick="show(4)">← Quay lại</button></div>
+</section>
+</main>
+
+<script>
+function show(i){
+  document.querySelectorAll('.section').forEach((s,idx)=>s.classList.toggle('active',idx===i));
+  document.querySelectorAll('nav ul li a').forEach((a,idx)=>a.classList.toggle('active',idx===i));
+  window.scrollTo({top:0,behavior:'smooth'});
+  return false;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tài Liệu Kỹ Thuật – EUP-2CH CAM-NĐ10 PRO (C43)</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--nav:#1f2937;--nav-dark:#111827;--accent:#f59e0b;--bg:#fef3c7;--text:#92400e}
+  body{font-family:'Segoe UI',sans-serif;background:#f8f9fa;color:#1f2937;display:flex;min-height:100vh}
+  nav{width:270px;min-width:270px;background:var(--nav);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+  nav .logo{padding:22px 18px 14px;border-bottom:1px solid rgba(255,255,255,.12)}
+  nav .logo .device{font-size:16px;font-weight:800;letter-spacing:.5px;color:#f59e0b}
+  nav .logo .sub{font-size:11px;opacity:.65;margin-top:3px}
+  nav .badge{display:inline-block;background:#f59e0b;color:#1f2937;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;margin-top:6px}
+  nav ul{list-style:none;padding:10px 0;flex:1}
+  nav ul li a{display:flex;align-items:center;gap:10px;padding:9px 18px;font-size:13px;color:rgba(255,255,255,.8);text-decoration:none;transition:.15s;cursor:pointer}
+  nav ul li a:hover,nav ul li a.active{background:rgba(245,158,11,.15);color:#f59e0b}
+  nav ul li a .num{background:rgba(255,255,255,.15);border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;min-width:22px;text-align:center}
+  nav ul li a.active .num{background:#f59e0b;color:#1f2937}
+  nav .footer{padding:14px 18px;border-top:1px solid rgba(255,255,255,.1);font-size:11px;opacity:.5}
+  main{flex:1;padding:28px 32px;max-width:960px}
+  .section{display:none;animation:fadeIn .2s ease}
+  .section.active{display:block}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+  h2{font-size:21px;font-weight:700;color:var(--nav-dark);margin-bottom:5px}
+  .subtitle{font-size:13px;color:#6b7280;margin-bottom:22px;padding-bottom:14px;border-bottom:2px solid #f59e0b}
+  .card{background:#fff;border-radius:12px;padding:18px 22px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid #f59e0b}
+  .card h3{font-size:14.5px;font-weight:700;color:var(--nav-dark);margin-bottom:10px}
+  .card p,.card li{font-size:13.5px;color:#374151;line-height:1.7}
+  .card ul{padding-left:18px;margin-top:6px}
+  .card li{margin-bottom:3px}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th{background:#1f2937;color:#f59e0b;padding:8px 12px;text-align:left;font-weight:600;font-size:12.5px}
+  td{padding:8px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top}
+  tr:nth-child(even) td{background:#fafafa}
+  td:first-child{font-weight:600;color:#374151;white-space:nowrap}
+  .info{background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#92400e}
+  .alert{background:#fee2e2;border:1px solid #fca5a5;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#991b1b}
+  .wire-dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:middle;border:1px solid rgba(0,0,0,.15)}
+  .badge-tag{display:inline-block;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin:2px;border:1px solid #fbbf24}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .nav-btns{display:flex;gap:10px;margin-top:24px}
+  .btn{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+  .btn-prev{background:#f3f4f6;color:#374151}.btn-prev:hover{background:#e5e7eb}
+  .btn-next{background:#1f2937;color:#f59e0b}.btn-next:hover{background:#111827}
+  @media print{nav{display:none}main{padding:10px}.section{display:block !important}}
+  @media(max-width:700px){body{flex-direction:column}nav{width:100%;height:auto;position:relative}main{padding:16px}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="logo">
+    <div class="device">EUP-2CH CAM-NĐ10 PRO</div>
+    <div class="sub">Thiết bị giám sát camera 4G · Model C43</div>
+    <span class="badge">EUPFIN VN – v1.0</span>
+  </div>
+  <ul>
+    <li><a href="#" onclick="show(0)" id="tab0" class="active"><span class="num">1</span> Tổng quan sản phẩm</a></li>
+    <li><a href="#" onclick="show(1)" id="tab1"><span class="num">2</span> Thông số kỹ thuật</a></li>
+    <li><a href="#" onclick="show(2)" id="tab2"><span class="num">3</span> Mô tả cổng kết nối</a></li>
+    <li><a href="#" onclick="show(3)" id="tab3"><span class="num">4</span> Sơ đồ đấu dây</a></li>
+    <li><a href="#" onclick="show(4)" id="tab4"><span class="num">5</span> Các bộ phận chính</a></li>
+    <li><a href="#" onclick="show(5)" id="tab5"><span class="num">6</span> Lưu ý lắp đặt</a></li>
+  </ul>
+  <div class="footer">📅 2024 · EUPFIN VN</div>
+</nav>
+
+<main>
+<!-- S0: Tổng quan -->
+<section class="section active" id="s0">
+  <h2>📷 Tài Liệu Kỹ Thuật – EUP-2CH CAM-NĐ10 PRO</h2>
+  <p class="subtitle">Thiết bị giám sát camera 4G 2 kênh · Model C43</p>
+  <div class="card">
+    <h3>Giới thiệu</h3>
+    <p>EUP-2CH CAM-NĐ10 PRO (C43) là thiết bị giám sát hành trình tích hợp <strong>camera 2 kênh 720P</strong>, kết nối <strong>4G LTE</strong>, định vị GPS, và đọc thẻ lái xe RFID. Thiết bị hỗ trợ lưu trữ video cục bộ và truyền tải về máy chủ giám sát theo thời gian thực.</p>
+  </div>
+  <div class="card">
+    <h3>Điểm nổi bật</h3>
+    <ul>
+      <li>2 kênh camera 720P (trước + cabin)</li>
+      <li>Kết nối 4G LTE Cat1 – EC200U-EU</li>
+      <li>GPS + GLONASS – SKG12D</li>
+      <li>Bộ nhớ eMMC 8 GB + MicroSD 128 GB</li>
+      <li>Nhận diện lái xe qua thẻ RFID ISO15693</li>
+      <li>Cảm biến gia tốc 3 trục tích hợp</li>
+      <li>Dải điện áp rộng DC 9–36 V</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Thành phần trong hộp</h3>
+    <ul>
+      <li>01 Thiết bị EUP-2CH CAM-NĐ10 PRO (C43)</li>
+      <li>01 Camera trước (với giá đỡ)</li>
+      <li>01 Camera trong cabin (tùy chọn)</li>
+      <li>01 Bộ dây nguồn + tín hiệu</li>
+      <li>01 Ăng-ten GPS ngoài (SMA)</li>
+      <li>01 Ăng-ten 4G ngoài (SMA)</li>
+      <li>02 Thẻ lái xe RFID (tùy chọn)</li>
+      <li>01 Sách hướng dẫn sử dụng</li>
+    </ul>
+  </div>
+  <div class="nav-btns"><button class="btn btn-next" onclick="show(1)">Tiếp theo →</button></div>
+</section>
+
+<!-- S1: Thông số kỹ thuật -->
+<section class="section" id="s1">
+  <h2>📊 Thông Số Kỹ Thuật</h2>
+  <p class="subtitle">Bảng đặc tả đầy đủ theo tài liệu kỹ thuật C43</p>
+
+  <div class="card">
+    <h3>Nguồn điện & Môi trường</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Điện áp hoạt động</td><td><strong>DC 9 ÷ 36 V</strong></td></tr>
+      <tr><td>Dòng tiêu thụ trung bình</td><td>≤ 500 mA @12V (thông thường)</td></tr>
+      <tr><td>Nhiệt độ hoạt động</td><td>-40 ÷ 70°C</td></tr>
+      <tr><td>Nhiệt độ lưu trữ</td><td>-40 ÷ 85°C</td></tr>
+      <tr><td>Độ ẩm</td><td>5 ÷ 95% (không ngưng tụ)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Module 4G LTE (EC200U-EU – Quectel)</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Tốc độ LTE Cat1</td><td>10 Mbps (DL) / 5 Mbps (UL)</td></tr>
+      <tr><td>UMTS/HSPA+</td><td>850/900/1900/2100 MHz</td></tr>
+      <tr><td>GSM/GPRS</td><td>850/900/1800/1900 MHz</td></tr>
+      <tr><td>Giao thức</td><td>TCP/IP · UDP · HTTP · FTP · MQTT</td></tr>
+      <tr><td>SIM card</td><td>Nano SIM</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Module GPS (SKG12D)</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Hệ thống định vị</td><td>GPS + GLONASS</td></tr>
+      <tr><td>Độ chính xác vị trí</td><td>&lt; 2.5 m CEP</td></tr>
+      <tr><td>Cold Start TTFF</td><td>≤ 32 giây</td></tr>
+      <tr><td>Hot Start TTFF</td><td>≤ 1 giây</td></tr>
+      <tr><td>Ăng-ten</td><td>Ngoài (SMA connector)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>MCU (GD32F305)</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>CPU Core</td><td>ARM® Cortex®-M4 @ 120 MHz</td></tr>
+      <tr><td>Flash</td><td>512 KB</td></tr>
+      <tr><td>SRAM</td><td>128 KB</td></tr>
+      <tr><td>Cảm biến gia tốc</td><td>3 trục tích hợp</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Camera & Lưu trữ</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Kênh camera</td><td>2 kênh (AHD 720P)</td></tr>
+      <tr><td>Định dạng video</td><td>H.264</td></tr>
+      <tr><td>Tốc độ khung</td><td>25 fps</td></tr>
+      <tr><td>Độ phân giải</td><td>1280 × 720 pixel</td></tr>
+      <tr><td>eMMC</td><td>8 GB (bộ nhớ trong)</td></tr>
+      <tr><td>MicroSD</td><td>Tối đa 128 GB (class 10)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>RFID</h3>
+    <table>
+      <tr><th>Thông số</th><th>Giá trị</th></tr>
+      <tr><td>Tần số</td><td>13.56 MHz</td></tr>
+      <tr><td>Tiêu chuẩn</td><td>ISO15693</td></tr>
+      <tr><td>Khoảng cách đọc</td><td>Tối đa 5 cm</td></tr>
+      <tr><td>Thẻ tương thích</td><td>I.CODE SLI, TAG-IT, ICODE SLIX</td></tr>
+    </table>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(0)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(2)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S2: Mô tả cổng kết nối -->
+<section class="section" id="s2">
+  <h2>🔌 Mô Tả Cổng Kết Nối</h2>
+  <p class="subtitle">Các cổng kết nối trên thân thiết bị C43</p>
+
+  <div class="card">
+    <h3>Bảng mô tả cổng</h3>
+    <table>
+      <tr><th>#</th><th>Tên cổng</th><th>Loại</th><th>Mô tả</th></tr>
+      <tr><td>1</td><td>CAM1 (AV IN)</td><td>Coax / AHD</td><td>Kết nối camera trước 720P</td></tr>
+      <tr><td>2</td><td>CAM2 (AV IN)</td><td>Coax / AHD</td><td>Kết nối camera cabin 720P</td></tr>
+      <tr><td>3</td><td>SIM</td><td>Nano SIM tray</td><td>Cắm SIM 4G</td></tr>
+      <tr><td>4</td><td>GPS ANT</td><td>SMA female</td><td>Kết nối ăng-ten GPS ngoài</td></tr>
+      <tr><td>5</td><td>4G ANT</td><td>SMA female</td><td>Kết nối ăng-ten 4G ngoài</td></tr>
+      <tr><td>6</td><td>MicroSD</td><td>MicroSD slot</td><td>Thẻ nhớ mở rộng (tối đa 128 GB)</td></tr>
+      <tr><td>7</td><td>POWER/IO</td><td>JST 8-pin</td><td>Nguồn điện + Ignition + I/O</td></tr>
+      <tr><td>8</td><td>RFID</td><td>USB-A</td><td>Đầu đọc thẻ RFID ISO15693</td></tr>
+      <tr><td>9</td><td>Debug/Config</td><td>Micro-USB</td><td>Cấu hình thiết bị, update firmware</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Cổng POWER/IO (JST 8-pin)</h3>
+    <table>
+      <tr><th>Pin</th><th>Màu dây</th><th>Chức năng</th></tr>
+      <tr><td>1 – VIN+</td><td><span class="wire-dot" style="background:#ef4444"></span>Đỏ</td><td>Nguồn dương 9–36 VDC</td></tr>
+      <tr><td>2 – GND</td><td><span class="wire-dot" style="background:#111827"></span>Đen</td><td>Mass (nối vỏ kim loại xe)</td></tr>
+      <tr><td>3 – ACC</td><td><span class="wire-dot" style="background:#f97316"></span>Cam</td><td>Ignition / Khóa điện xe</td></tr>
+      <tr><td>4 – DIN1</td><td><span class="wire-dot" style="background:#22c55e"></span>Xanh lá</td><td>Digital Input 1 (0–36V logic)</td></tr>
+      <tr><td>5 – DIN2</td><td><span class="wire-dot" style="background:#3b82f6"></span>Xanh dương</td><td>Digital Input 2</td></tr>
+      <tr><td>6 – DOUT1</td><td><span class="wire-dot" style="background:#a855f7"></span>Tím</td><td>Digital Output 1 (open drain)</td></tr>
+      <tr><td>7 – RS232_TX</td><td><span class="wire-dot" style="background:#eab308"></span>Vàng</td><td>RS232 TX (→ cảm biến)</td></tr>
+      <tr><td>8 – RS232_RX</td><td><span class="wire-dot" style="background:#fff;border:1px solid #ccc"></span>Trắng</td><td>RS232 RX (← cảm biến)</td></tr>
+    </table>
+  </div>
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(1)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(3)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S3: Sơ đồ đấu dây -->
+<section class="section" id="s3">
+  <h2>📐 Sơ Đồ Đấu Dây</h2>
+  <p class="subtitle">Quy chuẩn màu dây và kết nối cơ bản</p>
+
+  <div class="card">
+    <h3>Sơ đồ đấu dây nguồn cơ bản</h3>
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;font-family:monospace;font-size:13px;line-height:2">
+      <div>🔋 Ắc quy xe  <span style="color:#ef4444">━━━━ Đỏ (VIN+)</span>  ──→  Pin 1 thiết bị</div>
+      <div>🔌 Mass xe  <span style="color:#374151">━━━━ Đen (GND)</span>  ──→  Pin 2 thiết bị</div>
+      <div>🔑 Khóa điện  <span style="color:#f97316">━━━━ Cam (ACC)</span>  ──→  Pin 3 thiết bị</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Kết nối camera</h3>
+    <table>
+      <tr><th>Camera</th><th>Cổng</th><th>Dây tín hiệu</th><th>Dây nguồn</th></tr>
+      <tr><td>Camera trước</td><td>CAM1</td><td>Coaxial (RG59 / RG178)</td><td>12V từ nguồn phụ thiết bị</td></tr>
+      <tr><td>Camera cabin</td><td>CAM2</td><td>Coaxial (RG59 / RG178)</td><td>12V từ nguồn phụ thiết bị</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Kết nối ăng-ten</h3>
+    <ul>
+      <li><strong>GPS ANT</strong> – Dán ăng-ten GPS ngoài lên kính trước hoặc táp lô, kết nối qua đầu SMA</li>
+      <li><strong>4G ANT</strong> – Lắp ăng-ten 4G tại nơi thoáng, không bị che bởi kim loại, kết nối qua đầu SMA</li>
+    </ul>
+    <div class="info" style="margin-top:10px">📌 Đặt ăng-ten xa nhau ≥ 20 cm để tránh nhiễu. Dây ăng-ten không được uốn cong gấp khúc.</div>
+  </div>
+
+  <div class="alert">⚠️ Tắt hoàn toàn điện xe trước khi đấu dây. Kiểm tra đúng cực dương / âm trước khi cấp nguồn lần đầu.</div>
+
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(2)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(4)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S4: Các bộ phận chính -->
+<section class="section" id="s4">
+  <h2>🔩 Các Bộ Phận Chính</h2>
+  <p class="subtitle">Linh kiện và module cấu thành thiết bị C43</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>📶 Module 4G</h3>
+      <p><strong>Quectel EC200U-EU</strong></p>
+      <p>LTE Cat1, hỗ trợ đa băng tần, giao thức TCP/IP. Kết nối ổn định cho luồng video và dữ liệu GPS về máy chủ.</p>
+    </div>
+    <div class="card">
+      <h3>🛰️ Module GPS</h3>
+      <p><strong>SKG12D</strong></p>
+      <p>GPS + GLONASS, độ chính xác &lt;2.5m, ăng-ten ngoài SMA, hỗ trợ cold start ≤32s.</p>
+    </div>
+    <div class="card">
+      <h3>🎥 Camera AHD 720P</h3>
+      <p><strong>2 kênh · H.264</strong></p>
+      <p>25fps, 1280×720px. Hỗ trợ cả camera ban ngày và hồng ngoại (tùy chọn).</p>
+    </div>
+    <div class="card">
+      <h3>💾 Bộ nhớ</h3>
+      <p><strong>eMMC 8GB + MicroSD 128GB</strong></p>
+      <p>eMMC làm bộ nhớ hệ thống và buffer. MicroSD lưu trữ video, log dài ngày.</p>
+    </div>
+    <div class="card">
+      <h3>🏷️ RFID ISO15693</h3>
+      <p><strong>13.56 MHz · ≤5cm</strong></p>
+      <p>Nhận diện lái xe qua thẻ RFID. Tương thích I.CODE SLI, ICODE SLIX, TAG-IT.</p>
+    </div>
+    <div class="card">
+      <h3>🧠 MCU GD32F305</h3>
+      <p><strong>ARM Cortex-M4 @ 120 MHz</strong></p>
+      <p>Điều phối toàn bộ module: GPS, 4G, camera, RFID, cảm biến gia tốc 3 trục.</p>
+    </div>
+  </div>
+
+  <div class="nav-btns">
+    <button class="btn btn-prev" onclick="show(3)">← Quay lại</button>
+    <button class="btn btn-next" onclick="show(5)">Tiếp theo →</button>
+  </div>
+</section>
+
+<!-- S5: Lưu ý lắp đặt -->
+<section class="section" id="s5">
+  <h2>⚠️ Lưu Ý Lắp Đặt</h2>
+  <p class="subtitle">Hướng dẫn lắp đặt an toàn và đúng kỹ thuật</p>
+
+  <div class="card">
+    <h3>Vị trí lắp đặt thiết bị</h3>
+    <ul>
+      <li>Lắp trong khoang cabin, tránh ánh nắng trực tiếp</li>
+      <li>Không lắp gần nguồn nhiệt (lò sưởi, quạt tản nhiệt)</li>
+      <li>Đảm bảo thông thoáng xung quanh thiết bị (≥5 cm mỗi chiều)</li>
+      <li>Cố định chắc chắn bằng vít hoặc băng keo 2 mặt chuyên dụng</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Lắp đặt camera</h3>
+    <ul>
+      <li><strong>Camera trước</strong>: Lắp phía sau gương chiếu hậu, góc nhìn bao quát phần đường phía trước</li>
+      <li><strong>Camera cabin</strong>: Lắp góc cao, hướng xuống bao quát toàn bộ cabin và lái xe</li>
+      <li>Cài chặt giá đỡ camera trước khi đấu dây</li>
+      <li>Kiểm tra góc nhìn qua phần mềm trước khi đóng gói dây</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Quản lý dây cáp</h3>
+    <ul>
+      <li>Buộc dây gọn gàng bằng dây rút, tránh vướng vào các bộ phận chuyển động</li>
+      <li>Luồn dây qua gioăng cao su khi xuyên qua khung xe</li>
+      <li>Tránh để dây sát mép sắc kim loại gây hở rách cách điện</li>
+      <li>Bọc đầu nối bằng băng cách điện hoặc co nhiệt</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Thẻ MicroSD</h3>
+    <ul>
+      <li>Sử dụng MicroSD Class 10 / UHS-I trở lên</li>
+      <li>Khuyến nghị: SanDisk Endurance, Kingston Endurance</li>
+      <li>Format thẻ định kỳ mỗi 3 tháng để tránh lỗi phân mảnh</li>
+      <li>Rút thẻ khi thiết bị đã ngắt nguồn hoàn toàn</li>
+    </ul>
+  </div>
+
+  <div class="alert">
+    <strong>⚠️ Chú ý:</strong><br>
+    Không bao giờ đấu dây khi xe đang có nguồn. Kiểm tra lại cực tính dây nguồn trước khi bật ACC.
+    Chỉ nhân viên kỹ thuật được đào tạo mới được phép lắp đặt và cấu hình thiết bị này.
+  </div>
+
+  <div class="card">
+    <h3>Bảo hành & Hỗ trợ</h3>
+    <p>Liên hệ bộ phận kỹ thuật EUPFIN VN để được hỗ trợ cấu hình, cập nhật firmware và bảo hành thiết bị.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+      <span class="badge-tag">Bảo hành 12 tháng</span>
+      <span class="badge-tag">Hỗ trợ OTA</span>
+      <span class="badge-tag">Firmware update</span>
+    </div>
+  </div>
+
+  <div class="nav-btns"><button class="btn btn-prev" onclick="show(4)">← Quay lại</button></div>
+</section>
+</main>
+
+<script>
+function show(i){
+  document.querySelectorAll('.section').forEach((s,idx)=>s.classList.toggle('active',idx===i));
+  document.querySelectorAll('nav ul li a').forEach((a,idx)=>a.classList.toggle('active',idx===i));
+  window.scrollTo({top:0,behavior:'smooth'});
+  return false;
+}
+</script>
+</body>
+</html>

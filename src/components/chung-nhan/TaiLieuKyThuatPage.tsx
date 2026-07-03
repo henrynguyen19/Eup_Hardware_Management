@@ -43,7 +43,12 @@ export default function TaiLieuKyThuatPage({ isAdmin = false }: { isAdmin?: bool
 
     // Hướng dẫn lắp đặt — dùng HuongDanLapDatPage
     if (activeTab === 'installation') {
-      return <HuongDanLapDatPage isAdmin={isAdmin} />
+      return <HuongDanLapDatPage isAdmin={isAdmin} category="installation" />
+    }
+
+    // Tài liệu kỹ thuật — dùng cùng HuongDanLapDatPage với category khác
+    if (activeTab === 'technical') {
+      return <HuongDanLapDatPage isAdmin={isAdmin} category="technical" />
     }
 
     if (!folderId) {
@@ -89,16 +94,4 @@ export default function TaiLieuKyThuatPage({ isAdmin = false }: { isAdmin?: bool
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              {tab.icon} {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Content — no extra padding, CertificatesPage has its own layout */}
-      <div key={activeTab}>
-        {renderContent()}
-      </div>
-    </div>
-  )
-}
+              {tab.icon} {tab.label
