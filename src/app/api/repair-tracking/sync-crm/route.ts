@@ -291,47 +291,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Lỗi CRM session: ${String(e)}` }, { status: 400 })
     }
 
-    // Từ đầu tháng trước (01/06) để cover tất cả bad records. Tránh fetch 14k+ records → timeout
-    const fixStart = fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+    // Tra từng repair_id riêng lẻ — không phụ thuộc date range, không bỏ sót
+    // Batch 10 concurrent CRM calls với Repair_ID filter → trả đúng 1 record mỗi call
     const fixEnd   = fmt(now).replace('00:00:00', '23:59:59')
-
-    let crmRecords: RepairRecord[] = []
-    try {
-      const res = await callGetDeviceRepair(fixSession, fixIdentity, fixStart, fixEnd)
-      crmRecords = res.records
-    } catch (e) {
-      return NextResponse.json({ error: `Lỗi CRM: ${String(e)}` }, { status: 500 })
-    }
-
-    // Map repair_id → Device_Code (IMEI hoặc serial tùy loại thiết bị)
-    const repairIdToImei = new Map<number, string>()
-    for (const r of crmRecords) {
-      const deviceCode = (r.Device_Code as string || '').trim()
-      if (deviceCode && deviceCode.length >= 4) repairIdToImei.set(r.Repair_ID, deviceCode)
-    }
-
-    // Parallelize tất cả Supabase updates để tránh timeout (sequential = 182 × 100ms = 18s)
+    const fixStart = '2020-01-01 00:00:00'
+    const BATCH = 10
     const fixErrors: string[] = []
     const notFoundIds: number[] = []
-    const updateResults = await Promise.all(badRows.map(async (row) => {
-      const correctImei = repairIdToImei.get(row.crm_repair_id as number)
-      if (!correctImei) { notFoundIds.push(row.crm_repair_id as number); return false }
-      const { error: ue } = await db.from('repair_items')
-        .update({ imei: correctImei })
-        .eq('id', row.id)
-      if (ue) { fixErrors.push('crm#' + row.crm_repair_id + ': ' + ue.message); return false }
-      return true
-    }))
-    const fixed = updateResults.filter(Boolean).length
+    let fixed = 0
+
+    for (let i = 0; i < badRows.length; i += BATCH) {
+      const batch = badRows.slice(i, i + BATCH)
+      await Promise.all(batch.map(async (row) => {
+        try {
+          const res = await callGetDeviceRepair(
+            fixSession, fixIdentity, fixStart, fixEnd,
+            undefined, row.crm_repair_id as number
+          )
+          const rec = res.records.find(r => r.Repair_ID === (row.crm_repair_id as number))
+                   ?? res.records[0]
+          if (!rec) { notFoundIds.push(row.crm_repair_id as number); return }
+          const deviceCode = ((rec as Record<string,unknown>).Device_Code as string || '').trim()
+          if (!deviceCode || deviceCode.length < 4) { notFoundIds.push(row.crm_repair_id as number); return }
+          const { error: ue } = await db.from('repair_items')
+            .update({ imei: deviceCode })
+            .eq('id', row.id)
+          if (ue) fixErrors.push('crm#' + row.crm_repair_id + ': ' + ue.message)
+          else fixed++
+        } catch { notFoundIds.push(row.crm_repair_id as number) }
+      }))
+    }
 
     return NextResponse.json({
       ok: fixErrors.length === 0,
       total: badRows.length, fixed,
       notFound: notFoundIds.length,
       notFoundIds,
-      crmTotal: crmRecords.length,
-      dateRange: fixStart + ' → ' + fixEnd,
-      errors: fixErrors.length > 0 ? fixErrors.slice(0, 5) : undefined,
+      errors: fixErrors.length > 0 ? fixErrors.slice(0, 10) : undefined,
     })
 
   } else if (body.mode === 'refresh_in_repair') {
