@@ -138,32 +138,41 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
   }
 
   // Chunked stale sync — tránh timeout khi có nhiều thiết bị
-  async function doChunkedStaleSync(mode: 'stale' | 'fix_imei') {
+  // Sửa IMEI sai bằng date-range CRM sync + match theo crm_repair_id
+  async function doFixBadImeis() {
+    setLoading('fix_imei'); setErr(''); setResult(null)
+    setStaleLog([t('Đang tìm và sửa IMEI sai từ CRM...','Scanning and fixing bad IMEIs from CRM...')])
+    try {
+      const res = await fetch('/api/repair-tracking/sync-crm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'fix_bad_imeis' }),
+      })
+      const d = await res.json()
+      if (!res.ok || d.error) { setErr(d.error ?? 'Lỗi sửa IMEI'); setLoading(false); return }
+      if (d.fixed > 0) onSynced()
+      setResult({
+        ok: d.ok, total: d.total, upserted: d.fixed,
+        message: t(
+          `Đã sửa ${d.fixed}/${d.total} IMEI sai${d.notFound > 0 ? ` (${d.notFound} không tìm thấy trong CRM)` : ''}`,
+          `Fixed ${d.fixed}/${d.total} bad IMEIs${d.notFound > 0 ? ` (${d.notFound} not found in CRM)` : ''}`,
+        ),
+      })
+      setStaleLog(p => [...p, `✅ ${t('Hoàn tất. Khoảng ngày','Done. Date range')}: ${d.dateRange ?? ''}`])
+    } catch(e) { setErr(String(e)) } finally { setLoading(false) }
+  }
+
+  async function doChunkedStaleSync(mode: 'stale') {
     setLoading(mode); setErr(''); setResult(null); setStaleLog([])
     try {
       // 1. Lấy danh sách IMEI cần sync
-      let imeis: string[]
-      if (mode === 'fix_imei') {
-        // Lấy các record có IMEI ngắn (<14 ký tự) — likely serial numbers
-        const res = await fetch('/api/repair-tracking?limit=500&offset=0')
-        const d   = await res.json()
-        const badItems = (d.items as {imei:string}[] ?? []).filter(i => i.imei && i.imei.length < 14)
-        imeis = [...new Set(badItems.map(i => i.imei))]
-        if (imeis.length === 0) {
-          setResult({ ok: true, total: 0, upserted: 0, message: t('Không tìm thấy IMEI sai (đã đúng hết)','No bad IMEIs found — all look correct') })
-          setLoading(false); return
-        }
-        setStaleLog([t(`Tìm thấy ${imeis.length} IMEI cần sửa...`, `Found ${imeis.length} bad IMEIs...`)])
-      } else {
-        const res = await fetch('/api/repair-tracking/stale-devices')
-        const d   = await res.json()
-        imeis = [...new Set((d.items as {imei:string}[] ?? []).map(i => i.imei).filter(Boolean))]
-        if (imeis.length === 0) {
-          setResult({ ok: true, total: 0, upserted: 0, message: t('Không có thiết bị nào quá 7 ngày','No stale devices') })
-          setLoading(false); return
-        }
-        setStaleLog([t(`Tìm thấy ${imeis.length} thiết bị cần cập nhật...`, `Found ${imeis.length} devices to update...`)])
+      const res0  = await fetch('/api/repair-tracking/stale-devices')
+      const data0 = await res0.json()
+      const imeis = [...new Set((data0.items as {imei:string}[] ?? []).map(i => i.imei).filter(Boolean))]
+      if (imeis.length === 0) {
+        setResult({ ok: true, total: 0, upserted: 0, message: t('Không có thiết bị nào quá 7 ngày','No stale devices') })
+        setLoading(false); return
       }
+      setStaleLog([t(`Tìm thấy ${imeis.length} thiết bị cần cập nhật...`, `Found ${imeis.length} devices to update...`)])
 
       // 2. Chunk 10 IMEIs mỗi lần, delay 600ms giữa các batch
       const CHUNK = 10
@@ -246,7 +255,7 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
           className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white text-sm rounded-xl hover:bg-amber-600 disabled:opacity-50 shadow-sm">
           {loading === 'stale' ? <><span className="animate-spin inline-block">⟳</span> {t('Đang cập nhật...','Updating...')}</> : <>🔄 {t('Cập nhật thiết bị >7 ngày','Refresh stale >7d')}</>}
         </button>
-        <button onClick={() => doChunkedStaleSync('fix_imei')} disabled={!!loading}
+        <button onClick={() => doFixBadImeis()} disabled={!!loading}
           title={t('Sửa thiết bị có IMEI sai (số serial 9 chữ số, bắt đầu bằng 9999...)','Fix devices with bad IMEI (9-digit serials)')}
           className="flex items-center gap-2 px-4 py-2 bg-rose-500 text-white text-sm rounded-xl hover:bg-rose-600 disabled:opacity-50 shadow-sm">
           {loading === 'fix_imei' ? <><span className="animate-spin inline-block">⟳</span> {t('Đang sửa IMEI...','Fixing IMEIs...')}</> : <>🔧 {t('Sửa IMEI sai','Fix Bad IMEIs')}</>}
