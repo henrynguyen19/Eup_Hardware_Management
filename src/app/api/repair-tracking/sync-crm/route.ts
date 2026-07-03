@@ -291,28 +291,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Lỗi CRM session: ${String(e)}` }, { status: 400 })
     }
 
-    // Tính fixStart từ received_at sớm nhất của badRows (trừ 7 ngày buffer)
-    const timestamps = badRows
-      .map(r => new Date((r as {received_at: string}).received_at).getTime())
-      .filter(n => !isNaN(n))
-    const minTs = timestamps.length > 0 ? Math.min(...timestamps) : now.getTime()
-    const startDate = new Date(minTs - 7 * 86400000)
-    const fixStart = `${startDate.getFullYear()}-${pad(startDate.getMonth()+1)}-${pad(startDate.getDate())} 00:00:00`
+    // Giới hạn tối đa 60 ngày để tránh timeout (14k+ records cho range > 6 tháng)
+    const maxLookback = 60 * 86400000
+    const fixStart = fmt(new Date(now.getTime() - maxLookback))
     const fixEnd   = fmt(now).replace('00:00:00', '23:59:59')
 
     let crmRecords: RepairRecord[] = []
-    let rawSample: unknown[] = []
     try {
       const res = await callGetDeviceRepair(fixSession, fixIdentity, fixStart, fixEnd)
       crmRecords = res.records
-      // Giữ toàn bộ raw records để debug
-      rawSample = res.records as unknown[]
     } catch (e) {
       return NextResponse.json({ error: `Lỗi CRM: ${String(e)}` }, { status: 500 })
     }
 
-    // Map repair_id → Device_Code từ CRM (IMEI hoặc serial)
-    // Chấp nhận bất kỳ Device_Code không rỗng (Fuel Sensor, C43, thẻ nhớ, v.v. không có IMEI)
+    // Map repair_id → Device_Code (IMEI hoặc serial tùy loại thiết bị)
     const repairIdToImei = new Map<number, string>()
     for (const r of crmRecords) {
       const deviceCode = (r.Device_Code as string || '').trim()
@@ -321,12 +313,11 @@ export async function POST(req: NextRequest) {
 
     let fixed = 0
     const fixErrors: string[] = []
-    const notFoundIds: number[] = []
+    const notFoundInRange: typeof badRows = []
 
     for (const row of badRows) {
       const correctImei = repairIdToImei.get(row.crm_repair_id as number)
-      if (!correctImei) { notFoundIds.push(row.crm_repair_id as number); continue }
-
+      if (!correctImei) { notFoundInRange.push(row); continue }
       const { error: ue } = await db.from('repair_items')
         .update({ imei: correctImei })
         .eq('id', row.id)
@@ -334,22 +325,37 @@ export async function POST(req: NextRequest) {
       else fixed++
     }
 
-    // Full raw data: tìm ALL CRM records tương ứng với notFound IDs
-    const notFoundSet = new Set(notFoundIds)
-    const rawAll = rawSample as Array<Record<string,unknown>>
-    const debugNotFoundRecords = rawAll.filter(r => notFoundSet.has(r.Repair_ID as number))
+    // Fallback: tra từng repair_id riêng cho các ID không nằm trong 60 ngày gần đây
+    const stillNotFound: number[] = []
+    if (notFoundInRange.length > 0) {
+      const batchSize = 5
+      const oldStart = '2020-01-01 00:00:00'
+      for (let i = 0; i < notFoundInRange.length; i += batchSize) {
+        const batch = notFoundInRange.slice(i, i + batchSize)
+        await Promise.all(batch.map(async (row) => {
+          try {
+            const res = await callGetDeviceRepair(fixSession, fixIdentity, oldStart, fixEnd, undefined, row.crm_repair_id as number)
+            const rec = res.records[0]
+            if (!rec) { stillNotFound.push(row.crm_repair_id as number); return }
+            const deviceCode = ((rec as Record<string,unknown>).Device_Code as string || '').trim()
+            if (!deviceCode || deviceCode.length < 4) { stillNotFound.push(row.crm_repair_id as number); return }
+            const { error: ue } = await db.from('repair_items').update({ imei: deviceCode }).eq('id', row.id)
+            if (ue) fixErrors.push('crm#' + row.crm_repair_id + ': ' + ue.message)
+            else fixed++
+          } catch { stillNotFound.push(row.crm_repair_id as number) }
+        }))
+        if (i + batchSize < notFoundInRange.length) await new Promise(r => setTimeout(r, 300))
+      }
+    }
 
     return NextResponse.json({
       ok: fixErrors.length === 0,
       total: badRows.length, fixed,
-      notFound: notFoundIds.length,
-      notFoundIds,
+      notFound: stillNotFound.length,
+      notFoundIds: stillNotFound,
       crmTotal: crmRecords.length,
       dateRange: fixStart + ' → ' + fixEnd,
       errors: fixErrors.length > 0 ? fixErrors.slice(0, 5) : undefined,
-      // Raw CRM records cho các repair_id không fix được
-      notFoundCrmRecords: debugNotFoundRecords.slice(0, 20),
-      notFoundCrmCount: debugNotFoundRecords.length,
     })
 
   } else if (body.mode === 'refresh_in_repair') {
