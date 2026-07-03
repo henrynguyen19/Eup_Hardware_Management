@@ -291,9 +291,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Lỗi CRM session: ${String(e)}` }, { status: 400 })
     }
 
-    // Giới hạn tối đa 60 ngày để tránh timeout (14k+ records cho range > 6 tháng)
-    const maxLookback = 60 * 86400000
-    const fixStart = fmt(new Date(now.getTime() - maxLookback))
+    // Từ đầu tháng trước (01/06) để cover tất cả bad records. Tránh fetch 14k+ records → timeout
+    const fixStart = fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1))
     const fixEnd   = fmt(now).replace('00:00:00', '23:59:59')
 
     let crmRecords: RepairRecord[] = []
@@ -311,48 +310,25 @@ export async function POST(req: NextRequest) {
       if (deviceCode && deviceCode.length >= 4) repairIdToImei.set(r.Repair_ID, deviceCode)
     }
 
-    let fixed = 0
+    // Parallelize tất cả Supabase updates để tránh timeout (sequential = 182 × 100ms = 18s)
     const fixErrors: string[] = []
-    const notFoundInRange: typeof badRows = []
-
-    for (const row of badRows) {
+    const notFoundIds: number[] = []
+    const updateResults = await Promise.all(badRows.map(async (row) => {
       const correctImei = repairIdToImei.get(row.crm_repair_id as number)
-      if (!correctImei) { notFoundInRange.push(row); continue }
+      if (!correctImei) { notFoundIds.push(row.crm_repair_id as number); return false }
       const { error: ue } = await db.from('repair_items')
         .update({ imei: correctImei })
         .eq('id', row.id)
-      if (ue) fixErrors.push('crm#' + row.crm_repair_id + ': ' + ue.message)
-      else fixed++
-    }
-
-    // Fallback: tra từng repair_id riêng cho các ID không nằm trong 60 ngày gần đây
-    const stillNotFound: number[] = []
-    if (notFoundInRange.length > 0) {
-      const batchSize = 5
-      const oldStart = '2020-01-01 00:00:00'
-      for (let i = 0; i < notFoundInRange.length; i += batchSize) {
-        const batch = notFoundInRange.slice(i, i + batchSize)
-        await Promise.all(batch.map(async (row) => {
-          try {
-            const res = await callGetDeviceRepair(fixSession, fixIdentity, oldStart, fixEnd, undefined, row.crm_repair_id as number)
-            const rec = res.records[0]
-            if (!rec) { stillNotFound.push(row.crm_repair_id as number); return }
-            const deviceCode = ((rec as Record<string,unknown>).Device_Code as string || '').trim()
-            if (!deviceCode || deviceCode.length < 4) { stillNotFound.push(row.crm_repair_id as number); return }
-            const { error: ue } = await db.from('repair_items').update({ imei: deviceCode }).eq('id', row.id)
-            if (ue) fixErrors.push('crm#' + row.crm_repair_id + ': ' + ue.message)
-            else fixed++
-          } catch { stillNotFound.push(row.crm_repair_id as number) }
-        }))
-        if (i + batchSize < notFoundInRange.length) await new Promise(r => setTimeout(r, 300))
-      }
-    }
+      if (ue) { fixErrors.push('crm#' + row.crm_repair_id + ': ' + ue.message); return false }
+      return true
+    }))
+    const fixed = updateResults.filter(Boolean).length
 
     return NextResponse.json({
       ok: fixErrors.length === 0,
       total: badRows.length, fixed,
-      notFound: stillNotFound.length,
-      notFoundIds: stillNotFound,
+      notFound: notFoundIds.length,
+      notFoundIds,
       crmTotal: crmRecords.length,
       dateRange: fixStart + ' → ' + fixEnd,
       errors: fixErrors.length > 0 ? fixErrors.slice(0, 5) : undefined,
