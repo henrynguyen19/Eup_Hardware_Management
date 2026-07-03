@@ -300,8 +300,8 @@ export async function POST(req: NextRequest) {
     try {
       const res = await callGetDeviceRepair(fixSession, fixIdentity, fixStart, fixEnd)
       crmRecords = res.records
-      // Debug: lấy 3 records đầu (raw) để xem tất cả field CRM trả về
-      rawSample = (res.records as unknown[]).slice(0, 3)
+      // Debug: giữ lại để show records không match sau
+      rawSample = res.records as unknown[]
     } catch (e) {
       return NextResponse.json({ error: `Lỗi CRM: ${String(e)}` }, { status: 500 })
     }
@@ -328,14 +328,23 @@ export async function POST(req: NextRequest) {
       else fixed++
     }
 
+    // Debug: tìm CRM records tương ứng với notFound IDs để xem full fields
+    const notFoundSet = new Set(notFoundIds.slice(0, 5))
+    const debugNotFound = (rawSample as Array<Record<string,unknown>>)
+      .filter(r => notFoundSet.has(r.Repair_ID as number))
+      .slice(0, 3)
+    // Nếu không match repair_id thì lấy 3 records đầu để xem cấu trúc
+    const debugFallback = debugNotFound.length > 0 ? debugNotFound : (rawSample as unknown[]).slice(0, 3)
+
     return NextResponse.json({
       ok: fixErrors.length === 0,
       total: badRows.length, fixed,
       notFound: notFoundIds.length,
+      notFoundSampleIds: notFoundIds.slice(0, 5),
       crmTotal: crmRecords.length,
       dateRange: fixStart + ' → ' + fixEnd,
       errors: fixErrors.length > 0 ? fixErrors.slice(0, 5) : undefined,
-      debugSample: rawSample,
+      debugSample: debugFallback,
     })
 
   } else if (body.mode === 'refresh_in_repair') {
