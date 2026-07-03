@@ -293,7 +293,7 @@ export async function POST(req: NextRequest) {
 
     // Quét tháng 6/2026 → nay — đủ để lấy toàn bộ repair ID trong khoảng bị lỗi
     const fixStart = '2026-06-01 00:00:00'
-    const fixEnd   = `${fmt(now)} 23:59:59`
+    const fixEnd   = fmt(now).replace('00:00:00', '23:59:59')
 
     let crmRecords: RepairRecord[] = []
     let rawSample: unknown[] = []
