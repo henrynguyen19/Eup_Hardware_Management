@@ -115,6 +115,7 @@ async function callGetDeviceRepair(
   startTime:  string,
   endTime:    string,
   deviceCode?: string,
+  repairId?: number,
 ): Promise<{ records: RepairRecord[]; rawJson: unknown }> {
   const form = new URLSearchParams()
   form.append('MethodName', 'GetDeviceRepair')
@@ -124,6 +125,7 @@ async function callGetDeviceRepair(
     searchType: '0',
   }
   if (deviceCode) param['Device_Code'] = deviceCode
+  if (repairId)   param['Repair_ID']   = String(repairId)
   form.append('Param', JSON.stringify(param))
   form.append('SESSION_ID', sessionId)
   form.append('IDENTITY',   identity)
@@ -267,29 +269,20 @@ export async function POST(req: NextRequest) {
       errors: selErrors.length > 0 ? selErrors.slice(0, 5) : undefined,
     })
   } else if (body.mode === 'fix_bad_imeis') {
-    // Sửa IMEI sai: fetch DB records có IMEI < 14 ký tự, lấy date range, query CRM by date,
-    // rồi match by crm_repair_id để update đúng IMEI — không dùng IMEI sai để query CRM.
+    // Query CRM 1 lần từ tháng 6/2026 → nay, match bằng crm_repair_id để lấy đúng IMEI
     const { data: allRepairRows } = await db
       .from('repair_items')
-      .select('id, imei, crm_repair_id, received_at')
+      .select('id, imei, crm_repair_id')
       .not('imei', 'like', 'CRM-%')
 
-    const badRows = (allRepairRows ?? []).filter(r => r.imei && (r.imei as string).length < 14)
+    const badRows = (allRepairRows ?? []).filter(
+      r => r.imei && (r.imei as string).length < 14 && r.crm_repair_id
+    )
 
     if (badRows.length === 0) {
       return NextResponse.json({ ok: true, total: 0, fixed: 0, message: 'Không có IMEI nào cần sửa' })
     }
 
-    // Tính date range từ các record lỗi (±3 ngày buffer)
-    const timestamps = badRows.map(r => new Date(r.received_at as string).getTime()).filter(n => !isNaN(n))
-    const minDate = new Date(Math.min(...timestamps)); minDate.setDate(minDate.getDate() - 3)
-    const maxDate = new Date(Math.max(...timestamps)); maxDate.setDate(maxDate.getDate() + 3)
-    const fmtDate = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-    const fixStart = `${fmtDate(minDate)} 00:00:00`
-    const fixEnd   = `${fmtDate(maxDate)} 23:59:59`
-
-    // Lấy CRM session
     let fixSession: string, fixIdentity: string
     try {
       const s = await getCRMSessionForUser(user.id)
@@ -298,7 +291,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Lỗi CRM session: ${String(e)}` }, { status: 400 })
     }
 
-    // Query CRM theo date range (không filter device) — lấy toàn bộ để match by crm_repair_id
+    // Quét tháng 6/2026 → nay — đủ để lấy toàn bộ repair ID trong khoảng bị lỗi
+    const fixStart = '2026-06-01 00:00:00'
+    const fixEnd   = `${fmt(now)} 23:59:59`
+
     let crmRecords: RepairRecord[] = []
     try {
       const res = await callGetDeviceRepair(fixSession, fixIdentity, fixStart, fixEnd)
@@ -307,31 +303,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Lỗi CRM: ${String(e)}` }, { status: 500 })
     }
 
-    // Build map crm_repair_id → correct imei (chỉ lấy imei hợp lệ 14-16 ký tự)
+    // Map repair_id → IMEI hợp lệ (14-16 chữ số)
     const repairIdToImei = new Map<number, string>()
     for (const r of crmRecords) {
       const mapped = mapRecord(r)
       if (isValidImei(mapped.imei)) repairIdToImei.set(r.Repair_ID, mapped.imei)
     }
 
-    // Update từng record có imei sai
     let fixed = 0
     const fixErrors: string[] = []
+    const notFoundIds: number[] = []
+
     for (const row of badRows) {
       const correctImei = repairIdToImei.get(row.crm_repair_id as number)
-      if (!correctImei) continue
+      if (!correctImei) { notFoundIds.push(row.crm_repair_id as number); continue }
+
       const { error: ue } = await db.from('repair_items')
         .update({ imei: correctImei })
         .eq('id', row.id)
-      if (ue) fixErrors.push(`id=${row.id}: ${ue.message}`)
+      if (ue) fixErrors.push('crm#' + row.crm_repair_id + ': ' + ue.message)
       else fixed++
     }
 
     return NextResponse.json({
       ok: fixErrors.length === 0,
       total: badRows.length, fixed,
-      notFound: badRows.length - fixed - fixErrors.length,
-      dateRange: `${fixStart} → ${fixEnd}`,
+      notFound: notFoundIds.length,
+      crmTotal: crmRecords.length,
+      dateRange: fixStart + ' → ' + fixEnd,
       errors: fixErrors.length > 0 ? fixErrors.slice(0, 5) : undefined,
     })
 
