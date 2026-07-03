@@ -748,17 +748,22 @@ function RepairRow({ item, onAction, onSynced, t }: { item:RepairItem; onAction:
   const [imeiInput, setImeiInput]   = useState('')
   const [savingImei, setSavingImei] = useState(false)
   const [imeiMsg, setImeiMsg]       = useState('')
-  const isBadImei = item.imei && item.imei.length < 14
+  const isBadImei = item.imei && /^9{5,}/.test(item.imei)
 
   async function handleSyncCRM() {
     setSyncing(true); setSyncMsg('')
     try {
+      // Khi IMEI sai (999999xxx): tra CRM theo crm_repair_id để lấy đúng mã thiết bị
+      const mode = /^9{5,}/.test(item.imei ?? '') ? 'fix_bad_imeis' : 'refresh_selected'
+      const body = mode === 'fix_bad_imeis'
+        ? { mode }
+        : { mode, imeis: [item.imei] }
       const res = await fetch('/api/repair-tracking/sync-crm', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'refresh_selected', imeis: [item.imei] }),
+        body: JSON.stringify(body),
       })
       const d = await res.json()
-      if (d.ok) { setSyncMsg(t('✅ Đã cập nhật','✅ Updated')); onSynced() }
+      if (d.ok || d.fixed > 0) { setSyncMsg(t('✅ Đã cập nhật','✅ Updated')); onSynced() }
       else setSyncMsg(`⚠ ${d.error ?? t('Lỗi sync','Sync error')}`)
     } catch(e) { setSyncMsg(`❌ ${String(e)}`) } finally { setSyncing(false) }
     setTimeout(() => setSyncMsg(''), 3000)
@@ -766,7 +771,7 @@ function RepairRow({ item, onAction, onSynced, t }: { item:RepairItem; onAction:
 
   async function handleSaveImei() {
     const v = imeiInput.trim()
-    if (!/^\d{14,16}$/.test(v)) { setImeiMsg(t('⚠ IMEI phải 14-16 chữ số','⚠ IMEI must be 14-16 digits')); return }
+    if (v.length < 4) { setImeiMsg(t('⚠ Mã thiết bị phải ít nhất 4 ký tự','⚠ Device code must be at least 4 chars')); return }
     setSavingImei(true); setImeiMsg('')
     try {
       const res = await fetch(`/api/repair-tracking/${item.id}`, {

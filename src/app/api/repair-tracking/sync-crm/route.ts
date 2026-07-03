@@ -276,7 +276,7 @@ export async function POST(req: NextRequest) {
       .not('imei', 'like', 'CRM-%')
 
     const badRows = (allRepairRows ?? []).filter(
-      r => r.imei && (r.imei as string).length < 14 && r.crm_repair_id
+      r => r.imei && /^9{5,}/.test(r.imei as string) && r.crm_repair_id
     )
 
     if (badRows.length === 0) {
