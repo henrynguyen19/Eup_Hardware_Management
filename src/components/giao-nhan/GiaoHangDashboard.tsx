@@ -73,7 +73,8 @@ function DevicePicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: Cart
     { key: TYPE_ALL, label: 'Tất cả', icon: '🔍' },
     ...DEVICE_TYPES.filter(t => presentTypes.includes(t.key)),
   ]
-  const popularNames = Object.entries(popular).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([n]) => n)
+  // Show ALL popular names from sheet (no limit), sorted by count desc
+  const popularNames = Object.entries(popular).sort((a, b) => b[1] - a[1]).map(([n]) => n)
 
   function filtered() {
     let list = devices
@@ -113,16 +114,21 @@ function DevicePicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: Cart
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">⭐ Thường đặt (từ lịch sử sheet)</p>
           <div className="flex flex-wrap gap-2">
             {popularNames.map(name => {
-              const dev = devices.find(d => d.name === name)
+              const dev    = devices.find(d => d.name === name)
               const active = !!inCart(name)
-              const ts = typeStyle(dev?.device_type)
+              const ts     = typeStyle(dev?.device_type)
+              // Allow adding any name from sheet history — even if not in equipment_cards
+              function toggleByName() {
+                if (active) onChange(cart.filter(c => c.device_name !== name))
+                else onChange([...cart, { device_name: name, quantity: 1 }])
+              }
               return (
-                <button key={name} onClick={() => dev && toggle(dev)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition ${active ? 'bg-blue-600 text-white border-blue-600' : `${ts.color} border hover:opacity-80`}`}
+                <button key={name} onClick={toggleByName}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
                 >
-                  <span>{ts.icon}</span><span>{name}</span>
+                  <span>{name}</span>
                   {active && <span>✓</span>}
-                  <span className="text-[10px] opacity-60">×{popular[name]}</span>
+                  <span className="text-[10px] opacity-50">×{popular[name]}</span>
                 </button>
               )
             })}
@@ -564,11 +570,7 @@ function LichSuSheet() {
                   <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{o.order_time || '—'}</td>
                   <td className="px-3 py-2.5 text-xs font-medium text-gray-800">{o.office || '—'}</td>
                   <td className="px-3 py-2.5 text-xs text-gray-700">{o.orderer || '—'}</td>
-                  <td className="px-3 py-2.5 text-xs">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs ${typeStyle(o.device_type).color}`}>
-                      <span>{typeStyle(o.device_type).icon}</span>{o.device_type || '—'}
-                    </span>
-                  </td>
+                  <td className="px-3 py-2.5 text-xs text-gray-700">{o.device_type || '—'}</td>
                   <td className="px-3 py-2.5 text-xs text-center font-medium text-gray-800">{o.quantity || '—'}</td>
                   <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{o.expected_date || '—'}</td>
                   <td className="px-3 py-2.5 text-xs text-gray-600 max-w-[160px] truncate">{o.recipient_info || '—'}</td>
@@ -643,8 +645,4 @@ export default function GiaoHangDashboard({
           onSuccess={() => { setRefresh(r => r+1); setTimeout(() => setTab('don-toi'), 1800) }} />
       )}
       {tab === 'don-toi' && <OrderList key={`mine-${refresh}`} mine={true} isAdmin={isAdmin} />}
-      {tab === 'tat-ca'  && isAdmin && <OrderList key="all" mine={false} isAdmin={true} />}
-      {tab === 'sheet'   && <LichSuSheet />}
-    </div>
-  )
-}
+      {tab === 'ta
