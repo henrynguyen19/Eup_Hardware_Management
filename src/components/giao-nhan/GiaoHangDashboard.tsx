@@ -742,8 +742,10 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
 
 
 // ══════════════════════════════════════════════════════════════════════════════
-// SERIAL INPUT MODAL — nhập mã thiết bị khi chuyển trạng thái Đã gửi
+// SERIAL INPUT MODAL — GPS/MDVR: CRM check per item; others: manual serial
 // ══════════════════════════════════════════════════════════════════════════════
+const GPS_MDVR_TYPES = ['GPS Tracker', 'MDVR']
+
 interface CrmCheckResult {
   stock?: {
     status: string; productName: string; productBarcode: string
@@ -767,8 +769,6 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
     Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, i.device_serials ?? []]))
   )
   const [noSerial, setNoSerial] = useState<Record<string, boolean>>(
-    // Chỉ tick 'Không có mã' nếu đã từng lưu tường minh mảng rỗng []
-    // null/undefined = chưa nhập → mặc định hiện ô nhập mã
     Object.fromEntries(order.giao_hang_don_items.map(i => [
       i.id,
       Array.isArray(i.device_serials) && i.device_serials.length === 0,
@@ -777,39 +777,51 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
   const [drafts, setDrafts] = useState<Record<string, string>>(
     Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, '']))
   )
-  // CRM check state
-  const [crmUnicode, setCrmUnicode] = useState('')
-  const [crmResult, setCrmResult]   = useState<CrmCheckResult | null>(null)
-  const [crmLoading, setCrmLoading] = useState(false)
-  const [crmError, setCrmError]     = useState('')
+  // Device type map (loaded once)
+  const [deviceTypes, setDeviceTypes] = useState<Record<string, string>>({})
+  // Per-item CRM state (only for GPS/MDVR)
+  const [crmInput,   setCrmInput]   = useState<Record<string, string>>({})
+  const [crmResult,  setCrmResult]  = useState<Record<string, CrmCheckResult | null>>({})
+  const [crmLoading, setCrmLoading] = useState<Record<string, boolean>>({})
+  const [crmError,   setCrmError]   = useState<Record<string, string>>({})
 
-  async function checkCRM() {
-    const u = crmUnicode.trim()
-    if (!u) return
-    setCrmLoading(true); setCrmResult(null); setCrmError('')
+  useEffect(() => {
+    fetch('/api/kho/equipment').then(r => r.json()).then(d => {
+      const map: Record<string, string> = {}
+      for (const eq of d.data ?? []) map[eq.name] = eq.device_type ?? ''
+      setDeviceTypes(map)
+    }).catch(() => {})
+  }, [])
+
+  async function checkCRM(itemId: string) {
+    const barcode = crmInput[itemId]?.trim()
+    if (!barcode) return
+    setCrmLoading(l => ({ ...l, [itemId]: true }))
+    setCrmResult(r  => ({ ...r,  [itemId]: null }))
+    setCrmError(e   => ({ ...e,  [itemId]: '' }))
     try {
-      // Dùng barcode param — API sẽ tự lấy unicode từ GetStockupDetail
-      const res = await fetch(`/api/giao-hang/crm-check?barcode=${encodeURIComponent(u)}`)
+      const res = await fetch(`/api/giao-hang/crm-check?barcode=${encodeURIComponent(barcode)}`)
       const d = await res.json()
-      if (d.ok) setCrmResult(d)
-      else setCrmError(d.error ?? 'Lỗi kiểm tra CRM')
-    } catch { setCrmError('Lỗi kết nối') }
-    finally { setCrmLoading(false) }
-  }
-
-  // Auto-fill serials from CRM result
-  function fillFromCRM(itemId: string) {
-    if (!crmResult?.components) return
-    const codes = crmResult.components.map(c => c.Device_Code).filter(Boolean)
-    setItemSerials(s => ({ ...s, [itemId]: codes }))
-    setNoSerial(n => ({ ...n, [itemId]: false }))
+      if (d.ok) {
+        setCrmResult(r => ({ ...r, [itemId]: d }))
+        // Auto-add barcode as serial if not already present
+        if (!(itemSerials[itemId] ?? []).includes(barcode)) {
+          setItemSerials(s => ({ ...s, [itemId]: [...(s[itemId] ?? []), barcode] }))
+          setNoSerial(n => ({ ...n, [itemId]: false }))
+        }
+      } else {
+        setCrmError(e => ({ ...e, [itemId]: d.error ?? 'Lỗi CRM' }))
+      }
+    } catch { setCrmError(e => ({ ...e, [itemId]: 'Lỗi kết nối' })) }
+    finally { setCrmLoading(l => ({ ...l, [itemId]: false })) }
   }
 
   function addSerial(itemId: string) {
     const v = drafts[itemId]?.trim()
     if (!v) return
-    if (!itemSerials[itemId]?.includes(v)) {
+    if (!(itemSerials[itemId] ?? []).includes(v)) {
       setItemSerials(s => ({ ...s, [itemId]: [...(s[itemId] ?? []), v] }))
+      setNoSerial(n => ({ ...n, [itemId]: false }))
     }
     setDrafts(d => ({ ...d, [itemId]: '' }))
   }
@@ -824,129 +836,126 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
   }
 
   function confirm() {
-    const result = order.giao_hang_don_items.map(item => ({
+    onConfirm(order.giao_hang_don_items.map(item => ({
       item_id: item.id,
       serials: noSerial[item.id] ? [] : (itemSerials[item.id] ?? []),
-    }))
-    onConfirm(result)
+    })))
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 overflow-y-auto max-h-[90vh]">
         <div className="font-semibold text-gray-800 text-base">📦 Nhập mã thiết bị — {order.order_code}</div>
-        <div className="text-xs text-gray-500">{serialsOnly ? 'Lưu mã serial/IMEI cho đơn hàng (không đổi trạng thái)' : 'Nhập mã serial/IMEI cho từng loại thiết bị trước khi gửi'}</div>
-
-        {/* CRM check panel */}
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
-          <div className="text-xs font-semibold text-gray-600">🔍 Quét / nhập mã barcode thiết bị</div>
-          <div className="flex gap-1">
-            <input
-              className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
-              placeholder="Quét hoặc nhập barcode/IMEI (VD: 003200BE04)"
-              value={crmUnicode}
-              onChange={e => setCrmUnicode(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); checkCRM() } }}
-              autoFocus
-            />
-            <button onClick={checkCRM} disabled={crmLoading}
-              className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 disabled:opacity-50">
-              {crmLoading ? '…' : 'Kiểm tra'}
-            </button>
-          </div>
-          {crmError && <div className="text-xs text-red-500">{crmError}</div>}
-          {crmResult && (
-            <div className="space-y-1.5">
-              {crmResult.stock && (
-                <div className={`text-xs border rounded-lg p-2 space-y-1 ${
-                  crmResult.stock.isAtCompany ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'
-                }`}>
-                  <div className="font-semibold text-gray-800">{crmResult.stock.productName}</div>
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-gray-600">
-                    <span>📦 Kho: <span className="font-medium">{crmResult.stock.sourceStock || '—'}</span></span>
-                    {crmResult.stock.destStock && <span>→ {crmResult.stock.destStock}</span>}
-                    <span>Trạng thái: <span className={`font-medium ${crmResult.stock.status === 'HAVE' ? 'text-green-600' : 'text-orange-500'}`}>{crmResult.stock.status}</span></span>
-                  </div>
-                  {crmResult.stock.updateMan && (
-                    <div className="text-gray-400">{crmResult.stock.updateAction} · {crmResult.stock.updateMan} · {crmResult.stock.updateTime}</div>
-                  )}
-                  {/* Gợi ý trạng thái */}
-                  {crmResult.suggested_status === 'da_nhan' ? (
-                    <div className="flex items-center gap-2 mt-1 p-1.5 bg-green-100 border border-green-300 rounded-lg">
-                      <span className="text-green-700 font-medium text-xs">✅ Thiết bị đã ở kho người nhận → có thể cập nhật "Đã nhận"</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 mt-1 p-1.5 bg-orange-100 border border-orange-300 rounded-lg">
-                      <span className="text-orange-700 font-medium text-xs">⏳ Thiết bị vẫn ở kho công ty — chưa được nhận</span>
-                    </div>
-                  )}
-                </div>
-              )}
-              {crmResult.grouped && Object.keys(crmResult.grouped).length > 0 && (
-                <div className="bg-white border rounded-lg p-2">
-                  <div className="text-xs font-medium text-gray-600 mb-1.5">🔧 Linh kiện đi kèm (unicode: {crmResult.unicode}):</div>
-                  <div className="space-y-1">
-                    {Object.entries(crmResult.grouped).map(([kind, items]) => (
-                      <div key={kind} className="flex items-start gap-2 text-xs">
-                        <span className="text-gray-400 min-w-[90px] shrink-0 pt-0.5">{kind}</span>
-                        <div className="flex flex-wrap gap-1">
-                          {(items as {Device_Code:string; Device_TypeName:string}[]).map(item => (
-                            <span key={item.Device_Code} className="bg-violet-50 text-violet-700 border border-violet-200 rounded px-1.5 py-0.5">
-                              {item.Device_Code}
-                              {item.Device_TypeName && <span className="text-gray-400 ml-1">({item.Device_TypeName})</span>}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <button onClick={() => order.giao_hang_don_items.forEach(i => fillFromCRM(i.id))}
-                    className="mt-2 w-full py-1.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-lg text-xs hover:bg-violet-100 font-medium">
-                    📋 Điền tất cả mã vào đơn
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+        <div className="text-xs text-gray-500">
+          {serialsOnly
+            ? 'Lưu mã serial/IMEI (không đổi trạng thái)'
+            : 'GPS Tracker / MDVR: quét barcode để kiểm tra CRM. Thiết bị khác: nhập mã thủ công.'}
         </div>
 
-        {order.giao_hang_don_items.map(item => (
-          <div key={item.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="font-medium text-sm text-gray-800">{item.device_name} <span className="text-gray-400 font-normal">×{item.quantity}</span></div>
-              <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
-                <input type="checkbox" className="rounded"
-                  checked={noSerial[item.id] ?? false}
-                  onChange={e => toggleNoSerial(item.id, e.target.checked)} />
-                Không có mã
-              </label>
-            </div>
+        {order.giao_hang_don_items.map(item => {
+          const dtype    = deviceTypes[item.device_name] ?? ''
+          const isGpsMdvr = GPS_MDVR_TYPES.includes(dtype)
+          const cr       = crmResult[item.id] ?? null
+          return (
+            <div key={item.id} className={`border rounded-xl overflow-hidden ${isGpsMdvr ? 'border-blue-200' : 'border-gray-200'}`}>
+              {/* Item header */}
+              <div className={`flex items-center justify-between px-3 py-2 ${isGpsMdvr ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                <div className="font-medium text-sm text-gray-800">
+                  {isGpsMdvr ? '📡' : '📦'} {item.device_name}
+                  <span className="ml-1 text-gray-400 font-normal text-xs">×{item.quantity}</span>
+                  {isGpsMdvr && <span className="ml-1.5 bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">GPS/MDVR</span>}
+                </div>
+                <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none">
+                  <input type="checkbox" className="rounded"
+                    checked={noSerial[item.id] ?? false}
+                    onChange={e => toggleNoSerial(item.id, e.target.checked)} />
+                  Không có mã
+                </label>
+              </div>
 
-            {!noSerial[item.id] && (
-              <>
-                <div className="flex flex-wrap gap-1">
-                  {(itemSerials[item.id] ?? []).map(s => (
-                    <span key={s} className="inline-flex items-center gap-0.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-full px-2 py-0.5 text-xs">
-                      {s}
-                      <button onClick={() => removeSerial(item.id, s)} className="ml-0.5 text-violet-400 hover:text-red-500">×</button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-1">
-                  <input
-                    className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400"
-                    placeholder="Nhập mã serial/IMEI rồi nhấn Enter"
-                    value={drafts[item.id] ?? ''}
-                    onChange={e => setDrafts(d => ({ ...d, [item.id]: e.target.value }))}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSerial(item.id) } }}
-                  />
-                  <button onClick={() => addSerial(item.id)}
-                    className="px-2 py-1 bg-violet-50 text-violet-700 border border-violet-200 rounded-lg text-xs hover:bg-violet-100">+</button>
-                </div>
-              </>
-            )}
-          </div>
-        ))}
+              <div className="px-3 py-2 space-y-2">
+                {/* GPS/MDVR: CRM scan panel */}
+                {isGpsMdvr && !noSerial[item.id] && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5 space-y-1.5">
+                    <div className="text-[10px] font-semibold text-blue-700 uppercase tracking-wide">🔍 Quét barcode — kiểm tra CRM</div>
+                    <div className="flex gap-1">
+                      <input
+                        className="flex-1 border border-blue-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        placeholder="Quét hoặc nhập barcode/IMEI"
+                        value={crmInput[item.id] ?? ''}
+                        onChange={e => setCrmInput(i => ({ ...i, [item.id]: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); checkCRM(item.id) } }}
+                        autoFocus={order.giao_hang_don_items.indexOf(item) === 0}
+                      />
+                      <button onClick={() => checkCRM(item.id)} disabled={crmLoading[item.id]}
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
+                        {crmLoading[item.id] ? '…' : 'Kiểm tra'}
+                      </button>
+                    </div>
+                    {crmError[item.id] && <div className="text-xs text-red-500">{crmError[item.id]}</div>}
+                    {cr?.stock && (
+                      <div className={`text-xs border rounded-lg p-2 space-y-0.5 ${cr.stock.isAtCompany ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
+                        <div className="font-semibold text-gray-800">{cr.stock.productName}</div>
+                        <div className="flex flex-wrap gap-x-3 text-gray-600">
+                          <span>📦 Kho: <span className="font-medium">{cr.stock.sourceStock || '—'}</span></span>
+                          <span className={`font-medium ${cr.stock.status === 'HAVE' ? 'text-green-600' : 'text-orange-500'}`}>{cr.stock.status}</span>
+                        </div>
+                        {cr.suggested_status === 'da_nhan'
+                          ? <div className="text-green-700 text-[11px]">✅ Thiết bị đã ở kho người nhận</div>
+                          : <div className="text-orange-600 text-[11px]">⏳ Vẫn ở kho công ty</div>
+                        }
+                      </div>
+                    )}
+                    {cr?.grouped && Object.keys(cr.grouped).length > 0 && (
+                      <div className="bg-white border border-blue-100 rounded-lg p-2">
+                        <div className="text-[10px] font-medium text-gray-500 mb-1">🔧 Linh kiện đi kèm:</div>
+                        {Object.entries(cr.grouped).map(([kind, items]) => (
+                          <div key={kind} className="flex items-start gap-2 text-xs mb-0.5">
+                            <span className="text-gray-400 min-w-[80px] shrink-0">{kind}</span>
+                            <div className="flex flex-wrap gap-1">
+                              {(items as {Device_Code:string; Device_TypeName:string}[]).map(it => (
+                                <span key={it.Device_Code} className="bg-violet-50 text-violet-700 border border-violet-200 rounded px-1.5 py-0.5">
+                                  {it.Device_Code}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Serial chips + manual input */}
+                {!noSerial[item.id] && (
+                  <>
+                    {(itemSerials[item.id] ?? []).length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {(itemSerials[item.id] ?? []).map(s => (
+                          <span key={s} className="inline-flex items-center gap-0.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-full px-2 py-0.5 text-xs">
+                            {s}
+                            <button onClick={() => removeSerial(item.id, s)} className="ml-0.5 text-violet-400 hover:text-red-500">×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-1">
+                      <input
+                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400"
+                        placeholder={isGpsMdvr ? 'Thêm thủ công nếu cần' : 'Nhập mã serial/IMEI (Enter)'}
+                        value={drafts[item.id] ?? ''}
+                        onChange={e => setDrafts(d => ({ ...d, [item.id]: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSerial(item.id) } }}
+                      />
+                      <button onClick={() => addSerial(item.id)}
+                        className="px-2 py-1 bg-violet-50 text-violet-700 border border-violet-200 rounded-lg text-xs hover:bg-violet-100">+</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )
+        })}
 
         <div className="flex gap-2 pt-1">
           <button onClick={confirm}
