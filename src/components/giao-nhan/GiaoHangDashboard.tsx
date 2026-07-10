@@ -677,7 +677,12 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
     Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, i.device_serials ?? []]))
   )
   const [noSerial, setNoSerial] = useState<Record<string, boolean>>(
-    Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, (i.device_serials ?? []).length === 0]))
+    // Chỉ tick 'Không có mã' nếu đã từng lưu tường minh mảng rỗng []
+    // null/undefined = chưa nhập → mặc định hiện ô nhập mã
+    Object.fromEntries(order.giao_hang_don_items.map(i => [
+      i.id,
+      Array.isArray(i.device_serials) && i.device_serials.length === 0,
+    ]))
   )
   const [drafts, setDrafts] = useState<Record<string, string>>(
     Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, '']))
