@@ -13,6 +13,7 @@ interface DonHang {
   id: string; order_code: string; orderer_email: string; orderer_name: string
   office: string; expected_date?: string; expected_ship_date?: string; recipient_info?: string; notes?: string
   status: string; created_at: string; giao_hang_don_items: DonItem[]
+  status_updated_by?: string; status_updated_at?: string
 }
 interface SheetOrder {
   id: string; sheet_row: number; stt: string; order_time: string
@@ -37,13 +38,18 @@ function typeStyle(dt?: string) {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  cho_xu_ly: 'Chờ xử lý', dang_xu_ly: 'Đang xử lý',
-  da_gui: 'Đã gửi', hoan_thanh: 'Hoàn thành', da_huy: 'Đã hủy',
+  cho_xu_ly:  'Chờ xử lý',
+  dang_xu_ly: 'Đang xử lý',
+  da_gui:     'Đã gửi',
+  da_nhap:    'Đã nhập',
+  hoan_thanh: 'Hoàn thành',
+  da_huy:     'Đã hủy',
 }
 const STATUS_COLOR: Record<string, string> = {
   cho_xu_ly:  'bg-yellow-100 text-yellow-700',
   dang_xu_ly: 'bg-blue-100 text-blue-700',
   da_gui:     'bg-purple-100 text-purple-700',
+  da_nhap:    'bg-teal-100 text-teal-700',
   hoan_thanh: 'bg-green-100 text-green-700',
   da_huy:     'bg-gray-100 text-gray-500',
 }
@@ -86,10 +92,31 @@ function CustomerCodeInput({ codes, onChange }: { codes: string[]; onChange: (c:
   )
 }
 
+
+// ─── SimWarning — cảnh báo khi GPS Tracker / MDVR chưa có SIM ────────────
+const SIM_REQUIRED_TYPES = ['GPS Tracker', 'MDVR']
+
+function SimWarning({ cart, devices }: { cart: CartItem[]; devices: { name: string; device_type?: string }[] }) {
+  const deviceTypeMap = Object.fromEntries(devices.map(d => [d.name, d.device_type ?? '']))
+  const needsSim = cart.some(c => SIM_REQUIRED_TYPES.includes(deviceTypeMap[c.device_name] ?? ''))
+  const hasSim   = cart.some(c => (deviceTypeMap[c.device_name] ?? '').toLowerCase() === 'simcard'
+    || c.device_name.toLowerCase().includes('sim'))
+  if (!needsSim || hasSim) return null
+  return (
+    <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2 text-sm text-amber-800">
+      <span className="text-lg leading-none mt-0.5">⚠️</span>
+      <div>
+        <div className="font-semibold">Thiếu SIM!</div>
+        <div className="text-xs mt-0.5">GPS Tracker và MDVR bắt buộc đi kèm SIM card. Vui lòng thêm Simcard vào đơn.</div>
+      </div>
+    </div>
+  )
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // DEVICE PICKER (manual)
 // ══════════════════════════════════════════════════════════════════════════════
-function DevicePicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem[]) => void }) {
+function DevicePicker({ cart, onChange, onDevicesLoad }: { cart: CartItem[]; onChange: (c: CartItem[]) => void; onDevicesLoad?: (d: Equipment[]) => void }) {
   const [devices, setDevices]       = useState<Equipment[]>([])
   const [popular, setPopular]       = useState<Record<string, number>>({})
   const [loading, setLoading]       = useState(true)
@@ -98,7 +125,7 @@ function DevicePicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: Cart
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/kho/equipment').then(r => r.json()).then(d => setDevices(d.data ?? [])),
+      fetch('/api/kho/equipment').then(r => r.json()).then(d => { setDevices(d.data ?? []); onDevicesLoad?.(d.data ?? []) }),
       fetch('/api/giao-hang/popular').then(r => r.json()).then(d => setPopular(d.data ?? {})),
     ]).finally(() => setLoading(false))
   }, [])
@@ -324,6 +351,7 @@ function CartList({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem
 // ══════════════════════════════════════════════════════════════════════════════
 function TabDatHang({ userEmail }: { userEmail: string }) {
   const [cart, setCart]               = useState<CartItem[]>([])
+  const [devices, setDevices]         = useState<Equipment[]>([])
   const [recipients, setRecipients]   = useState<Recipient[]>([])
   const [recipientId, setRecipientId] = useState('')
   const [recipientInfo, setRecipientInfo] = useState('')
@@ -404,8 +432,11 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
       </div>
 
       {step === 'combo'  && <ComboPicker cart={cart} onChange={setCart} />}
-      {step === 'device' && <DevicePicker cart={cart} onChange={setCart} />}
+      {step === 'device' && <DevicePicker cart={cart} onChange={setCart} onDevicesLoad={setDevices} />}
       {step === 'cart'   && <CartList cart={cart} onChange={setCart} />}
+
+      {/* SIM warning */}
+      <SimWarning cart={cart} devices={devices} />
 
       {/* Order details */}
       <div className="bg-gray-50 rounded-xl border p-4 space-y-3">
@@ -566,6 +597,12 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
               {o.expected_ship_date && (
                 <div className="text-xs text-amber-600">🚚 Gửi dự kiến: {o.expected_ship_date}</div>
               )}
+              {o.status_updated_by && (
+                <div className="text-xs text-gray-400 border-t border-gray-100 pt-1 mt-1">
+                  Cập nhật bởi <span className="font-medium text-gray-500">{o.status_updated_by}</span>
+                  {o.status_updated_at && <> lúc {new Date(o.status_updated_at).toLocaleString('vi-VN')}</>}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -660,6 +697,12 @@ function TabAllOrders() {
                   {o.recipient_info && <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>}
                   {o.expected_ship_date && <div className="text-xs text-amber-600">🚚 Gửi: {o.expected_ship_date}</div>}
                   {o.notes && <div className="text-xs italic text-gray-500">📝 {o.notes}</div>}
+                  {o.status_updated_by && (
+                    <div className="text-xs text-gray-400 border-t border-gray-100 pt-1">
+                      Cập nhật bởi <span className="font-medium text-gray-500">{o.status_updated_by}</span>
+                      {o.status_updated_at && <> lúc {new Date(o.status_updated_at).toLocaleString('vi-VN')}</>}
+                    </div>
+                  )}
                   <div className="flex gap-1 flex-wrap pt-1">
                     {Object.entries(STATUS_LABEL).map(([k, v]) => (
                       <button key={k} onClick={() => updateStatus(o.id, k)}
