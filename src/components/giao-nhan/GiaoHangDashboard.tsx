@@ -1242,12 +1242,12 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
   const [tab, setTab] = useState<Tab>('dat_hang')
 
   const TABS = [
-    { key: 'dat_hang',    label: '🛒 Đặt hàng' },
-    { key: 'my_orders',   label: '📋 Đơn của tôi' },
-    ...(isAdmin ? [{ key: 'all_orders' as Tab, label: '📊 Tất cả đơn' }] : []),
-    { key: 'lich_su',     label: '📋 Lịch sử Sheet' },
-    { key: 'combos',      label: '📦 Gói combo' },
-    { key: 'recipients',  label: '👤 Người nhận' },
+    { key: 'dat_hang',   label: '🛒 Đặt hàng' },
+    { key: 'my_orders',  label: '📋 Đơn của tôi' },
+    { key: 'all_orders', label: '📊 Tất cả đơn' },
+    { key: 'lich_su',    label: '📋 Lịch sử Sheet' },
+    { key: 'combos',     label: '📦 Gói combo' },
+    { key: 'recipients', label: '👤 Người nhận' },
   ]
 
   return (

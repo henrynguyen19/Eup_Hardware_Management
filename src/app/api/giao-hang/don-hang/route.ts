@@ -31,7 +31,8 @@ export async function GET(req: NextRequest) {
     .single()
   const isAdmin = (permData?.permissions ?? []).includes('admin:users')
 
-  const filterMine = !isAdmin || mine
+  // All authenticated users can view all orders; mine=0 shows everyone's
+  const filterMine = mine
 
   let query = db()
     .from('giao_hang_don_hang')
@@ -84,8 +85,7 @@ export async function PATCH(req: NextRequest) {
 
   if (!existing)
     return NextResponse.json({ error: 'Đơn hàng không tồn tại' }, { status: 404 })
-  if (!isAdmin && existing.orderer_email !== user.email)
-    return NextResponse.json({ error: 'Không có quyền sửa đơn này' }, { status: 403 })
+  // All authenticated users can update status (not just admin/owner)
 
   const now = new Date().toISOString()
   const { error } = await admin
