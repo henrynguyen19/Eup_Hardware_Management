@@ -117,8 +117,7 @@ function DevicePicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: Cart
               const dev    = devices.find(d => d.name === name)
               const active = !!inCart(name)
               const ts     = typeStyle(dev?.device_type)
-              // Allow adding any name from sheet history — even if not in equipment_cards
-              function toggleByName() {
+              const toggleByName = () => {
                 if (active) onChange(cart.filter(c => c.device_name !== name))
                 else onChange([...cart, { device_name: name, quantity: 1 }])
               }
@@ -643,3 +642,4 @@ export default function GiaoHangDashboard({
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                tab === t.key ? 'border-blue-600 text-blue-700' : 'border-transparent text
