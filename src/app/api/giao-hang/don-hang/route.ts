@@ -63,7 +63,11 @@ export async function PATCH(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
 
-  const body = await req.json() as { id: string; status: string }
+  const body = await req.json() as {
+    id: string
+    status: string
+    item_serials?: { item_id: string; serials: string[] }[]
+  }
 
   if (!body.id) return NextResponse.json({ error: 'Thiếu id' }, { status: 400 })
   if (!VALID_STATUSES.includes(body.status))
@@ -99,5 +103,15 @@ export async function PATCH(req: NextRequest) {
     .eq('id', body.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Save device serials per item (when shipping)
+  if (body.item_serials && body.item_serials.length > 0) {
+    for (const { item_id, serials } of body.item_serials) {
+      await admin.from('giao_hang_don_items')
+        .update({ device_serials: serials })
+        .eq('id', item_id)
+    }
+  }
+
   return NextResponse.json({ ok: true })
 }

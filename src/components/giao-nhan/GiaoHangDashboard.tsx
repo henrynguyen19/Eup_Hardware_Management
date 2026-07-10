@@ -8,7 +8,7 @@ interface ComboItem   { device_name: string; quantity: number; notes?: string; s
 interface Combo       { id: string; name: string; description?: string; device_combo_items: ComboItem[] }
 interface Recipient   { id: string; name: string; type: string; office?: string; address?: string; phone?: string; contact_name?: string; notes?: string }
 interface CartItem    { device_name: string; quantity: number; customer_codes: string[]; expected_receipt: string }
-interface DonItem     { id: string; device_name: string; quantity: number; customer_codes?: string[]; expected_receipt?: string; sheet_row?: number }
+interface DonItem     { id: string; device_name: string; quantity: number; customer_codes?: string[]; expected_receipt?: string; sheet_row?: number; device_serials?: string[] }
 interface DonHang {
   id: string; order_code: string; orderer_email: string; orderer_name: string
   office: string; expected_date?: string; expected_ship_date?: string; recipient_info?: string; notes?: string
@@ -611,6 +611,188 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
   )
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SERIAL INPUT MODAL — nhập mã thiết bị khi chuyển trạng thái Đã gửi
+// ══════════════════════════════════════════════════════════════════════════════
+function SerialInputModal({ order, onConfirm, onCancel }: {
+  order: DonHang
+  onConfirm: (serials: { item_id: string; serials: string[] }[]) => void
+  onCancel: () => void
+}) {
+  const [itemSerials, setItemSerials] = useState<Record<string, string[]>>(
+    Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, i.device_serials ?? []]))
+  )
+  const [noSerial, setNoSerial] = useState<Record<string, boolean>>(
+    Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, (i.device_serials ?? []).length === 0]))
+  )
+  const [drafts, setDrafts] = useState<Record<string, string>>(
+    Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, '']))
+  )
+
+  function addSerial(itemId: string) {
+    const v = drafts[itemId]?.trim()
+    if (!v) return
+    if (!itemSerials[itemId]?.includes(v)) {
+      setItemSerials(s => ({ ...s, [itemId]: [...(s[itemId] ?? []), v] }))
+    }
+    setDrafts(d => ({ ...d, [itemId]: '' }))
+  }
+
+  function removeSerial(itemId: string, serial: string) {
+    setItemSerials(s => ({ ...s, [itemId]: s[itemId].filter(x => x !== serial) }))
+  }
+
+  function toggleNoSerial(itemId: string, checked: boolean) {
+    setNoSerial(n => ({ ...n, [itemId]: checked }))
+    if (checked) setItemSerials(s => ({ ...s, [itemId]: [] }))
+  }
+
+  function confirm() {
+    const result = order.giao_hang_don_items.map(item => ({
+      item_id: item.id,
+      serials: noSerial[item.id] ? [] : (itemSerials[item.id] ?? []),
+    }))
+    onConfirm(result)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 overflow-y-auto max-h-[90vh]">
+        <div className="font-semibold text-gray-800 text-base">📦 Nhập mã thiết bị — {order.order_code}</div>
+        <div className="text-xs text-gray-500">Nhập mã serial/IMEI cho từng loại thiết bị trước khi gửi</div>
+
+        {order.giao_hang_don_items.map(item => (
+          <div key={item.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="font-medium text-sm text-gray-800">{item.device_name} <span className="text-gray-400 font-normal">×{item.quantity}</span></div>
+              <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                <input type="checkbox" className="rounded"
+                  checked={noSerial[item.id] ?? false}
+                  onChange={e => toggleNoSerial(item.id, e.target.checked)} />
+                Không có mã
+              </label>
+            </div>
+
+            {!noSerial[item.id] && (
+              <>
+                <div className="flex flex-wrap gap-1">
+                  {(itemSerials[item.id] ?? []).map(s => (
+                    <span key={s} className="inline-flex items-center gap-0.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-full px-2 py-0.5 text-xs">
+                      {s}
+                      <button onClick={() => removeSerial(item.id, s)} className="ml-0.5 text-violet-400 hover:text-red-500">×</button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-1">
+                  <input
+                    className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400"
+                    placeholder="Nhập mã serial/IMEI rồi nhấn Enter"
+                    value={drafts[item.id] ?? ''}
+                    onChange={e => setDrafts(d => ({ ...d, [item.id]: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSerial(item.id) } }}
+                  />
+                  <button onClick={() => addSerial(item.id)}
+                    className="px-2 py-1 bg-violet-50 text-violet-700 border border-violet-200 rounded-lg text-xs hover:bg-violet-100">+</button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={confirm}
+            className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold">
+            ✅ Xác nhận gửi hàng
+          </button>
+          <button onClick={onCancel}
+            className="px-4 py-2 border border-gray-200 rounded-xl text-sm hover:bg-gray-50">Hủy</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PRINT LABEL — in nhãn đơn hàng
+// ══════════════════════════════════════════════════════════════════════════════
+function printLabel(order: DonHang) {
+  const items = order.giao_hang_don_items
+  const dateStr = new Date().toLocaleDateString('vi-VN')
+  const html = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Nhãn đơn hàng ${order.order_code}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 13px; color: #111; padding: 20px; }
+  .label { border: 2px solid #111; padding: 16px; max-width: 420px; }
+  .header { text-align: center; border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 10px; }
+  .order-code { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
+  .meta { font-size: 11px; color: #555; margin-top: 4px; }
+  .section { margin-bottom: 10px; }
+  .section-title { font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #555; margin-bottom: 4px; border-bottom: 1px dashed #ddd; padding-bottom: 2px; }
+  .recipient-name { font-size: 16px; font-weight: bold; }
+  .recipient-info { font-size: 12px; color: #333; margin-top: 3px; line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: #f5f5f5; text-align: left; padding: 4px 6px; font-weight: 600; border: 1px solid #ddd; }
+  td { padding: 4px 6px; border: 1px solid #ddd; vertical-align: top; }
+  .serials { font-size: 10px; color: #555; margin-top: 2px; }
+  .footer { margin-top: 10px; font-size: 10px; color: #999; text-align: right; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+<div class="label">
+  <div class="header">
+    <div class="order-code">${order.order_code}</div>
+    <div class="meta">Ngày in: ${dateStr} · Người đặt: ${order.orderer_name || order.orderer_email} · VP: ${order.office}</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Người nhận</div>
+    ${order.recipient_info
+      ? `<div class="recipient-name">${order.recipient_info.split('—')[0]?.trim() ?? ''}</div>
+         <div class="recipient-info">${order.recipient_info.split('—').slice(1).join(' · ').trim()}</div>`
+      : '<div class="recipient-info" style="color:#999">Chưa có thông tin người nhận</div>'
+    }
+  </div>
+
+  <div class="section">
+    <div class="section-title">Danh sách thiết bị</div>
+    <table>
+      <thead>
+        <tr><th>Thiết bị</th><th>SL</th><th>Mã serial/IMEI</th></tr>
+      </thead>
+      <tbody>
+        ${items.map(item => `
+        <tr>
+          <td>${item.device_name}</td>
+          <td style="text-align:center">${item.quantity}</td>
+          <td>${
+            item.device_serials && item.device_serials.length > 0
+              ? item.device_serials.join('<br>')
+              : '<span style="color:#999;font-size:10px">Không có mã</span>'
+          }</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+
+  ${order.expected_date ? `<div class="section"><div class="section-title">Ngày giao dự kiến</div><div>${order.expected_date}</div></div>` : ''}
+  ${order.notes ? `<div class="section"><div class="section-title">Ghi chú</div><div>${order.notes}</div></div>` : ''}
+
+  <div class="footer">In từ Eup Hardware Management · ${dateStr}</div>
+</div>
+<script>window.onload = () => { window.print(); }</script>
+</body>
+</html>`
+
+  const win = window.open('', '_blank', 'width=500,height=700')
+  if (win) { win.document.write(html); win.document.close() }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // TAB 3 — TẤT CẢ ĐƠN (admin)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -620,6 +802,7 @@ function TabAllOrders() {
   const [search, setSearch]   = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [serialModal, setSerialModal] = useState<DonHang | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -633,13 +816,21 @@ function TabAllOrders() {
 
   useEffect(() => { load() }, [load])
 
-  async function updateStatus(id: string, status: string) {
+  async function updateStatus(id: string, status: string, itemSerials?: { item_id: string; serials: string[] }[]) {
     await fetch('/api/giao-hang/don-hang', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status }),
+      body: JSON.stringify({ id, status, item_serials: itemSerials }),
     })
     load()
+  }
+
+  function handleStatusClick(order: DonHang, status: string) {
+    if (status === 'da_gui') {
+      setSerialModal(order)
+    } else {
+      updateStatus(order.id, status)
+    }
   }
 
   return (
@@ -709,7 +900,7 @@ function TabAllOrders() {
                       const cfg = STATUS_CONFIG[k]
                       const active = o.status === k
                       return (
-                        <button key={k} onClick={() => updateStatus(o.id, k)} disabled={active}
+                        <button key={k} onClick={() => handleStatusClick(o, k)} disabled={active}
                           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
                             active ? `${cfg.badge} cursor-default opacity-80 ring-1 ring-offset-1 ring-current` : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700'
                           }`}>
@@ -718,12 +909,29 @@ function TabAllOrders() {
                         </button>
                       )
                     })}
+                    <button onClick={() => printLabel(o)}
+                      className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400">
+                      🖨️ In đơn
+                    </button>
                   </div>
                 </div>
               )}
             </div>
           ))}
         </div>
+      )}
+    </div>
+
+      {/* Serial input modal */}
+      {serialModal && (
+        <SerialInputModal
+          order={serialModal}
+          onConfirm={serials => {
+            updateStatus(serialModal.id, 'da_gui', serials)
+            setSerialModal(null)
+          }}
+          onCancel={() => setSerialModal(null)}
+        />
       )}
     </div>
   )
