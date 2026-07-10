@@ -535,6 +535,7 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
   const [orders, setOrders]   = useState<DonHang[]>([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [serialOnlyModal, setSerialOnlyModal] = useState<DonHang | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -544,6 +545,15 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  async function updateSerials(id: string, itemSerials: { item_id: string; serials: string[] }[]) {
+    await fetch('/api/giao-hang/don-hang', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, item_serials: itemSerials }),
+    })
+    load()
+  }
 
   if (loading) return <div className="text-center py-12 text-gray-400">Đang tải đơn hàng…</div>
   if (orders.length === 0) return (
@@ -586,6 +596,13 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
                     {item.expected_receipt && (
                       <div className="text-xs text-gray-500 mt-0.5">Nhận: {item.expected_receipt}</div>
                     )}
+                    {item.device_serials && item.device_serials.length > 0 && (
+                      <div className="flex gap-1 mt-0.5 flex-wrap">
+                        {item.device_serials.map(s => (
+                          <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="text-sm font-semibold text-gray-700">×{item.quantity}</div>
                 </div>
@@ -603,10 +620,32 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
                   {o.status_updated_at && <> lúc {new Date(o.status_updated_at).toLocaleString('vi-VN')}</>}
                 </div>
               )}
+              <div className="flex gap-2 pt-1 border-t border-gray-100 mt-1">
+                <button onClick={() => setSerialOnlyModal(o)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-violet-200 text-violet-600 hover:bg-violet-50">
+                  📝 Nhập mã thiết bị
+                </button>
+                <button onClick={() => printLabel(o)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50">
+                  🖨️ In đơn
+                </button>
+              </div>
             </div>
           )}
         </div>
       ))}
+
+      {serialOnlyModal && (
+        <SerialInputModal
+          order={serialOnlyModal}
+          serialsOnly
+          onConfirm={serials => {
+            updateSerials(serialOnlyModal.id, serials)
+            setSerialOnlyModal(null)
+          }}
+          onCancel={() => setSerialOnlyModal(null)}
+        />
+      )}
     </div>
   )
 }
@@ -628,10 +667,11 @@ interface CrmCheckResult {
   stock_error?: string; car_error?: string
 }
 
-function SerialInputModal({ order, onConfirm, onCancel }: {
+function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
   order: DonHang
   onConfirm: (serials: { item_id: string; serials: string[] }[]) => void
   onCancel: () => void
+  serialsOnly?: boolean
 }) {
   const [itemSerials, setItemSerials] = useState<Record<string, string[]>>(
     Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, i.device_serials ?? []]))
@@ -700,7 +740,7 @@ function SerialInputModal({ order, onConfirm, onCancel }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 overflow-y-auto max-h-[90vh]">
         <div className="font-semibold text-gray-800 text-base">📦 Nhập mã thiết bị — {order.order_code}</div>
-        <div className="text-xs text-gray-500">Nhập mã serial/IMEI cho từng loại thiết bị trước khi gửi</div>
+        <div className="text-xs text-gray-500">{serialsOnly ? 'Lưu mã serial/IMEI cho đơn hàng (không đổi trạng thái)' : 'Nhập mã serial/IMEI cho từng loại thiết bị trước khi gửi'}</div>
 
         {/* CRM check panel */}
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
@@ -816,7 +856,7 @@ function SerialInputModal({ order, onConfirm, onCancel }: {
         <div className="flex gap-2 pt-1">
           <button onClick={confirm}
             className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold">
-            ✅ Xác nhận gửi hàng
+            {serialsOnly ? '💾 Lưu mã thiết bị' : '✅ Xác nhận gửi hàng'}
           </button>
           <button onClick={onCancel}
             className="px-4 py-2 border border-gray-200 rounded-xl text-sm hover:bg-gray-50">Hủy</button>
@@ -916,6 +956,7 @@ function TabAllOrders() {
   const [statusFilter, setStatusFilter] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [serialModal, setSerialModal] = useState<DonHang | null>(null)
+  const [serialOnlyModal, setSerialOnlyModal] = useState<DonHang | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -934,6 +975,15 @@ function TabAllOrders() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status, item_serials: itemSerials }),
+    })
+    load()
+  }
+
+  async function updateSerials(id: string, itemSerials: { item_id: string; serials: string[] }[]) {
+    await fetch('/api/giao-hang/don-hang', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, item_serials: itemSerials }),
     })
     load()
   }
@@ -994,6 +1044,13 @@ function TabAllOrders() {
                           </div>
                         )}
                         {item.expected_receipt && <div className="text-xs text-gray-500">Nhận: {item.expected_receipt}</div>}
+                        {item.device_serials && item.device_serials.length > 0 && (
+                          <div className="flex gap-1 mt-0.5 flex-wrap">
+                            {item.device_serials.map(s => (
+                              <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="text-sm font-semibold">×{item.quantity}</div>
                     </div>
@@ -1022,6 +1079,10 @@ function TabAllOrders() {
                         </button>
                       )
                     })}
+                    <button onClick={() => setSerialOnlyModal(o)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-violet-200 text-violet-600 hover:bg-violet-50 hover:border-violet-400">
+                      📝 Nhập mã
+                    </button>
                     <button onClick={() => printLabel(o)}
                       className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400">
                       🖨️ In đơn
@@ -1034,7 +1095,7 @@ function TabAllOrders() {
         </div>
       )}
 
-      {/* Serial input modal */}
+      {/* Serial input modal — khi bấm Đã gửi */}
       {serialModal && (
         <SerialInputModal
           order={serialModal}
@@ -1043,6 +1104,19 @@ function TabAllOrders() {
             setSerialModal(null)
           }}
           onCancel={() => setSerialModal(null)}
+        />
+      )}
+
+      {/* Serial input modal — nhập mã riêng không đổi TT */}
+      {serialOnlyModal && (
+        <SerialInputModal
+          order={serialOnlyModal}
+          serialsOnly
+          onConfirm={serials => {
+            updateSerials(serialOnlyModal.id, serials)
+            setSerialOnlyModal(null)
+          }}
+          onCancel={() => setSerialOnlyModal(null)}
         />
       )}
     </div>

@@ -356,4 +356,3 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
     </div>
   )
 }
-      

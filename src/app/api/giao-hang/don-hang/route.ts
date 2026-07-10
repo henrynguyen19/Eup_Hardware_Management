@@ -65,12 +65,12 @@ export async function PATCH(req: NextRequest) {
 
   const body = await req.json() as {
     id: string
-    status: string
+    status?: string
     item_serials?: { item_id: string; serials: string[] }[]
   }
 
   if (!body.id) return NextResponse.json({ error: 'Thiếu id' }, { status: 400 })
-  if (!VALID_STATUSES.includes(body.status))
+  if (body.status !== undefined && !VALID_STATUSES.includes(body.status))
     return NextResponse.json({ error: 'Trạng thái không hợp lệ' }, { status: 400 })
 
   const admin = db()
@@ -92,14 +92,15 @@ export async function PATCH(req: NextRequest) {
   // All authenticated users can update status (not just admin/owner)
 
   const now = new Date().toISOString()
+  const updates: Record<string, unknown> = { updated_at: now }
+  if (body.status !== undefined) {
+    updates.status             = body.status
+    updates.status_updated_by  = user.email
+    updates.status_updated_at  = now
+  }
   const { error } = await admin
     .from('giao_hang_don_hang')
-    .update({
-      status:             body.status,
-      status_updated_by:  user.email,
-      status_updated_at:  now,
-      updated_at:         now,
-    })
+    .update(updates)
     .eq('id', body.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

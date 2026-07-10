@@ -17,10 +17,4 @@ export const STATUS_COLOR: Record<string, string> = {
   da_gui: 'bg-purple-100 text-purple-700', hoan_thanh: 'bg-green-100 text-green-700',
   da_huy: 'bg-gray-100 text-gray-500',
 }
-export function StatusBadge({ status }: { status: string }) {
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[status] ?? 'bg-gray-100 text-gray-600'}`}>
-      {STATUS_LABEL[status] ?? status}
-    </span>
-  )
-}
+// StatusBadge component is defined in GiaoHangDashboard.tsx
