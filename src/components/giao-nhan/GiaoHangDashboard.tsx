@@ -230,12 +230,16 @@ function DevicePicker({ cart, onChange, devices, popular, loading }: {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// COMBO PICKER — compact chips
+// COMBO PICKER — chips with qty control, combos stay as units
 // ══════════════════════════════════════════════════════════════════════════════
-function ComboPicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem[]) => void }) {
+interface CartCombo { combo: Combo; quantity: number }
+
+function ComboPicker({ cartCombos, onChange }: {
+  cartCombos: CartCombo[]
+  onChange: (cc: CartCombo[]) => void
+}) {
   const [combos, setCombos]   = useState<Combo[]>([])
   const [loading, setLoading] = useState(true)
-  const [tip, setTip] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/giao-hang/combos').then(r => r.json())
@@ -243,41 +247,100 @@ function ComboPicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartI
       .finally(() => setLoading(false))
   }, [])
 
-  function addCombo(combo: Combo) {
-    let updated = [...cart]
-    for (const item of combo.device_combo_items) {
-      const idx = updated.findIndex(c => c.device_name === item.device_name)
-      if (idx >= 0) updated[idx] = { ...updated[idx], quantity: updated[idx].quantity + item.quantity }
-      else updated.push({ device_name: item.device_name, quantity: item.quantity, customer_codes: [], expected_receipt: '' })
-    }
-    onChange(updated)
+  function toggleCombo(combo: Combo) {
+    const exists = cartCombos.find(cc => cc.combo.id === combo.id)
+    if (exists) onChange(cartCombos.filter(cc => cc.combo.id !== combo.id))
+    else onChange([...cartCombos, { combo, quantity: 1 }])
+  }
+
+  function adjustQty(e: React.MouseEvent, comboId: string, delta: number) {
+    e.stopPropagation()
+    onChange(cartCombos.map(cc =>
+      cc.combo.id === comboId ? { ...cc, quantity: Math.max(1, cc.quantity + delta) } : cc
+    ))
   }
 
   if (loading || combos.length === 0) return null
 
   return (
     <div>
-      <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">📦 Gói combo nhanh</div>
+      <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">📦 Gói combo nhanh</div>
       <div className="flex flex-wrap gap-1.5">
-        {combos.map(combo => (
-          <div key={combo.id} className="relative">
+        {combos.map(combo => {
+          const cc = cartCombos.find(c => c.combo.id === combo.id)
+          const active = !!cc
+          return (
+            <button key={combo.id} onClick={() => toggleCombo(combo)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                active
+                  ? 'bg-amber-500 text-white border-amber-500'
+                  : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100 hover:border-amber-400'
+              }`}>
+              📦 {combo.name}
+              {active && (
+                <span className="flex items-center gap-0.5 ml-0.5" onClick={e => e.stopPropagation()}>
+                  <span onClick={e => adjustQty(e, combo.id, -1)}
+                    className="w-4 h-4 rounded bg-white/30 hover:bg-white/50 flex items-center justify-center font-bold">−</span>
+                  <span className="font-bold min-w-[14px] text-center">{cc.quantity}</span>
+                  <span onClick={e => adjustQty(e, combo.id, 1)}
+                    className="w-4 h-4 rounded bg-white/30 hover:bg-white/50 flex items-center justify-center font-bold">+</span>
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMBO CART LIST — shows combos as units, click to expand components
+// ══════════════════════════════════════════════════════════════════════════════
+function ComboCartList({ cartCombos, onChange }: {
+  cartCombos: CartCombo[]
+  onChange: (cc: CartCombo[]) => void
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null)
+  if (cartCombos.length === 0) return null
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">📦 Combo đã chọn</div>
+      {cartCombos.map(({ combo, quantity }) => (
+        <div key={combo.id} className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-2.5 py-2">
+            {/* Name — click to expand */}
             <button
-              onClick={() => addCombo(combo)}
-              onMouseEnter={() => setTip(combo.id)}
-              onMouseLeave={() => setTip(null)}
-              className="px-3 py-1 bg-amber-50 border border-amber-300 text-amber-800 rounded-full text-xs font-medium hover:bg-amber-100 hover:border-amber-400 transition-colors">
+              onClick={() => setExpanded(expanded === combo.id ? null : combo.id)}
+              className="flex-1 text-sm font-medium text-amber-900 text-left truncate hover:underline">
               📦 {combo.name}
             </button>
-            {tip === combo.id && combo.device_combo_items.length > 0 && (
-              <div className="absolute top-full left-0 mt-1 z-10 bg-white border border-gray-200 rounded-xl shadow-lg p-2 min-w-[160px]">
-                {combo.device_combo_items.map((item, i) => (
-                  <div key={i} className="text-xs text-gray-600 py-0.5">{item.device_name} ×{item.quantity}</div>
-                ))}
-              </div>
-            )}
+            {/* Qty stepper */}
+            <div className="flex items-center gap-0.5 bg-white border border-amber-200 rounded-lg px-1 shrink-0">
+              <button onClick={() => onChange(cartCombos.map(cc => cc.combo.id === combo.id ? { ...cc, quantity: Math.max(1, cc.quantity - 1) } : cc))}
+                className="w-6 h-6 text-amber-700 hover:text-amber-900 text-sm font-bold">−</button>
+              <span className="w-6 text-center text-sm font-semibold text-amber-800">{quantity}</span>
+              <button onClick={() => onChange(cartCombos.map(cc => cc.combo.id === combo.id ? { ...cc, quantity: cc.quantity + 1 } : cc))}
+                className="w-6 h-6 text-amber-700 hover:text-amber-900 text-sm font-bold">+</button>
+            </div>
+            <button onClick={() => onChange(cartCombos.filter(cc => cc.combo.id !== combo.id))}
+              className="text-amber-300 hover:text-red-500 text-lg leading-none">×</button>
           </div>
-        ))}
-      </div>
+          {/* Expanded: components */}
+          {expanded === combo.id && (
+            <div className="border-t border-amber-200 px-3 py-2 bg-white">
+              <div className="text-[10px] text-gray-400 uppercase mb-1">Thành phần mỗi combo:</div>
+              {combo.device_combo_items.map((item, i) => (
+                <div key={i} className="flex justify-between text-xs text-gray-600 py-0.5 border-b border-gray-50 last:border-0">
+                  <span>{item.device_name}</span>
+                  <span className="text-gray-400">×{item.quantity} → <span className="text-amber-700 font-medium">×{item.quantity * quantity}</span></span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
@@ -360,6 +423,7 @@ function CartList({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem
 // ══════════════════════════════════════════════════════════════════════════════
 function TabDatHang({ userEmail }: { userEmail: string }) {
   const [cart, setCart]               = useState<CartItem[]>([])
+  const [cartCombos, setCartCombos]   = useState<CartCombo[]>([])
   const [devices, setDevices]         = useState<Equipment[]>([])
   const [popular, setPopular]         = useState<Record<string, number>>({})
   const [loadingDevices, setLoadingDevices] = useState(true)
@@ -407,18 +471,30 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
           recipient_id:   recipientId || undefined,
           recipient_info: recipientInfo,
           notes,
-          items: cart.map(c => ({
-            device_name:      c.device_name,
-            quantity:         c.quantity,
-            customer_codes:   c.customer_codes,
-            expected_receipt: c.expected_receipt || undefined,
-          })),
+          items: (() => {
+            // Expand combos and merge with individual cart items
+            const allItems: CartItem[] = [...cart]
+            for (const { combo, quantity: comboQty } of cartCombos) {
+              for (const ci of combo.device_combo_items) {
+                const idx = allItems.findIndex(c => c.device_name === ci.device_name)
+                const addQty = ci.quantity * comboQty
+                if (idx >= 0) allItems[idx] = { ...allItems[idx], quantity: allItems[idx].quantity + addQty }
+                else allItems.push({ device_name: ci.device_name, quantity: addQty, customer_codes: [], expected_receipt: '' })
+              }
+            }
+            return allItems.map(c => ({
+              device_name:      c.device_name,
+              quantity:         c.quantity,
+              customer_codes:   c.customer_codes,
+              expected_receipt: c.expected_receipt || undefined,
+            }))
+          })(),
         }),
       })
       const data = await res.json()
       if (res.ok) {
         setResult({ ok: true, msg: `✅ Đặt hàng thành công! Mã: ${data.order_code}` })
-        setCart([]); setOrdererName(''); setOffice(''); setExpectedDate(''); setExpectedShipDate('')
+        setCart([]); setCartCombos([]); setOrdererName(''); setOffice(''); setExpectedDate(''); setExpectedShipDate('')
         setNotes(''); setRecipientId(''); setRecipientInfo('')
       } else {
         setResult({ ok: false, msg: data.error ?? 'Lỗi đặt hàng' })
@@ -432,7 +508,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
     <div className="flex flex-col lg:flex-row gap-4">
       {/* ─── LEFT: combo chips + device picker ──────────────────────────────── */}
       <div className="lg:w-[56%] space-y-3">
-        <ComboPicker cart={cart} onChange={setCart} />
+        <ComboPicker cartCombos={cartCombos} onChange={setCartCombos} />
         <DevicePicker
           cart={cart} onChange={setCart}
           devices={devices} popular={popular} loading={loadingDevices}
@@ -456,6 +532,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
               </span>
             )}
           </div>
+          <ComboCartList cartCombos={cartCombos} onChange={setCartCombos} />
           <CartList cart={cart} onChange={setCart} />
         </div>
 
@@ -532,9 +609,9 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
           </div>
         )}
 
-        <button onClick={submit} disabled={submitting || cart.length === 0}
+        <button onClick={submit} disabled={submitting || (cart.length === 0 && cartCombos.length === 0)}
           className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition-colors">
-          {submitting ? 'Đang gửi…' : cart.length === 0 ? '🛒 Đặt hàng' : `🛒 Đặt hàng — ${cart.reduce((s, c) => s + c.quantity, 0)} thiết bị (${cart.length} loại)`}
+          {submitting ? 'Đang gửi…' : (cart.length + cartCombos.length) === 0 ? '🛒 Đặt hàng' : `🛒 Đặt hàng${cartCombos.length > 0 ? ` — ${cartCombos.length} combo` : ''}${cart.length > 0 ? ` + ${cart.length} loại lẻ` : ''}`}
         </button>
       </div>
     </div>
