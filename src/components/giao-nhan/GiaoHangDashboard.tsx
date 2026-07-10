@@ -114,7 +114,7 @@ function SimWarning({ cart, devices }: { cart: CartItem[]; devices: { name: stri
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// DEVICE PICKER (manual)
+// DEVICE PICKER (manual) — inline qty on selected
 // ══════════════════════════════════════════════════════════════════════════════
 function DevicePicker({ cart, onChange, devices, popular, loading }: {
   cart: CartItem[]; onChange: (c: CartItem[]) => void
@@ -146,36 +146,29 @@ function DevicePicker({ cart, onChange, devices, popular, loading }: {
     else onChange([...cart, { device_name: name, quantity: 1, customer_codes: [], expected_receipt: '' }])
   }
 
-  function qty(name: string, delta: number) {
+  function adjustQty(e: React.MouseEvent, name: string, delta: number) {
+    e.stopPropagation()
     onChange(cart.map(c => c.device_name === name ? { ...c, quantity: Math.max(1, c.quantity + delta) } : c))
   }
 
   if (loading) return <div className="text-center py-8 text-gray-400 text-sm">Đang tải thiết bị…</div>
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {/* Popular chips */}
       {popularNames.length > 0 && (
-        <div>
-          <div className="text-xs font-medium text-gray-500 mb-1.5">⭐ Thường đặt</div>
-          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-            {popularNames.map(name => {
-              const active = cart.some(c => c.device_name === name)
-              const toggleByName = () => {
-                if (active) onChange(cart.filter(c => c.device_name !== name))
-                else onChange([...cart, { device_name: name, quantity: 1, customer_codes: [], expected_receipt: '' }])
-              }
-              return (
-                <button key={name} onClick={toggleByName}
-                  className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                    active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'
-                  }`}>
-                  {name}
-                  {active && <span className="ml-1 opacity-70">✓</span>}
-                </button>
-              )
-            })}
-          </div>
+        <div className="flex flex-wrap gap-1.5">
+          {popularNames.map(name => {
+            const active = cart.some(c => c.device_name === name)
+            return (
+              <button key={name} onClick={() => toggle(name)}
+                className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                  active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'
+                }`}>
+                ⭐ {name}{active && ' ✓'}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -183,7 +176,7 @@ function DevicePicker({ cart, onChange, devices, popular, loading }: {
       <div className="flex gap-1 flex-wrap">
         {tabs.map(t => (
           <button key={t.key} onClick={() => setActiveType(t.key)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+            className={`px-2 py-0.5 rounded-lg text-xs font-medium border transition-colors ${
               activeType === t.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
             }`}>
             {t.icon} {t.label}
@@ -193,33 +186,43 @@ function DevicePicker({ cart, onChange, devices, popular, loading }: {
 
       {/* Search */}
       <input
-        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        className="w-full border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
         placeholder="Tìm thiết bị…"
         value={search}
         onChange={e => setSearch(e.target.value)}
       />
 
       {/* Device grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
+      <div className="grid grid-cols-2 gap-1.5 max-h-80 overflow-y-auto pr-1">
         {filtered().map(dev => {
           const active = cart.some(c => c.device_name === dev.name)
+          const cartItem = cart.find(c => c.device_name === dev.name)
           const ts = typeStyle(dev.device_type)
           return (
             <button key={dev.equipment_id} onClick={() => toggle(dev.name)}
-              className={`flex flex-col items-start p-2.5 rounded-xl border text-left transition-all ${
-                active ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-300' : 'bg-white border-gray-200 hover:border-indigo-300'
+              className={`flex flex-col items-start p-2 rounded-xl border text-left transition-all ${
+                active ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-200' : 'bg-white border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
               }`}>
-              <span className="text-base mb-1">{ts.icon}</span>
-              <span className="text-xs font-medium leading-tight">{dev.name}</span>
-              {dev.device_type && (
-                <span className={`mt-1 px-1.5 py-0.5 rounded-full text-[10px] border ${ts.color}`}>{ts.label}</span>
+              <div className="flex items-center justify-between w-full gap-1">
+                <span className="text-xs font-medium leading-tight flex-1 min-w-0">{ts.icon} {dev.name}</span>
+                {active && (
+                  <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                    <button onClick={e => adjustQty(e, dev.name, -1)}
+                      className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 font-bold text-xs hover:bg-indigo-200 flex items-center justify-center">−</button>
+                    <span className="w-5 text-center text-xs font-semibold text-indigo-700">{cartItem?.quantity}</span>
+                    <button onClick={e => adjustQty(e, dev.name, 1)}
+                      className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 font-bold text-xs hover:bg-indigo-200 flex items-center justify-center">+</button>
+                  </div>
+                )}
+              </div>
+              {dev.device_type && !active && (
+                <span className={`mt-1 px-1 py-0.5 rounded text-[10px] border ${ts.color}`}>{ts.label}</span>
               )}
-              {active && <span className="mt-1 text-[10px] text-indigo-600 font-semibold">✓ Đã chọn</span>}
             </button>
           )
         })}
         {filtered().length === 0 && (
-          <div className="col-span-3 text-center py-6 text-gray-400 text-sm">Không có thiết bị phù hợp</div>
+          <div className="col-span-2 text-center py-6 text-gray-400 text-sm">Không có thiết bị phù hợp</div>
         )}
       </div>
     </div>
@@ -227,11 +230,12 @@ function DevicePicker({ cart, onChange, devices, popular, loading }: {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// COMBO PICKER — quick-add preset packages
+// COMBO PICKER — compact chips
 // ══════════════════════════════════════════════════════════════════════════════
 function ComboPicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem[]) => void }) {
   const [combos, setCombos]   = useState<Combo[]>([])
   const [loading, setLoading] = useState(true)
+  const [tip, setTip] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/giao-hang/combos').then(r => r.json())
@@ -249,27 +253,29 @@ function ComboPicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartI
     onChange(updated)
   }
 
-  if (loading) return <div className="text-xs text-gray-400 py-2">Đang tải gói…</div>
-  if (combos.length === 0) return <div className="text-xs text-gray-400 py-2">Chưa có gói combo nào</div>
+  if (loading || combos.length === 0) return null
 
   return (
-    <div className="space-y-2">
-      <div className="text-xs font-medium text-gray-500 mb-1">📦 Gói combo</div>
-      <div className="flex flex-wrap gap-2">
+    <div>
+      <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1">📦 Gói combo nhanh</div>
+      <div className="flex flex-wrap gap-1.5">
         {combos.map(combo => (
-          <button key={combo.id} onClick={() => addCombo(combo)}
-            className="group flex flex-col items-start p-2.5 bg-white border border-amber-200 rounded-xl hover:border-amber-400 hover:bg-amber-50 text-left transition-all min-w-[140px] max-w-[200px]">
-            <div className="font-medium text-sm text-amber-800">📦 {combo.name}</div>
-            {combo.description && <div className="text-xs text-gray-500 mt-0.5">{combo.description}</div>}
-            <div className="mt-1 flex flex-wrap gap-1">
-              {combo.device_combo_items.map((item, i) => (
-                <span key={i} className="bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 text-[10px]">
-                  {item.device_name} ×{item.quantity}
-                </span>
-              ))}
-            </div>
-            <div className="mt-1 text-[10px] text-amber-600 group-hover:text-amber-800 font-medium">+ Thêm vào đơn</div>
-          </button>
+          <div key={combo.id} className="relative">
+            <button
+              onClick={() => addCombo(combo)}
+              onMouseEnter={() => setTip(combo.id)}
+              onMouseLeave={() => setTip(null)}
+              className="px-3 py-1 bg-amber-50 border border-amber-300 text-amber-800 rounded-full text-xs font-medium hover:bg-amber-100 hover:border-amber-400 transition-colors">
+              📦 {combo.name}
+            </button>
+            {tip === combo.id && combo.device_combo_items.length > 0 && (
+              <div className="absolute top-full left-0 mt-1 z-10 bg-white border border-gray-200 rounded-xl shadow-lg p-2 min-w-[160px]">
+                {combo.device_combo_items.map((item, i) => (
+                  <div key={i} className="text-xs text-gray-600 py-0.5">{item.device_name} ×{item.quantity}</div>
+                ))}
+              </div>
+            )}
+          </div>
         ))}
       </div>
     </div>
@@ -277,70 +283,80 @@ function ComboPicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartI
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// CART — list of selected items with qty, codes, receipt date
+// CART — compact list, collapsible per-item details
 // ══════════════════════════════════════════════════════════════════════════════
 function CartList({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem[]) => void }) {
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  function update(idx: number, patch: Partial<CartItem>) {
+    onChange(cart.map((item, i) => i === idx ? { ...item, ...patch } : item))
+  }
+
   if (cart.length === 0) return (
-    <div className="text-center py-8 text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-xl">
-      Chưa chọn thiết bị nào
+    <div className="text-center py-6 text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-xl">
+      Chọn thiết bị bên trái để thêm vào đơn
     </div>
   )
 
-  function update(idx: number, patch: Partial<CartItem>) {
-    const next = cart.map((item, i) => i === idx ? { ...item, ...patch } : item)
-    onChange(next)
-  }
-
   return (
-    <div className="space-y-2">
-      {cart.map((item, idx) => (
-        <div key={item.device_name} className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="font-medium text-sm text-gray-800 flex items-center gap-1.5">
-              <span>{typeStyle(undefined).icon}</span>
-              {item.device_name}
-            </div>
-            <div className="flex items-center gap-2">
-              {/* Qty */}
-              <div className="flex items-center gap-1 bg-gray-50 rounded-lg border px-1">
+    <div className="space-y-1.5">
+      {cart.map((item, idx) => {
+        const hasExtra = (item.customer_codes.length > 0) || !!item.expected_receipt
+        const isOpen = expanded === item.device_name
+        return (
+          <div key={item.device_name} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            {/* Compact row */}
+            <div className="flex items-center gap-2 px-2.5 py-2">
+              <span className="flex-1 text-sm font-medium text-gray-800 truncate">{item.device_name}</span>
+              {/* Qty stepper */}
+              <div className="flex items-center gap-0.5 bg-gray-50 border rounded-lg px-1 shrink-0">
                 <button onClick={() => update(idx, { quantity: Math.max(1, item.quantity - 1) })}
-                  className="w-6 h-6 text-gray-500 hover:text-gray-800 text-sm font-bold">−</button>
+                  className="w-6 h-6 text-gray-500 hover:text-gray-900 text-sm font-bold">−</button>
                 <input type="number" min={1}
-                  className="w-10 text-center text-sm bg-transparent focus:outline-none"
+                  className="w-8 text-center text-sm bg-transparent focus:outline-none"
                   value={item.quantity}
                   onChange={e => update(idx, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
                 />
                 <button onClick={() => update(idx, { quantity: item.quantity + 1 })}
-                  className="w-6 h-6 text-gray-500 hover:text-gray-800 text-sm font-bold">+</button>
+                  className="w-6 h-6 text-gray-500 hover:text-gray-900 text-sm font-bold">+</button>
               </div>
+              {/* Detail toggle */}
+              <button onClick={() => setExpanded(isOpen ? null : item.device_name)}
+                className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                  hasExtra ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'border-gray-200 text-gray-400 hover:text-gray-600'
+                }`}
+                title="Mã KH / Ngày nhận">
+                {hasExtra ? '🏷️' : '…'}{isOpen ? ' ▲' : ' ▼'}
+              </button>
               <button onClick={() => onChange(cart.filter((_, i) => i !== idx))}
                 className="text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
             </div>
+            {/* Collapsible details */}
+            {isOpen && (
+              <div className="border-t border-gray-100 px-3 py-2 bg-gray-50 space-y-2">
+                <div>
+                  <div className="text-xs text-gray-500 font-medium mb-0.5">🏷️ Mã khách hàng</div>
+                  <CustomerCodeInput codes={item.customer_codes} onChange={c => update(idx, { customer_codes: c })} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium">📅 Ngày dự kiến nhận</label>
+                  <input type="date"
+                    className="mt-0.5 block w-full border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                    value={item.expected_receipt}
+                    onChange={e => update(idx, { expected_receipt: e.target.value })}
+                  />
+                </div>
+              </div>
+            )}
           </div>
-
-          {/* Mã KH */}
-          <div>
-            <div className="text-xs text-gray-500 font-medium">🏷️ Mã khách hàng</div>
-            <CustomerCodeInput codes={item.customer_codes} onChange={c => update(idx, { customer_codes: c })} />
-          </div>
-
-          {/* Expected receipt */}
-          <div>
-            <label className="text-xs text-gray-500 font-medium">📅 Ngày dự kiến nhận</label>
-            <input type="date"
-              className="mt-0.5 block w-full border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
-              value={item.expected_receipt}
-              onChange={e => update(idx, { expected_receipt: e.target.value })}
-            />
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TAB 1 — ĐẶT HÀNG
+// TAB 1 — ĐẶT HÀNG (2-column: device picker | cart + form)
 // ══════════════════════════════════════════════════════════════════════════════
 function TabDatHang({ userEmail }: { userEmail: string }) {
   const [cart, setCart]               = useState<CartItem[]>([])
@@ -355,12 +371,10 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
   const [expectedDate, setExpectedDate]     = useState('')
   const [expectedShipDate, setExpectedShipDate] = useState('')
   const [notes, setNotes]             = useState('')
-  const [step, setStep]               = useState<'combo'|'device'|'cart'>('combo')
   const [submitting, setSubmitting]   = useState(false)
   const [result, setResult]           = useState<{ ok: boolean; msg: string } | null>(null)
 
   useEffect(() => {
-    // Load all data on mount — don't wait for user to click
     Promise.all([
       fetch('/api/kho/equipment').then(r => r.json()).then(d => setDevices(d.data ?? [])),
       fetch('/api/giao-hang/popular').then(r => r.json()).then(d => setPopular(d.data ?? {})),
@@ -373,10 +387,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
     if (!id) { setRecipientInfo(''); return }
     const r = recipients.find(x => x.id === id)
     if (r) {
-      const parts = [r.name]
-      if (r.address) parts.push(r.address)
-      if (r.phone)   parts.push(r.phone)
-      setRecipientInfo(parts.join(' — '))
+      setRecipientInfo([r.name, r.address, r.phone].filter(Boolean).join(' — '))
     }
   }
 
@@ -406,9 +417,9 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
       })
       const data = await res.json()
       if (res.ok) {
-        setResult({ ok: true, msg: `Đặt hàng thành công! Mã: ${data.order_code}` })
+        setResult({ ok: true, msg: `✅ Đặt hàng thành công! Mã: ${data.order_code}` })
         setCart([]); setOrdererName(''); setOffice(''); setExpectedDate(''); setExpectedShipDate('')
-        setNotes(''); setRecipientId(''); setRecipientInfo(''); setStep('combo')
+        setNotes(''); setRecipientId(''); setRecipientInfo('')
       } else {
         setResult({ ok: false, msg: data.error ?? 'Lỗi đặt hàng' })
       }
@@ -418,112 +429,114 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
   const offices = [...new Set(recipients.filter(r => r.type === 'office').map(r => r.office ?? r.name))]
 
   return (
-    <div className="space-y-4">
-      {/* Step tabs */}
-      <div className="flex gap-1 bg-gray-50 p-1 rounded-xl border">
-        {([['combo','📦 Gói combo'],['device','🔍 Chọn thiết bị'],['cart','🛒 Giỏ hàng']] as const).map(([s, label]) => (
-          <button key={s} onClick={() => setStep(s)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              step === s ? 'bg-white shadow text-indigo-700' : 'text-gray-500 hover:text-gray-800'
-            }`}>
-            {label} {s === 'cart' && cart.length > 0 && <span className="ml-1 bg-indigo-600 text-white rounded-full px-1.5 py-0.5 text-[10px]">{cart.length}</span>}
-          </button>
-        ))}
+    <div className="flex flex-col lg:flex-row gap-4">
+      {/* ─── LEFT: combo chips + device picker ──────────────────────────────── */}
+      <div className="lg:w-[56%] space-y-3">
+        <ComboPicker cart={cart} onChange={setCart} />
+        <DevicePicker
+          cart={cart} onChange={setCart}
+          devices={devices} popular={popular} loading={loadingDevices}
+        />
       </div>
 
-      {step === 'combo'  && <ComboPicker cart={cart} onChange={setCart} />}
-      {step === 'device' && <DevicePicker cart={cart} onChange={setCart} devices={devices} popular={popular} loading={loadingDevices} />}
-      {step === 'cart'   && <CartList cart={cart} onChange={setCart} />}
+      {/* ─── RIGHT: cart + info form + submit ───────────────────────────────── */}
+      <div className="lg:w-[44%] flex flex-col gap-3">
+        {/* SIM warning */}
+        <SimWarning cart={cart} devices={devices} />
 
-      {/* SIM warning */}
-      <SimWarning cart={cart} devices={devices} />
-
-      {/* Order details */}
-      <div className="bg-gray-50 rounded-xl border p-4 space-y-3">
-        <div className="text-sm font-semibold text-gray-700">📋 Thông tin đơn hàng</div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Orderer name */}
-          <div>
-            <label className="text-xs text-gray-600 font-medium">Người đặt</label>
-            <input className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
-              placeholder="Tên người đặt hàng"
-              value={ordererName} onChange={e => setOrdererName(e.target.value)} />
-          </div>
-
-          {/* Office */}
-          <div>
-            <label className="text-xs text-gray-600 font-medium">Văn phòng</label>
-            <input className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
-              placeholder="VD: Hà Nội, HCM…"
-              list="office-list"
-              value={office} onChange={e => setOffice(e.target.value)} />
-            <datalist id="office-list">
-              {offices.map(o => <option key={o} value={o} />)}
-            </datalist>
-          </div>
-
-          {/* Expected delivery date */}
-          <div>
-            <label className="text-xs text-gray-600 font-medium">📅 Ngày giao dự kiến</label>
-            <input type="date" className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
-              value={expectedDate} onChange={e => setExpectedDate(e.target.value)} />
-          </div>
-
-          {/* Expected ship date */}
-          <div>
-            <label className="text-xs text-gray-600 font-medium">🚚 Ngày gửi dự kiến</label>
-            <input type="date" className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
-              value={expectedShipDate} onChange={e => setExpectedShipDate(e.target.value)} />
-          </div>
-        </div>
-
-        {/* Recipient selector */}
+        {/* Cart */}
         <div>
-          <label className="text-xs text-gray-600 font-medium">👤 Người nhận</label>
-          <select className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
-            value={recipientId} onChange={e => handleRecipientChange(e.target.value)}>
-            <option value="">— Chọn người nhận —</option>
-            {['office','person'].map(type => {
-              const group = recipients.filter(r => r.type === type)
-              if (group.length === 0) return null
-              return (
-                <optgroup key={type} label={type === 'office' ? '🏢 Văn phòng' : '👤 Cá nhân'}>
-                  {group.map(r => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}{r.office ? ` (${r.office})` : ''}{r.phone ? ` — ${r.phone}` : ''}
-                    </option>
-                  ))}
-                </optgroup>
-              )
-            })}
-          </select>
-          {/* Manual override */}
-          <input className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 text-gray-600"
-            placeholder="Hoặc nhập thủ công: tên — địa chỉ — SĐT"
-            value={recipientInfo} onChange={e => setRecipientInfo(e.target.value)} />
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+              🛒 Giỏ hàng
+            </span>
+            {cart.length > 0 && (
+              <span className="bg-indigo-600 text-white rounded-full px-2 py-0.5 text-[10px] font-semibold">
+                {cart.reduce((s, c) => s + c.quantity, 0)} thiết bị
+              </span>
+            )}
+          </div>
+          <CartList cart={cart} onChange={setCart} />
         </div>
 
-        {/* Notes */}
-        <div>
-          <label className="text-xs text-gray-600 font-medium">Ghi chú</label>
-          <textarea rows={2}
-            className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
-            placeholder="Ghi chú thêm…"
-            value={notes} onChange={e => setNotes(e.target.value)} />
+        {/* Info form */}
+        <div className="bg-gray-50 rounded-xl border p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-gray-500 font-medium uppercase">Người đặt</label>
+              <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                placeholder="Tên người đặt"
+                value={ordererName} onChange={e => setOrdererName(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 font-medium uppercase">Văn phòng</label>
+              <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                placeholder="Hà Nội, HCM…"
+                list="office-list"
+                value={office} onChange={e => setOffice(e.target.value)} />
+              <datalist id="office-list">
+                {offices.map(o => <option key={o} value={o} />)}
+              </datalist>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] text-gray-500 font-medium uppercase">👤 Người nhận</label>
+            <select className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
+              value={recipientId} onChange={e => handleRecipientChange(e.target.value)}>
+              <option value="">— Chọn người nhận —</option>
+              {['office','person'].map(type => {
+                const group = recipients.filter(r => r.type === type)
+                if (group.length === 0) return null
+                return (
+                  <optgroup key={type} label={type === 'office' ? '🏢 Văn phòng' : '👤 Cá nhân'}>
+                    {group.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}{r.office ? ` (${r.office})` : ''}{r.phone ? ` — ${r.phone}` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )
+              })}
+            </select>
+            <input className="mt-1 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 text-gray-600"
+              placeholder="Hoặc nhập tên — địa chỉ — SĐT"
+              value={recipientInfo} onChange={e => setRecipientInfo(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-gray-500 font-medium uppercase">🚚 Ngày gửi</label>
+              <input type="date" className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                value={expectedShipDate} onChange={e => setExpectedShipDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 font-medium uppercase">📅 Ngày giao</label>
+              <input type="date" className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                value={expectedDate} onChange={e => setExpectedDate(e.target.value)} />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] text-gray-500 font-medium uppercase">Ghi chú</label>
+            <textarea rows={2}
+              className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
+              placeholder="Ghi chú thêm…"
+              value={notes} onChange={e => setNotes(e.target.value)} />
+          </div>
         </div>
+
+        {result && (
+          <div className={`p-3 rounded-xl text-sm ${result.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+            {result.msg}
+          </div>
+        )}
+
+        <button onClick={submit} disabled={submitting || cart.length === 0}
+          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition-colors">
+          {submitting ? 'Đang gửi…' : cart.length === 0 ? '🛒 Đặt hàng' : `🛒 Đặt hàng — ${cart.reduce((s, c) => s + c.quantity, 0)} thiết bị (${cart.length} loại)`}
+        </button>
       </div>
-
-      {result && (
-        <div className={`p-3 rounded-xl text-sm ${result.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-          {result.msg}
-        </div>
-      )}
-
-      <button onClick={submit} disabled={submitting || cart.length === 0}
-        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition-colors">
-        {submitting ? 'Đang gửi…' : `🛒 Đặt hàng (${cart.length} loại)`}
-      </button>
     </div>
   )
 }
