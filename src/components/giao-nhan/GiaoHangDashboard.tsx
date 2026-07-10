@@ -616,9 +616,15 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
 // SERIAL INPUT MODAL — nhập mã thiết bị khi chuyển trạng thái Đã gửi
 // ══════════════════════════════════════════════════════════════════════════════
 interface CrmCheckResult {
-  stock?: { status: string; productName: string; sourceStock: string; destStock: string; updateMan: string; updateTime: string } | null
+  stock?: {
+    status: string; productName: string; productBarcode: string
+    sourceStock: string; destStock: string; updateMan: string; updateTime: string
+    updateAction: string; isAtCompany: boolean
+  } | null
   components?: { Device_Code: string; Device_TypeName: string; QP_ProductKindName: string }[]
-  grouped?: Record<string, { Device_Code: string; Device_TypeName: string }[]>
+  grouped?: Record<string, unknown>
+  unicode?: string | null
+  suggested_status?: string | null
   stock_error?: string; car_error?: string
 }
 
@@ -647,7 +653,8 @@ function SerialInputModal({ order, onConfirm, onCancel }: {
     if (!u) return
     setCrmLoading(true); setCrmResult(null); setCrmError('')
     try {
-      const res = await fetch(`/api/giao-hang/crm-check?unicode=${encodeURIComponent(u)}`)
+      // Dùng barcode param — API sẽ tự lấy unicode từ GetStockupDetail
+      const res = await fetch(`/api/giao-hang/crm-check?barcode=${encodeURIComponent(u)}`)
       const d = await res.json()
       if (d.ok) setCrmResult(d)
       else setCrmError(d.error ?? 'Lỗi kiểm tra CRM')
@@ -697,14 +704,15 @@ function SerialInputModal({ order, onConfirm, onCancel }: {
 
         {/* CRM check panel */}
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
-          <div className="text-xs font-semibold text-gray-600">🔍 Kiểm tra CRM theo Unicode</div>
+          <div className="text-xs font-semibold text-gray-600">🔍 Quét / nhập mã barcode thiết bị</div>
           <div className="flex gap-1">
             <input
               className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
-              placeholder="Nhập unicode thiết bị (VD: 30052739)"
+              placeholder="Quét hoặc nhập barcode/IMEI (VD: 003200BE04)"
               value={crmUnicode}
               onChange={e => setCrmUnicode(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); checkCRM() } }}
+              autoFocus
             />
             <button onClick={checkCRM} disabled={crmLoading}
               className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 disabled:opacity-50">
@@ -715,25 +723,40 @@ function SerialInputModal({ order, onConfirm, onCancel }: {
           {crmResult && (
             <div className="space-y-1.5">
               {crmResult.stock && (
-                <div className="text-xs bg-white border rounded-lg p-2 space-y-0.5">
-                  <div className="font-medium text-gray-700">{crmResult.stock.productName}</div>
-                  <div className="text-gray-500">
-                    Kho: <span className="font-medium text-gray-700">{crmResult.stock.sourceStock || crmResult.stock.destStock || '—'}</span>
-                    {' · '}Trạng thái: <span className={`font-medium ${crmResult.stock.status === 'HAVE' ? 'text-green-600' : 'text-red-500'}`}>{crmResult.stock.status}</span>
-                    {crmResult.stock.updateMan && <>{' · '}{crmResult.stock.updateMan} · {crmResult.stock.updateTime}</>}
+                <div className={`text-xs border rounded-lg p-2 space-y-1 ${
+                  crmResult.stock.isAtCompany ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'
+                }`}>
+                  <div className="font-semibold text-gray-800">{crmResult.stock.productName}</div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-gray-600">
+                    <span>📦 Kho: <span className="font-medium">{crmResult.stock.sourceStock || '—'}</span></span>
+                    {crmResult.stock.destStock && <span>→ {crmResult.stock.destStock}</span>}
+                    <span>Trạng thái: <span className={`font-medium ${crmResult.stock.status === 'HAVE' ? 'text-green-600' : 'text-orange-500'}`}>{crmResult.stock.status}</span></span>
                   </div>
+                  {crmResult.stock.updateMan && (
+                    <div className="text-gray-400">{crmResult.stock.updateAction} · {crmResult.stock.updateMan} · {crmResult.stock.updateTime}</div>
+                  )}
+                  {/* Gợi ý trạng thái */}
+                  {crmResult.suggested_status === 'da_nhan' ? (
+                    <div className="flex items-center gap-2 mt-1 p-1.5 bg-green-100 border border-green-300 rounded-lg">
+                      <span className="text-green-700 font-medium text-xs">✅ Thiết bị đã ở kho người nhận → có thể cập nhật "Đã nhận"</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mt-1 p-1.5 bg-orange-100 border border-orange-300 rounded-lg">
+                      <span className="text-orange-700 font-medium text-xs">⏳ Thiết bị vẫn ở kho công ty — chưa được nhận</span>
+                    </div>
+                  )}
                 </div>
               )}
               {crmResult.grouped && Object.keys(crmResult.grouped).length > 0 && (
                 <div className="bg-white border rounded-lg p-2">
-                  <div className="text-xs font-medium text-gray-600 mb-1">Linh kiện đi kèm:</div>
-                  <div className="space-y-0.5">
+                  <div className="text-xs font-medium text-gray-600 mb-1.5">🔧 Linh kiện đi kèm (unicode: {crmResult.unicode}):</div>
+                  <div className="space-y-1">
                     {Object.entries(crmResult.grouped).map(([kind, items]) => (
                       <div key={kind} className="flex items-start gap-2 text-xs">
-                        <span className="text-gray-400 min-w-[80px] shrink-0">{kind}</span>
+                        <span className="text-gray-400 min-w-[90px] shrink-0 pt-0.5">{kind}</span>
                         <div className="flex flex-wrap gap-1">
-                          {items.map(item => (
-                            <span key={item.Device_Code} className="bg-indigo-50 text-indigo-700 border border-indigo-200 rounded px-1.5 py-0.5">
+                          {(items as {Device_Code:string; Device_TypeName:string}[]).map(item => (
+                            <span key={item.Device_Code} className="bg-violet-50 text-violet-700 border border-violet-200 rounded px-1.5 py-0.5">
                               {item.Device_Code}
                               {item.Device_TypeName && <span className="text-gray-400 ml-1">({item.Device_TypeName})</span>}
                             </span>
@@ -743,7 +766,7 @@ function SerialInputModal({ order, onConfirm, onCancel }: {
                     ))}
                   </div>
                   <button onClick={() => order.giao_hang_don_items.forEach(i => fillFromCRM(i.id))}
-                    className="mt-2 w-full py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-xs hover:bg-indigo-100">
+                    className="mt-2 w-full py-1.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-lg text-xs hover:bg-violet-100 font-medium">
                     📋 Điền tất cả mã vào đơn
                   </button>
                 </div>

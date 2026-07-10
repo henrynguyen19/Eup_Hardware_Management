@@ -4,7 +4,18 @@ import { getCRMSessionForUser } from '@/lib/crm-session'
 
 const CRM_SOAP_URL = process.env.CRM_SOAP_URL ?? ''
 
-/** Gọi một method CRM SOAP với session đã có */
+/**
+ * Kho công ty (nguồn gửi) — thiết bị còn ở đây = chưa được nhận
+ * Cấu hình qua env var COMPANY_WAREHOUSE_NAMES (comma-separated)
+ * hoặc fallback về danh sách mặc định
+ */
+function getCompanyWarehouses(): string[] {
+  const env = process.env.COMPANY_WAREHOUSE_NAMES
+  if (env) return env.split(',').map(s => s.trim()).filter(Boolean)
+  // Default: update this list to match column D of your transfer sheet
+  return ['Company', 'Kho Công Ty', 'HN', 'HCM', 'DN', 'Warehouse']
+}
+
 async function crmCall(
   methodName: string,
   param: Record<string, unknown>,
@@ -12,19 +23,17 @@ async function crmCall(
   identity: string,
 ): Promise<{ ok: boolean; result: unknown; error?: string }> {
   if (!CRM_SOAP_URL) return { ok: false, result: null, error: 'Thiếu CRM_SOAP_URL' }
-
   const form = new URLSearchParams()
   form.append('MethodName', methodName)
   form.append('Param',      JSON.stringify(param))
   form.append('SESSION_ID', sessionId)
   form.append('IDENTITY',   identity)
-
   try {
     const resp = await fetch(CRM_SOAP_URL, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body:    form.toString(),
-      signal:  AbortSignal.timeout(15_000),
+      body: form.toString(),
+      signal: AbortSignal.timeout(15_000),
     })
     const json = await resp.json() as Record<string, unknown>
     if (!json.status || json.status === 0) {
@@ -36,87 +45,127 @@ async function crmCall(
   }
 }
 
-// ─── Component item shape từ GetCarList ──────────────────────────────────────
+interface StockInfo {
+  carUnicode:    string   // dùng để gọi GetCarList
+  productName:   string
+  productBarcode: string
+  sourceStock:   string   // kho hiện tại
+  destStock:     string
+  status:        string   // HAVE / ...
+  updateTime:    string
+  updateMan:     string
+  updateAction:  string
+  isAtCompany:   boolean  // true = vẫn ở kho công ty, false = đã chuyển đi (đã nhận)
+}
+
 interface CRMComponent {
-  Device_ID:         number
-  Device_Type:       number
-  Device_TypeName:   string
-  Device_Code:       string
-  QP_ProductKind:    number
+  Device_ID:          number
+  Device_Type:        number
+  Device_TypeName:    string
+  Device_Code:        string
+  QP_ProductKind:     number
   QP_ProductKindName: string
 }
 
-// ─── GET /api/giao-hang/crm-check?unicode=30052739 ───────────────────────────
+// ─── GET /api/giao-hang/crm-check?barcode=003200BE04 ─────────────────────────
+// barcode = mã quét từ thiết bị (IMEI hoặc device code)
+// unicode = mã unicode (nếu đã biết, bỏ qua bước GetStockupDetail)
 export async function GET(req: NextRequest) {
   try {
     const supabase = createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
 
-    const unicode = req.nextUrl.searchParams.get('unicode')?.trim()
-    if (!unicode) return NextResponse.json({ error: 'Thiếu unicode' }, { status: 400 })
+    const sp      = req.nextUrl.searchParams
+    const barcode = sp.get('barcode')?.trim()
+    const unicode = sp.get('unicode')?.trim()
 
-    // Lấy session CRM của user hiện tại
+    if (!barcode && !unicode) {
+      return NextResponse.json({ error: 'Cần barcode hoặc unicode' }, { status: 400 })
+    }
+
     const { sessionId, identity } = await getCRMSessionForUser(user.id)
+    const companyWarehouses = getCompanyWarehouses()
 
-    // Gọi song song 2 API
-    const [stockRes, carRes] = await Promise.all([
-      crmCall('GetStockupDetail', { Barcode: unicode, StockupKind: '-1' }, sessionId, identity),
-      crmCall('GetCarList',       { Unicode: unicode, Used: null },         sessionId, identity),
-    ])
+    // ── Bước 1: GetStockupDetail (nếu có barcode) ────────────────────────────
+    let stockInfo: StockInfo | null = null
+    let resolvedUnicode = unicode ?? ''
 
-    // Parse GetStockupDetail
-    let stockInfo: {
-      status: string; productName: string; productBarcode: string
-      sourceStock: string; destStock: string; updateTime: string; updateMan: string; updateAction: string
-    } | null = null
-
-    if (stockRes.ok && Array.isArray(stockRes.result) && stockRes.result.length > 0) {
-      const s = stockRes.result[0] as Record<string, unknown>
-      stockInfo = {
-        status:        String(s.Status       ?? ''),
-        productName:   String(s.ProductName  ?? ''),
-        productBarcode: String(s.ProductBarcode ?? ''),
-        sourceStock:   String(s.SourceStock  ?? ''),
-        destStock:     String(s.DestStock    ?? ''),
-        updateTime:    String(s.UpdateTime   ?? ''),
-        updateMan:     String(s.UpdateMan    ?? ''),
-        updateAction:  String(s.UpdateAction ?? ''),
+    if (barcode) {
+      const stockRes = await crmCall(
+        'GetStockupDetail',
+        { Barcode: barcode, StockupKind: '0' },
+        sessionId, identity,
+      )
+      if (stockRes.ok && Array.isArray(stockRes.result) && stockRes.result.length > 0) {
+        const s = stockRes.result[0] as Record<string, unknown>
+        const src = String(s.SourceStock ?? '')
+        resolvedUnicode = resolvedUnicode || String(s.CarUnicode ?? '')
+        stockInfo = {
+          carUnicode:     resolvedUnicode,
+          productName:    String(s.ProductName    ?? ''),
+          productBarcode: String(s.ProductBarcode ?? barcode),
+          sourceStock:    src,
+          destStock:      String(s.DestStock      ?? ''),
+          status:         String(s.Status         ?? ''),
+          updateTime:     String(s.UpdateTime     ?? ''),
+          updateMan:      String(s.UpdateMan      ?? ''),
+          updateAction:   String(s.UpdateAction   ?? ''),
+          // isAtCompany = true nếu SourceStock khớp với kho công ty (chưa nhận)
+          isAtCompany:    companyWarehouses.some(w => src.toLowerCase().includes(w.toLowerCase())),
+        }
+      } else {
+        return NextResponse.json({
+          ok: false,
+          error: `Không tìm thấy thiết bị với barcode: ${barcode}`,
+          crm_error: (stockRes as { error?: string }).error,
+        }, { status: 404 })
       }
     }
 
-    // Parse GetCarList — lấy components từ result[0].Devices
+    // ── Bước 2: GetCarList (nếu có unicode) ──────────────────────────────────
     let components: CRMComponent[] = []
-    if (carRes.ok && Array.isArray(carRes.result) && carRes.result.length > 0) {
-      const car = carRes.result[0] as Record<string, unknown>
-      if (Array.isArray(car.Devices)) {
-        components = (car.Devices as Record<string, unknown>[]).map(d => ({
-          Device_ID:          Number(d.Device_ID   ?? 0),
-          Device_Type:        Number(d.Device_Type ?? 0),
-          Device_TypeName:    String(d.Device_TypeName    ?? ''),
-          Device_Code:        String(d.Device_Code        ?? ''),
-          QP_ProductKind:     Number(d.QP_ProductKind     ?? 0),
-          QP_ProductKindName: String(d.QP_ProductKindName ?? ''),
-        }))
+    let grouped: Record<string, CRMComponent[]> = {}
+
+    if (resolvedUnicode) {
+      const carRes = await crmCall(
+        'GetCarList',
+        { Unicode: resolvedUnicode, Used: null },
+        sessionId, identity,
+      )
+      if (carRes.ok && Array.isArray(carRes.result) && carRes.result.length > 0) {
+        const car = carRes.result[0] as Record<string, unknown>
+        if (Array.isArray(car.Devices)) {
+          components = (car.Devices as Record<string, unknown>[]).map(d => ({
+            Device_ID:          Number(d.Device_ID          ?? 0),
+            Device_Type:        Number(d.Device_Type        ?? 0),
+            Device_TypeName:    String(d.Device_TypeName    ?? ''),
+            Device_Code:        String(d.Device_Code        ?? ''),
+            QP_ProductKind:     Number(d.QP_ProductKind     ?? 0),
+            QP_ProductKindName: String(d.QP_ProductKindName ?? ''),
+          }))
+          grouped = components.reduce<Record<string, CRMComponent[]>>((acc, c) => {
+            const key = c.QP_ProductKindName || 'Other'
+            if (!acc[key]) acc[key] = []
+            acc[key].push(c)
+            return acc
+          }, {})
+        }
       }
     }
-
-    // Nhóm components theo loại cho dễ đọc
-    const grouped = components.reduce<Record<string, CRMComponent[]>>((acc, c) => {
-      const key = c.QP_ProductKindName || 'Other'
-      if (!acc[key]) acc[key] = []
-      acc[key].push(c)
-      return acc
-    }, {})
 
     return NextResponse.json({
-      ok:         true,
-      unicode,
-      stock:      stockInfo,
+      ok:          true,
+      barcode:     barcode ?? null,
+      unicode:     resolvedUnicode || null,
+      stock:       stockInfo,
       components,
       grouped,
-      stock_error: stockRes.ok ? undefined : stockRes.error,
-      car_error:   carRes.ok   ? undefined : carRes.error,
+      // Gợi ý trạng thái tự động
+      suggested_status: stockInfo
+        ? (stockInfo.isAtCompany ? null : 'da_nhan')  // null = không tự động cập nhật
+        : null,
+      company_warehouses: companyWarehouses,
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
