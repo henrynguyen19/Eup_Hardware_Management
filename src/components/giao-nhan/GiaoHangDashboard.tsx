@@ -116,19 +116,12 @@ function SimWarning({ cart, devices }: { cart: CartItem[]; devices: { name: stri
 // ══════════════════════════════════════════════════════════════════════════════
 // DEVICE PICKER (manual)
 // ══════════════════════════════════════════════════════════════════════════════
-function DevicePicker({ cart, onChange, onDevicesLoad }: { cart: CartItem[]; onChange: (c: CartItem[]) => void; onDevicesLoad?: (d: Equipment[]) => void }) {
-  const [devices, setDevices]       = useState<Equipment[]>([])
-  const [popular, setPopular]       = useState<Record<string, number>>({})
-  const [loading, setLoading]       = useState(true)
+function DevicePicker({ cart, onChange, devices, popular, loading }: {
+  cart: CartItem[]; onChange: (c: CartItem[]) => void
+  devices: Equipment[]; popular: Record<string, number>; loading: boolean
+}) {
   const [activeType, setActiveType] = useState<string>(TYPE_ALL)
   const [search, setSearch]         = useState('')
-
-  useEffect(() => {
-    Promise.all([
-      fetch('/api/kho/equipment').then(r => r.json()).then(d => { setDevices(d.data ?? []); onDevicesLoad?.(d.data ?? []) }),
-      fetch('/api/giao-hang/popular').then(r => r.json()).then(d => setPopular(d.data ?? {})),
-    ]).finally(() => setLoading(false))
-  }, [])
 
   const presentTypes = [...new Set(devices.map(d => d.device_type ?? 'Khác'))]
   const tabs = [
@@ -352,6 +345,8 @@ function CartList({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem
 function TabDatHang({ userEmail }: { userEmail: string }) {
   const [cart, setCart]               = useState<CartItem[]>([])
   const [devices, setDevices]         = useState<Equipment[]>([])
+  const [popular, setPopular]         = useState<Record<string, number>>({})
+  const [loadingDevices, setLoadingDevices] = useState(true)
   const [recipients, setRecipients]   = useState<Recipient[]>([])
   const [recipientId, setRecipientId] = useState('')
   const [recipientInfo, setRecipientInfo] = useState('')
@@ -365,7 +360,12 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
   const [result, setResult]           = useState<{ ok: boolean; msg: string } | null>(null)
 
   useEffect(() => {
-    fetch('/api/giao-hang/recipients').then(r => r.json()).then(d => setRecipients(d.recipients ?? []))
+    // Load all data on mount — don't wait for user to click
+    Promise.all([
+      fetch('/api/kho/equipment').then(r => r.json()).then(d => setDevices(d.data ?? [])),
+      fetch('/api/giao-hang/popular').then(r => r.json()).then(d => setPopular(d.data ?? {})),
+      fetch('/api/giao-hang/recipients').then(r => r.json()).then(d => setRecipients(d.recipients ?? [])),
+    ]).finally(() => setLoadingDevices(false))
   }, [])
 
   function handleRecipientChange(id: string) {
@@ -432,7 +432,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
       </div>
 
       {step === 'combo'  && <ComboPicker cart={cart} onChange={setCart} />}
-      {step === 'device' && <DevicePicker cart={cart} onChange={setCart} onDevicesLoad={setDevices} />}
+      {step === 'device' && <DevicePicker cart={cart} onChange={setCart} devices={devices} popular={popular} loading={loadingDevices} />}
       {step === 'cart'   && <CartList cart={cart} onChange={setCart} />}
 
       {/* SIM warning */}
