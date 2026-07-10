@@ -477,21 +477,27 @@ function LichSuSheet() {
   const [page, setPage]           = useState(1)
   const [search, setSearch]       = useState('')
   const [officeFilter, setOffice] = useState('')
+  const [hasDevice, setHasDevice] = useState(true)   // default: hide blank Loại TB rows
   const [editing, setEditing]     = useState<SheetOrder | null>(null)
   const LIMIT = 50
 
   const load = useCallback(async (p = 1) => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: String(p), limit: String(LIMIT), ...(search ? { search } : {}), ...(officeFilter ? { office: officeFilter } : {}) })
+      const params = new URLSearchParams({
+        page: String(p), limit: String(LIMIT),
+        ...(search ? { search } : {}),
+        ...(officeFilter ? { office: officeFilter } : {}),
+        ...(hasDevice ? { has_device: '1' } : {}),
+      })
       const res = await fetch(`/api/giao-hang/orders?${params}`)
       const d   = await res.json()
       setOrders(d.orders ?? []); setTotal(d.total ?? 0)
     } catch { /* ignore */ } finally { setLoading(false) }
-  }, [search, officeFilter])
+  }, [search, officeFilter, hasDevice])
 
-  useEffect(() => { setPage(1); load(1) }, [search, officeFilter]) // eslint-disable-line
-  useEffect(() => { load(page) }, [page])                           // eslint-disable-line
+  useEffect(() => { setPage(1); load(1) }, [search, officeFilter, hasDevice]) // eslint-disable-line
+  useEffect(() => { load(page) }, [page])                                       // eslint-disable-line
 
   async function sync() {
     setSyncing(true); setSyncMsg('')
@@ -526,6 +532,11 @@ function LichSuSheet() {
           <option value="">Tất cả VP</option>
           {offices.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
+        <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-gray-600 whitespace-nowrap">
+          <input type="checkbox" checked={hasDevice} onChange={e => setHasDevice(e.target.checked)}
+            className="w-4 h-4 rounded accent-blue-600" />
+          Có Loại TB
+        </label>
         <span className="text-xs text-gray-400">{total} đơn</span>
       </div>
 
@@ -632,17 +643,3 @@ export default function GiaoHangDashboard({
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
-                tab === t.key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {tab === 'dat-hang' && (
-        <DatHangForm userEmail={userEmail}
-          onSuccess={() => { setRefresh(r => r+1); setTimeout(() => setTab('don-toi'), 1800) }} />
-      )}
-      {tab === 'don-toi' && <OrderList key={`mine-${refresh}`} mine={true} isAdmin={isAdmin} />}
-      {tab === 'ta

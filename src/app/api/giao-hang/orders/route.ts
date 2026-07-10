@@ -33,16 +33,18 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
 
-  const sp      = req.nextUrl.searchParams
-  const office  = sp.get('office') ?? ''
-  const search  = sp.get('search') ?? ''
-  const page    = parseInt(sp.get('page') ?? '1')
-  const limit   = Math.min(parseInt(sp.get('limit') ?? '100'), 200)
-  const offset  = (page - 1) * limit
+  const sp         = req.nextUrl.searchParams
+  const office     = sp.get('office') ?? ''
+  const search     = sp.get('search') ?? ''
+  const hasDevice  = sp.get('has_device') === '1'   // only rows with non-empty device_type
+  const page       = parseInt(sp.get('page') ?? '1')
+  const limit      = Math.min(parseInt(sp.get('limit') ?? '100'), 200)
+  const offset     = (page - 1) * limit
 
   let query = db().from('giao_hang_orders').select('*', { count: 'exact' })
 
   if (office) query = query.ilike('office', `%${office}%`)
+  if (hasDevice) query = query.neq('device_type', '').not('device_type', 'is', null)
   if (search) {
     query = query.or(
       `orderer.ilike.%${search}%,device_type.ilike.%${search}%,recipient_info.ilike.%${search}%,order_time.ilike.%${search}%`
@@ -118,9 +120,4 @@ export async function PUT(req: NextRequest) {
       .update(updateFields).eq('id', body.id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    return NextResponse.json({ ok: true, sheet_row: body.sheet_row, range })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    return NextResponse.json({ error: msg }, { status: 500 })
-  }
-}
+    return NextResponse.j
