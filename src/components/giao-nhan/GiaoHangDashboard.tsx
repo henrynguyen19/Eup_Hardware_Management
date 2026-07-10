@@ -615,6 +615,13 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // SERIAL INPUT MODAL — nhập mã thiết bị khi chuyển trạng thái Đã gửi
 // ══════════════════════════════════════════════════════════════════════════════
+interface CrmCheckResult {
+  stock?: { status: string; productName: string; sourceStock: string; destStock: string; updateMan: string; updateTime: string } | null
+  components?: { Device_Code: string; Device_TypeName: string; QP_ProductKindName: string }[]
+  grouped?: Record<string, { Device_Code: string; Device_TypeName: string }[]>
+  stock_error?: string; car_error?: string
+}
+
 function SerialInputModal({ order, onConfirm, onCancel }: {
   order: DonHang
   onConfirm: (serials: { item_id: string; serials: string[] }[]) => void
@@ -629,6 +636,32 @@ function SerialInputModal({ order, onConfirm, onCancel }: {
   const [drafts, setDrafts] = useState<Record<string, string>>(
     Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, '']))
   )
+  // CRM check state
+  const [crmUnicode, setCrmUnicode] = useState('')
+  const [crmResult, setCrmResult]   = useState<CrmCheckResult | null>(null)
+  const [crmLoading, setCrmLoading] = useState(false)
+  const [crmError, setCrmError]     = useState('')
+
+  async function checkCRM() {
+    const u = crmUnicode.trim()
+    if (!u) return
+    setCrmLoading(true); setCrmResult(null); setCrmError('')
+    try {
+      const res = await fetch(`/api/giao-hang/crm-check?unicode=${encodeURIComponent(u)}`)
+      const d = await res.json()
+      if (d.ok) setCrmResult(d)
+      else setCrmError(d.error ?? 'Lỗi kiểm tra CRM')
+    } catch { setCrmError('Lỗi kết nối') }
+    finally { setCrmLoading(false) }
+  }
+
+  // Auto-fill serials from CRM result
+  function fillFromCRM(itemId: string) {
+    if (!crmResult?.components) return
+    const codes = crmResult.components.map(c => c.Device_Code).filter(Boolean)
+    setItemSerials(s => ({ ...s, [itemId]: codes }))
+    setNoSerial(n => ({ ...n, [itemId]: false }))
+  }
 
   function addSerial(itemId: string) {
     const v = drafts[itemId]?.trim()
@@ -661,6 +694,63 @@ function SerialInputModal({ order, onConfirm, onCancel }: {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 overflow-y-auto max-h-[90vh]">
         <div className="font-semibold text-gray-800 text-base">📦 Nhập mã thiết bị — {order.order_code}</div>
         <div className="text-xs text-gray-500">Nhập mã serial/IMEI cho từng loại thiết bị trước khi gửi</div>
+
+        {/* CRM check panel */}
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
+          <div className="text-xs font-semibold text-gray-600">🔍 Kiểm tra CRM theo Unicode</div>
+          <div className="flex gap-1">
+            <input
+              className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              placeholder="Nhập unicode thiết bị (VD: 30052739)"
+              value={crmUnicode}
+              onChange={e => setCrmUnicode(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); checkCRM() } }}
+            />
+            <button onClick={checkCRM} disabled={crmLoading}
+              className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 disabled:opacity-50">
+              {crmLoading ? '…' : 'Kiểm tra'}
+            </button>
+          </div>
+          {crmError && <div className="text-xs text-red-500">{crmError}</div>}
+          {crmResult && (
+            <div className="space-y-1.5">
+              {crmResult.stock && (
+                <div className="text-xs bg-white border rounded-lg p-2 space-y-0.5">
+                  <div className="font-medium text-gray-700">{crmResult.stock.productName}</div>
+                  <div className="text-gray-500">
+                    Kho: <span className="font-medium text-gray-700">{crmResult.stock.sourceStock || crmResult.stock.destStock || '—'}</span>
+                    {' · '}Trạng thái: <span className={`font-medium ${crmResult.stock.status === 'HAVE' ? 'text-green-600' : 'text-red-500'}`}>{crmResult.stock.status}</span>
+                    {crmResult.stock.updateMan && <>{' · '}{crmResult.stock.updateMan} · {crmResult.stock.updateTime}</>}
+                  </div>
+                </div>
+              )}
+              {crmResult.grouped && Object.keys(crmResult.grouped).length > 0 && (
+                <div className="bg-white border rounded-lg p-2">
+                  <div className="text-xs font-medium text-gray-600 mb-1">Linh kiện đi kèm:</div>
+                  <div className="space-y-0.5">
+                    {Object.entries(crmResult.grouped).map(([kind, items]) => (
+                      <div key={kind} className="flex items-start gap-2 text-xs">
+                        <span className="text-gray-400 min-w-[80px] shrink-0">{kind}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {items.map(item => (
+                            <span key={item.Device_Code} className="bg-indigo-50 text-indigo-700 border border-indigo-200 rounded px-1.5 py-0.5">
+                              {item.Device_Code}
+                              {item.Device_TypeName && <span className="text-gray-400 ml-1">({item.Device_TypeName})</span>}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => order.giao_hang_don_items.forEach(i => fillFromCRM(i.id))}
+                    className="mt-2 w-full py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-xs hover:bg-indigo-100">
+                    📋 Điền tất cả mã vào đơn
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {order.giao_hang_don_items.map(item => (
           <div key={item.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
