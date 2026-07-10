@@ -1,14 +1,17 @@
 "use client"
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Equipment { equipment_id: string; name: string; device_type?: string; category?: string }
-interface CartItem  { device_name: string; quantity: number }
-interface DonItem   { id: string; device_name: string; quantity: number; sheet_row?: number }
+// ─── Types ─────────────────────────────────────────────────────────────────
+interface Equipment   { equipment_id: string; name: string; device_type?: string; category?: string }
+interface ComboItem   { device_name: string; quantity: number; notes?: string; sort_order?: number }
+interface Combo       { id: string; name: string; description?: string; device_combo_items: ComboItem[] }
+interface Recipient   { id: string; name: string; type: string; office?: string; address?: string; phone?: string; contact_name?: string; notes?: string }
+interface CartItem    { device_name: string; quantity: number; customer_codes: string[]; expected_receipt: string }
+interface DonItem     { id: string; device_name: string; quantity: number; customer_codes?: string[]; expected_receipt?: string; sheet_row?: number }
 interface DonHang {
   id: string; order_code: string; orderer_email: string; orderer_name: string
-  office: string; expected_date?: string; recipient_info?: string; notes?: string
+  office: string; expected_date?: string; expected_ship_date?: string; recipient_info?: string; notes?: string
   status: string; created_at: string; giao_hang_don_items: DonItem[]
 }
 interface SheetOrder {
@@ -17,8 +20,8 @@ interface SheetOrder {
   expected_date: string; recipient_info: string; synced_at: string
 }
 
-// ─── Device type config ───────────────────────────────────────────────────────
-const TYPE_ALL    = '__all__'
+// ─── Device type config ─────────────────────────────────────────────────────
+const TYPE_ALL = '__all__'
 const DEVICE_TYPES = [
   { key: 'GPS Tracker', label: 'GPS Tracker', icon: '📡', color: 'bg-blue-100 text-blue-700 border-blue-300' },
   { key: 'MDVR',        label: 'MDVR',        icon: '🎥', color: 'bg-purple-100 text-purple-700 border-purple-300' },
@@ -33,15 +36,16 @@ function typeStyle(dt?: string) {
   return TYPE_MAP[dt ?? ''] ?? { icon: '📦', color: 'bg-gray-100 text-gray-600 border-gray-200', label: dt ?? 'Khác' }
 }
 
-// ─── Status helpers ───────────────────────────────────────────────────────────
 const STATUS_LABEL: Record<string, string> = {
   cho_xu_ly: 'Chờ xử lý', dang_xu_ly: 'Đang xử lý',
   da_gui: 'Đã gửi', hoan_thanh: 'Hoàn thành', da_huy: 'Đã hủy',
 }
 const STATUS_COLOR: Record<string, string> = {
-  cho_xu_ly: 'bg-yellow-100 text-yellow-700', dang_xu_ly: 'bg-blue-100 text-blue-700',
-  da_gui: 'bg-purple-100 text-purple-700', hoan_thanh: 'bg-green-100 text-green-700',
-  da_huy: 'bg-gray-100 text-gray-500',
+  cho_xu_ly:  'bg-yellow-100 text-yellow-700',
+  dang_xu_ly: 'bg-blue-100 text-blue-700',
+  da_gui:     'bg-purple-100 text-purple-700',
+  hoan_thanh: 'bg-green-100 text-green-700',
+  da_huy:     'bg-gray-100 text-gray-500',
 }
 function StatusBadge({ status }: { status: string }) {
   return (
@@ -51,8 +55,39 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+// ─── CustomerCodeInput — add/remove codes per cart item ────────────────────
+function CustomerCodeInput({ codes, onChange }: { codes: string[]; onChange: (c: string[]) => void }) {
+  const [draft, setDraft] = useState('')
+  function add() {
+    const v = draft.trim()
+    if (v && !codes.includes(v)) { onChange([...codes, v]); setDraft('') }
+  }
+  return (
+    <div className="mt-1">
+      <div className="flex gap-1 mb-1 flex-wrap">
+        {codes.map(c => (
+          <span key={c} className="inline-flex items-center gap-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 text-xs">
+            {c}
+            <button onClick={() => onChange(codes.filter(x => x !== c))} className="ml-0.5 text-indigo-400 hover:text-red-500">×</button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-1">
+        <input
+          className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          placeholder="Thêm mã KH (Enter)"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+        />
+        <button onClick={add} className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs hover:bg-indigo-100 border border-indigo-200">+</button>
+      </div>
+    </div>
+  )
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
-// DEVICE PICKER
+// DEVICE PICKER (manual)
 // ══════════════════════════════════════════════════════════════════════════════
 function DevicePicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem[]) => void }) {
   const [devices, setDevices]       = useState<Equipment[]>([])
@@ -68,66 +103,55 @@ function DevicePicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: Cart
     ]).finally(() => setLoading(false))
   }, [])
 
-  const presentTypes    = [...new Set(devices.map(d => d.device_type ?? 'Khác'))]
+  const presentTypes = [...new Set(devices.map(d => d.device_type ?? 'Khác'))]
   const tabs = [
     { key: TYPE_ALL, label: 'Tất cả', icon: '🔍' },
     ...DEVICE_TYPES.filter(t => presentTypes.includes(t.key)),
   ]
-  // Show ALL popular names from sheet (no limit), sorted by count desc
   const popularNames = Object.entries(popular).sort((a, b) => b[1] - a[1]).map(([n]) => n)
 
   function filtered() {
     let list = devices
     if (activeType !== TYPE_ALL) list = list.filter(d => d.device_type === activeType)
-    if (search) { const q = search.toLowerCase(); list = list.filter(d => d.name.toLowerCase().includes(q)) }
+    if (search) {
+      const q = search.toLowerCase()
+      list = list.filter(d => d.name.toLowerCase().includes(q))
+    }
     return list
   }
-  function inCart(name: string) { return cart.find(c => c.device_name === name) }
-  function toggle(dev: Equipment) {
-    if (inCart(dev.name)) onChange(cart.filter(c => c.device_name !== dev.name))
-    else onChange([...cart, { device_name: dev.name, quantity: 1 }])
-  }
-  function updateQty(name: string, qty: number) {
-    if (qty < 1) return
-    onChange(cart.map(c => c.device_name === name ? { ...c, quantity: qty } : c))
+
+  function toggle(name: string) {
+    const active = cart.some(c => c.device_name === name)
+    if (active) onChange(cart.filter(c => c.device_name !== name))
+    else onChange([...cart, { device_name: name, quantity: 1, customer_codes: [], expected_receipt: '' }])
   }
 
-  const list = filtered()
-  const grouped: Record<string, Equipment[]> = {}
-  for (const d of list) {
-    const t = d.device_type ?? 'Khác'; if (!grouped[t]) grouped[t] = []; grouped[t].push(d)
+  function qty(name: string, delta: number) {
+    onChange(cart.map(c => c.device_name === name ? { ...c, quantity: Math.max(1, c.quantity + delta) } : c))
   }
-  const groupKeys = [...DEVICE_TYPES.map(t => t.key).filter(k => grouped[k]?.length), ...(grouped['Khác']?.length ? ['Khác'] : [])]
 
-  if (loading) return (
-    <div className="flex items-center gap-2 text-gray-400 text-sm py-8 justify-center">
-      <span className="w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
-      Đang tải...
-    </div>
-  )
+  if (loading) return <div className="text-center py-8 text-gray-400 text-sm">Đang tải thiết bị…</div>
 
   return (
-    <div>
-      {/* Popular */}
+    <div className="space-y-3">
+      {/* Popular chips */}
       {popularNames.length > 0 && (
-        <div className="mb-4">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">⭐ Thường đặt (từ lịch sử sheet)</p>
-          <div className="flex flex-wrap gap-2">
+        <div>
+          <div className="text-xs font-medium text-gray-500 mb-1.5">⭐ Thường đặt</div>
+          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
             {popularNames.map(name => {
-              const dev    = devices.find(d => d.name === name)
-              const active = !!inCart(name)
-              const ts     = typeStyle(dev?.device_type)
+              const active = cart.some(c => c.device_name === name)
               const toggleByName = () => {
                 if (active) onChange(cart.filter(c => c.device_name !== name))
-                else onChange([...cart, { device_name: name, quantity: 1 }])
+                else onChange([...cart, { device_name: name, quantity: 1, customer_codes: [], expected_receipt: '' }])
               }
               return (
                 <button key={name} onClick={toggleByName}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
-                >
-                  <span>{name}</span>
-                  {active && <span>✓</span>}
-                  <span className="text-[10px] opacity-50">×{popular[name]}</span>
+                  className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                    active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:border-indigo-400'
+                  }`}>
+                  {name}
+                  {active && <span className="ml-1 opacity-70">✓</span>}
                 </button>
               )
             })}
@@ -135,265 +159,522 @@ function DevicePicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: Cart
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-1 mb-3">
-        {tabs.map(tab => (
-          <button key={tab.key} onClick={() => { setActiveType(tab.key); setSearch('') }}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap border transition flex-shrink-0 ${
-              activeType === tab.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+      {/* Type filter tabs */}
+      <div className="flex gap-1 flex-wrap">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setActiveType(t.key)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+              activeType === t.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
             }`}>
-            <span>{tab.icon}</span><span>{tab.label}</span>
+            {t.icon} {t.label}
           </button>
         ))}
       </div>
 
       {/* Search */}
-      <input type="text" placeholder="Tìm tên thiết bị..." value={search} onChange={e => setSearch(e.target.value)}
-        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <input
+        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        placeholder="Tìm thiết bị…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
 
-      {/* Grid */}
-      {list.length === 0 ? (
-        <div className="py-8 text-center text-sm text-gray-400">Không tìm thấy thiết bị</div>
-      ) : activeType === TYPE_ALL && !search ? (
-        <div className="space-y-4 max-h-72 overflow-y-auto pr-1">
-          {groupKeys.map(typeKey => (
-            <div key={typeKey}>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                <span>{typeStyle(typeKey).icon}</span> {typeStyle(typeKey).label}
-              </p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {grouped[typeKey].map(dev => {
-                  const active = !!inCart(dev.name)
-                  const ts = typeStyle(dev.device_type)
-                  return (
-                    <button key={dev.equipment_id} onClick={() => toggle(dev)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-sm transition ${active ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'bg-white border-gray-200 hover:border-gray-300 text-gray-700'}`}>
-                      <span className="text-base">{ts.icon}</span>
-                      <span className="truncate flex-1 text-xs">{dev.name}</span>
-                      {active && <span className="text-blue-500 flex-shrink-0">✓</span>}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1">
-          {list.map(dev => {
-            const active = !!inCart(dev.name)
-            const ts = typeStyle(dev.device_type)
-            return (
-              <button key={dev.equipment_id} onClick={() => toggle(dev)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition ${active ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'bg-white border-gray-200 hover:border-gray-300 text-gray-700'}`}>
-                <span className="text-base">{ts.icon}</span>
-                <span className="truncate flex-1 text-xs">{dev.name}</span>
-                {active && <span className="text-blue-500 flex-shrink-0">✓</span>}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Cart */}
-      {cart.length > 0 && (
-        <div className="mt-4 border-t border-gray-100 pt-3">
-          <p className="text-xs font-semibold text-gray-500 mb-2">Đã chọn ({cart.length} loại)</p>
-          <div className="space-y-1.5">
-            {cart.map((item, idx) => {
-              const dev = devices.find(d => d.name === item.device_name)
-              const ts = typeStyle(dev?.device_type)
-              return (
-                <div key={idx} className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-1.5">
-                  <span className="text-sm">{ts.icon}</span>
-                  <span className="flex-1 text-xs text-gray-800 truncate">{item.device_name}</span>
-                  <input type="number" min={1} value={item.quantity}
-                    onChange={e => updateQty(item.device_name, parseInt(e.target.value) || 1)}
-                    className="w-14 border border-blue-200 rounded px-1.5 py-1 text-xs text-center focus:outline-none" />
-                  <button onClick={() => onChange(cart.filter((_, i) => i !== idx))}
-                    className="text-red-400 hover:text-red-600 text-base leading-none">×</button>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// DAT HANG FORM
-// ══════════════════════════════════════════════════════════════════════════════
-function DatHangForm({ userEmail, onSuccess }: { userEmail: string; onSuccess: () => void }) {
-  const [cart, setCart]                   = useState<CartItem[]>([])
-  const [ordererName, setOrdererName]     = useState('')
-  const [office, setOffice]               = useState('')
-  const [expectedDate, setExpectedDate]   = useState('')
-  const [recipientInfo, setRecipientInfo] = useState('')
-  const [notes, setNotes]                 = useState('')
-  const [submitting, setSubmitting]       = useState(false)
-  const [submitMsg, setSubmitMsg]         = useState('')
-
-  async function handleSubmit() {
-    if (!ordererName.trim()) { setSubmitMsg('⚠ Vui lòng nhập tên người đặt'); return }
-    if (!office.trim())       { setSubmitMsg('⚠ Vui lòng nhập văn phòng'); return }
-    if (cart.length === 0)    { setSubmitMsg('⚠ Chưa chọn thiết bị nào'); return }
-    setSubmitting(true); setSubmitMsg('')
-    try {
-      const res = await fetch('/api/giao-hang/dat-hang', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderer_name: ordererName, office, expected_date: expectedDate || undefined, recipient_info: recipientInfo || undefined, notes: notes || undefined, items: cart }),
-      })
-      const d = await res.json()
-      if (!d.ok) { setSubmitMsg('❌ ' + (d.error ?? 'Lỗi không xác định')); return }
-      setSubmitMsg(`✅ Đặt hàng thành công — Mã đơn: ${d.order_code}`)
-      setCart([]); setExpectedDate(''); setRecipientInfo(''); setNotes('')
-      onSuccess()
-    } catch (e) { setSubmitMsg('❌ ' + String(e)) }
-    finally { setSubmitting(false) }
-  }
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-6">
-      <div className="p-6 border-b lg:border-b-0 lg:border-r border-gray-100">
-        <h3 className="font-semibold text-gray-700 mb-4">Chọn thiết bị</h3>
-        <DevicePicker cart={cart} onChange={setCart} />
-      </div>
-      <div className="p-6">
-        <h3 className="font-semibold text-gray-700 mb-4">Thông tin đặt hàng</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
-            <input value={userEmail} disabled className="w-full border border-gray-100 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-400 cursor-not-allowed" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Tên người đặt <span className="text-red-500">*</span></label>
-            <input placeholder="Nhập tên đầy đủ" value={ordererName} onChange={e => setOrdererName(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Văn phòng <span className="text-red-500">*</span></label>
-            <input placeholder="VD: Hà Nội, HCM, Đà Nẵng..." value={office} onChange={e => setOffice(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">TG dự kiến lắp đặt</label>
-            <input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Địa chỉ / SĐT người nhận</label>
-            <textarea rows={2} placeholder="Địa chỉ giao hàng, SĐT..." value={recipientInfo} onChange={e => setRecipientInfo(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Ghi chú</label>
-            <textarea rows={2} placeholder="Yêu cầu đặc biệt..." value={notes} onChange={e => setNotes(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
-          </div>
-        </div>
-        {submitMsg && (
-          <div className={`mt-3 text-sm px-3 py-2 rounded-lg ${submitMsg.startsWith('✅') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
-            {submitMsg}
-          </div>
-        )}
-        <button onClick={handleSubmit} disabled={submitting || cart.length === 0}
-          className="mt-4 w-full py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-50 transition"
-          style={{ background: submitting || cart.length === 0 ? '#9ca3af' : '#1d6fba' }}>
-          {submitting ? '⏳ Đang xử lý...' : cart.length === 0 ? 'Chưa chọn thiết bị' : `🛒 Đặt hàng (${cart.length} loại · ${cart.reduce((s,c)=>s+c.quantity,0)} sp)`}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// ORDER LIST (đơn web)
-// ══════════════════════════════════════════════════════════════════════════════
-function OrderList({ mine, isAdmin }: { mine: boolean; isAdmin: boolean }) {
-  const [orders, setOrders]       = useState<DonHang[]>([])
-  const [total, setTotal]         = useState(0)
-  const [loading, setLoading]     = useState(true)
-  const [page, setPage]           = useState(1)
-  const [statusFilter, setFilter] = useState('')
-  const [updating, setUpdating]   = useState<string | null>(null)
-  const LIMIT = 20
-
-  const load = useCallback(async (p = 1) => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams({ mine: mine ? '1' : '0', page: String(p), limit: String(LIMIT), ...(statusFilter ? { status: statusFilter } : {}) })
-      const res = await fetch(`/api/giao-hang/don-hang?${params}`)
-      const d   = await res.json()
-      setOrders(d.orders ?? []); setTotal(d.total ?? 0)
-    } catch { /* ignore */ } finally { setLoading(false) }
-  }, [mine, statusFilter])
-
-  useEffect(() => { setPage(1); load(1) }, [mine, statusFilter]) // eslint-disable-line
-  useEffect(() => { load(page) }, [page])                         // eslint-disable-line
-
-  async function changeStatus(id: string, status: string) {
-    setUpdating(id)
-    await fetch('/api/giao-hang/don-hang', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) })
-    load(page); setUpdating(null)
-  }
-
-  const totalPages = Math.ceil(total / LIMIT)
-
-  if (loading) return <div className="flex items-center justify-center h-40 gap-2 text-gray-400"><span className="w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" /><span className="text-sm">Đang tải...</span></div>
-  if (orders.length === 0) return <div className="flex flex-col items-center justify-center h-40 text-gray-400"><span className="text-4xl mb-2">📦</span><p className="text-sm">Chưa có đơn hàng nào</p></div>
-
-  return (
-    <div className="p-4">
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <select value={statusFilter} onChange={e => setFilter(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
-          <option value="">Tất cả trạng thái</option>
-          {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <span className="text-xs text-gray-400">{total} đơn</span>
-      </div>
-      <div className="space-y-3">
-        {orders.map(order => (
-          <div key={order.id} className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-sm transition">
-            <div className="flex items-start justify-between gap-2 flex-wrap">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono font-bold text-blue-700 text-sm">{order.order_code}</span>
-                  <StatusBadge status={order.status} />
-                </div>
-                <p className="text-xs text-gray-400 mt-0.5">{order.orderer_name} · {order.office} · {new Date(order.created_at).toLocaleDateString('vi-VN')}</p>
-              </div>
-              {isAdmin && (
-                <select value={order.status} disabled={updating === order.id} onChange={e => changeStatus(order.id, e.target.value)}
-                  className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none">
-                  {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
+      {/* Device grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
+        {filtered().map(dev => {
+          const active = cart.some(c => c.device_name === dev.name)
+          const ts = typeStyle(dev.device_type)
+          return (
+            <button key={dev.equipment_id} onClick={() => toggle(dev.name)}
+              className={`flex flex-col items-start p-2.5 rounded-xl border text-left transition-all ${
+                active ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-300' : 'bg-white border-gray-200 hover:border-indigo-300'
+              }`}>
+              <span className="text-base mb-1">{ts.icon}</span>
+              <span className="text-xs font-medium leading-tight">{dev.name}</span>
+              {dev.device_type && (
+                <span className={`mt-1 px-1.5 py-0.5 rounded-full text-[10px] border ${ts.color}`}>{ts.label}</span>
               )}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {order.giao_hang_don_items?.map(item => (
-                <span key={item.id} className="inline-flex items-center gap-1 bg-gray-100 rounded-full px-2.5 py-1 text-xs text-gray-700">
-                  <span className="font-medium">{item.device_name}</span><span className="text-gray-400">×{item.quantity}</span>
+              {active && <span className="mt-1 text-[10px] text-indigo-600 font-semibold">✓ Đã chọn</span>}
+            </button>
+          )
+        })}
+        {filtered().length === 0 && (
+          <div className="col-span-3 text-center py-6 text-gray-400 text-sm">Không có thiết bị phù hợp</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COMBO PICKER — quick-add preset packages
+// ══════════════════════════════════════════════════════════════════════════════
+function ComboPicker({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem[]) => void }) {
+  const [combos, setCombos]   = useState<Combo[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/giao-hang/combos').then(r => r.json())
+      .then(d => setCombos(d.combos ?? []))
+      .finally(() => setLoading(false))
+  }, [])
+
+  function addCombo(combo: Combo) {
+    let updated = [...cart]
+    for (const item of combo.device_combo_items) {
+      const idx = updated.findIndex(c => c.device_name === item.device_name)
+      if (idx >= 0) updated[idx] = { ...updated[idx], quantity: updated[idx].quantity + item.quantity }
+      else updated.push({ device_name: item.device_name, quantity: item.quantity, customer_codes: [], expected_receipt: '' })
+    }
+    onChange(updated)
+  }
+
+  if (loading) return <div className="text-xs text-gray-400 py-2">Đang tải gói…</div>
+  if (combos.length === 0) return <div className="text-xs text-gray-400 py-2">Chưa có gói combo nào</div>
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium text-gray-500 mb-1">📦 Gói combo</div>
+      <div className="flex flex-wrap gap-2">
+        {combos.map(combo => (
+          <button key={combo.id} onClick={() => addCombo(combo)}
+            className="group flex flex-col items-start p-2.5 bg-white border border-amber-200 rounded-xl hover:border-amber-400 hover:bg-amber-50 text-left transition-all min-w-[140px] max-w-[200px]">
+            <div className="font-medium text-sm text-amber-800">📦 {combo.name}</div>
+            {combo.description && <div className="text-xs text-gray-500 mt-0.5">{combo.description}</div>}
+            <div className="mt-1 flex flex-wrap gap-1">
+              {combo.device_combo_items.map((item, i) => (
+                <span key={i} className="bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 text-[10px]">
+                  {item.device_name} ×{item.quantity}
                 </span>
               ))}
             </div>
-            <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
-              {order.expected_date && <span>📅 {order.expected_date}</span>}
-              {order.recipient_info && <span>📍 {order.recipient_info}</span>}
-              {order.notes && <span>📝 {order.notes}</span>}
-            </div>
-          </div>
+            <div className="mt-1 text-[10px] text-amber-600 group-hover:text-amber-800 font-medium">+ Thêm vào đơn</div>
+          </button>
         ))}
       </div>
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page===1}
-            className="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">← Trước</button>
-          <span className="text-sm text-gray-500">Trang {page} / {totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page===totalPages}
-            className="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">Tiếp →</button>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CART — list of selected items with qty, codes, receipt date
+// ══════════════════════════════════════════════════════════════════════════════
+function CartList({ cart, onChange }: { cart: CartItem[]; onChange: (c: CartItem[]) => void }) {
+  if (cart.length === 0) return (
+    <div className="text-center py-8 text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-xl">
+      Chưa chọn thiết bị nào
+    </div>
+  )
+
+  function update(idx: number, patch: Partial<CartItem>) {
+    const next = cart.map((item, i) => i === idx ? { ...item, ...patch } : item)
+    onChange(next)
+  }
+
+  return (
+    <div className="space-y-2">
+      {cart.map((item, idx) => (
+        <div key={item.device_name} className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="font-medium text-sm text-gray-800 flex items-center gap-1.5">
+              <span>{typeStyle(undefined).icon}</span>
+              {item.device_name}
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Qty */}
+              <div className="flex items-center gap-1 bg-gray-50 rounded-lg border px-1">
+                <button onClick={() => update(idx, { quantity: Math.max(1, item.quantity - 1) })}
+                  className="w-6 h-6 text-gray-500 hover:text-gray-800 text-sm font-bold">−</button>
+                <input type="number" min={1}
+                  className="w-10 text-center text-sm bg-transparent focus:outline-none"
+                  value={item.quantity}
+                  onChange={e => update(idx, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
+                />
+                <button onClick={() => update(idx, { quantity: item.quantity + 1 })}
+                  className="w-6 h-6 text-gray-500 hover:text-gray-800 text-sm font-bold">+</button>
+              </div>
+              <button onClick={() => onChange(cart.filter((_, i) => i !== idx))}
+                className="text-gray-300 hover:text-red-500 text-lg leading-none">×</button>
+            </div>
+          </div>
+
+          {/* Mã KH */}
+          <div>
+            <div className="text-xs text-gray-500 font-medium">🏷️ Mã khách hàng</div>
+            <CustomerCodeInput codes={item.customer_codes} onChange={c => update(idx, { customer_codes: c })} />
+          </div>
+
+          {/* Expected receipt */}
+          <div>
+            <label className="text-xs text-gray-500 font-medium">📅 Ngày dự kiến nhận</label>
+            <input type="date"
+              className="mt-0.5 block w-full border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              value={item.expected_receipt}
+              onChange={e => update(idx, { expected_receipt: e.target.value })}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB 1 — ĐẶT HÀNG
+// ══════════════════════════════════════════════════════════════════════════════
+function TabDatHang({ userEmail }: { userEmail: string }) {
+  const [cart, setCart]               = useState<CartItem[]>([])
+  const [recipients, setRecipients]   = useState<Recipient[]>([])
+  const [recipientId, setRecipientId] = useState('')
+  const [recipientInfo, setRecipientInfo] = useState('')
+  const [ordererName, setOrdererName] = useState('')
+  const [office, setOffice]           = useState('')
+  const [expectedDate, setExpectedDate]     = useState('')
+  const [expectedShipDate, setExpectedShipDate] = useState('')
+  const [notes, setNotes]             = useState('')
+  const [step, setStep]               = useState<'combo'|'device'|'cart'>('combo')
+  const [submitting, setSubmitting]   = useState(false)
+  const [result, setResult]           = useState<{ ok: boolean; msg: string } | null>(null)
+
+  useEffect(() => {
+    fetch('/api/giao-hang/recipients').then(r => r.json()).then(d => setRecipients(d.recipients ?? []))
+  }, [])
+
+  function handleRecipientChange(id: string) {
+    setRecipientId(id)
+    if (!id) { setRecipientInfo(''); return }
+    const r = recipients.find(x => x.id === id)
+    if (r) {
+      const parts = [r.name]
+      if (r.address) parts.push(r.address)
+      if (r.phone)   parts.push(r.phone)
+      setRecipientInfo(parts.join(' — '))
+    }
+  }
+
+  async function submit() {
+    if (cart.length === 0) { setResult({ ok: false, msg: 'Chưa chọn thiết bị nào' }); return }
+    setSubmitting(true); setResult(null)
+    try {
+      const res = await fetch('/api/giao-hang/dat-hang', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderer_email: userEmail,
+          orderer_name:  ordererName,
+          office,
+          expected_date:      expectedDate,
+          expected_ship_date: expectedShipDate,
+          recipient_id:   recipientId || undefined,
+          recipient_info: recipientInfo,
+          notes,
+          items: cart.map(c => ({
+            device_name:      c.device_name,
+            quantity:         c.quantity,
+            customer_codes:   c.customer_codes,
+            expected_receipt: c.expected_receipt || undefined,
+          })),
+        }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setResult({ ok: true, msg: `Đặt hàng thành công! Mã: ${data.order_code}` })
+        setCart([]); setOrdererName(''); setOffice(''); setExpectedDate(''); setExpectedShipDate('')
+        setNotes(''); setRecipientId(''); setRecipientInfo(''); setStep('combo')
+      } else {
+        setResult({ ok: false, msg: data.error ?? 'Lỗi đặt hàng' })
+      }
+    } finally { setSubmitting(false) }
+  }
+
+  const offices = [...new Set(recipients.filter(r => r.type === 'office').map(r => r.office ?? r.name))]
+
+  return (
+    <div className="space-y-4">
+      {/* Step tabs */}
+      <div className="flex gap-1 bg-gray-50 p-1 rounded-xl border">
+        {([['combo','📦 Gói combo'],['device','🔍 Chọn thiết bị'],['cart','🛒 Giỏ hàng']] as const).map(([s, label]) => (
+          <button key={s} onClick={() => setStep(s)}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              step === s ? 'bg-white shadow text-indigo-700' : 'text-gray-500 hover:text-gray-800'
+            }`}>
+            {label} {s === 'cart' && cart.length > 0 && <span className="ml-1 bg-indigo-600 text-white rounded-full px-1.5 py-0.5 text-[10px]">{cart.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      {step === 'combo'  && <ComboPicker cart={cart} onChange={setCart} />}
+      {step === 'device' && <DevicePicker cart={cart} onChange={setCart} />}
+      {step === 'cart'   && <CartList cart={cart} onChange={setCart} />}
+
+      {/* Order details */}
+      <div className="bg-gray-50 rounded-xl border p-4 space-y-3">
+        <div className="text-sm font-semibold text-gray-700">📋 Thông tin đơn hàng</div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Orderer name */}
+          <div>
+            <label className="text-xs text-gray-600 font-medium">Người đặt</label>
+            <input className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              placeholder="Tên người đặt hàng"
+              value={ordererName} onChange={e => setOrdererName(e.target.value)} />
+          </div>
+
+          {/* Office */}
+          <div>
+            <label className="text-xs text-gray-600 font-medium">Văn phòng</label>
+            <input className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              placeholder="VD: Hà Nội, HCM…"
+              list="office-list"
+              value={office} onChange={e => setOffice(e.target.value)} />
+            <datalist id="office-list">
+              {offices.map(o => <option key={o} value={o} />)}
+            </datalist>
+          </div>
+
+          {/* Expected delivery date */}
+          <div>
+            <label className="text-xs text-gray-600 font-medium">📅 Ngày giao dự kiến</label>
+            <input type="date" className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              value={expectedDate} onChange={e => setExpectedDate(e.target.value)} />
+          </div>
+
+          {/* Expected ship date */}
+          <div>
+            <label className="text-xs text-gray-600 font-medium">🚚 Ngày gửi dự kiến</label>
+            <input type="date" className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              value={expectedShipDate} onChange={e => setExpectedShipDate(e.target.value)} />
+          </div>
+        </div>
+
+        {/* Recipient selector */}
+        <div>
+          <label className="text-xs text-gray-600 font-medium">👤 Người nhận</label>
+          <select className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
+            value={recipientId} onChange={e => handleRecipientChange(e.target.value)}>
+            <option value="">— Chọn người nhận —</option>
+            {['office','person'].map(type => {
+              const group = recipients.filter(r => r.type === type)
+              if (group.length === 0) return null
+              return (
+                <optgroup key={type} label={type === 'office' ? '🏢 Văn phòng' : '👤 Cá nhân'}>
+                  {group.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}{r.office ? ` (${r.office})` : ''}{r.phone ? ` — ${r.phone}` : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            })}
+          </select>
+          {/* Manual override */}
+          <input className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 text-gray-600"
+            placeholder="Hoặc nhập thủ công: tên — địa chỉ — SĐT"
+            value={recipientInfo} onChange={e => setRecipientInfo(e.target.value)} />
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label className="text-xs text-gray-600 font-medium">Ghi chú</label>
+          <textarea rows={2}
+            className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
+            placeholder="Ghi chú thêm…"
+            value={notes} onChange={e => setNotes(e.target.value)} />
+        </div>
+      </div>
+
+      {result && (
+        <div className={`p-3 rounded-xl text-sm ${result.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+          {result.msg}
+        </div>
+      )}
+
+      <button onClick={submit} disabled={submitting || cart.length === 0}
+        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition-colors">
+        {submitting ? 'Đang gửi…' : `🛒 Đặt hàng (${cart.length} loại)`}
+      </button>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB 2 — ĐƠN CỦA TÔI
+// ══════════════════════════════════════════════════════════════════════════════
+function TabMyOrders({ userEmail }: { userEmail: string }) {
+  const [orders, setOrders]   = useState<DonHang[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    fetch('/api/giao-hang/don-hang').then(r => r.json())
+      .then(d => setOrders(d.orders ?? []))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <div className="text-center py-12 text-gray-400">Đang tải đơn hàng…</div>
+  if (orders.length === 0) return (
+    <div className="text-center py-12 text-gray-400">
+      <div className="text-4xl mb-2">📭</div>
+      <div>Bạn chưa có đơn hàng nào</div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-2">
+      {orders.map(o => (
+        <div key={o.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <button className="w-full flex items-center justify-between p-3 text-left hover:bg-gray-50"
+            onClick={() => setExpanded(expanded === o.id ? null : o.id)}>
+            <div>
+              <div className="font-mono text-sm font-semibold text-indigo-700">{o.order_code}</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                {o.office} · {new Date(o.created_at).toLocaleDateString('vi-VN')}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <StatusBadge status={o.status} />
+              <span className="text-gray-400 text-sm">{expanded === o.id ? '▲' : '▼'}</span>
+            </div>
+          </button>
+          {expanded === o.id && (
+            <div className="border-t border-gray-100 p-3 space-y-2">
+              {o.giao_hang_don_items.map(item => (
+                <div key={item.id} className="flex items-start justify-between py-1.5 border-b border-gray-50 last:border-0">
+                  <div>
+                    <div className="text-sm font-medium">{item.device_name}</div>
+                    {item.customer_codes && item.customer_codes.length > 0 && (
+                      <div className="flex gap-1 mt-0.5 flex-wrap">
+                        {item.customer_codes.map(c => (
+                          <span key={c} className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5 text-[10px]">{c}</span>
+                        ))}
+                      </div>
+                    )}
+                    {item.expected_receipt && (
+                      <div className="text-xs text-gray-500 mt-0.5">Nhận: {item.expected_receipt}</div>
+                    )}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-700">×{item.quantity}</div>
+                </div>
+              ))}
+              {o.recipient_info && (
+                <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>
+              )}
+              {o.notes && <div className="text-xs text-gray-500 italic">📝 {o.notes}</div>}
+              {o.expected_ship_date && (
+                <div className="text-xs text-amber-600">🚚 Gửi dự kiến: {o.expected_ship_date}</div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB 3 — TẤT CẢ ĐƠN (admin)
+// ══════════════════════════════════════════════════════════════════════════════
+function TabAllOrders() {
+  const [orders, setOrders]   = useState<DonHang[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch]   = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    const params = new URLSearchParams({ mine: '0' })
+    if (search) params.set('search', search)
+    if (statusFilter) params.set('status', statusFilter)
+    fetch(`/api/giao-hang/don-hang?${params}`).then(r => r.json())
+      .then(d => setOrders(d.orders ?? []))
+      .finally(() => setLoading(false))
+  }, [search, statusFilter])
+
+  useEffect(() => { load() }, [load])
+
+  async function updateStatus(id: string, status: string) {
+    await fetch('/api/giao-hang/don-hang', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, status }),
+    })
+    load()
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <input className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          placeholder="Tìm theo người đặt, mã đơn…"
+          value={search} onChange={e => setSearch(e.target.value)} />
+        <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <option value="">Tất cả TT</option>
+          {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-gray-400">Đang tải…</div>
+      ) : orders.length === 0 ? (
+        <div className="text-center py-8 text-gray-400">Không có đơn hàng</div>
+      ) : (
+        <div className="space-y-2">
+          {orders.map(o => (
+            <div key={o.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <button className="w-full flex items-center justify-between p-3 text-left hover:bg-gray-50"
+                onClick={() => setExpanded(expanded === o.id ? null : o.id)}>
+                <div>
+                  <div className="font-mono text-sm font-semibold text-indigo-700">{o.order_code}</div>
+                  <div className="text-xs text-gray-500">
+                    {o.orderer_name || o.orderer_email} · {o.office} · {new Date(o.created_at).toLocaleDateString('vi-VN')}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={o.status} />
+                  <span className="text-gray-400 text-sm">{expanded === o.id ? '▲' : '▼'}</span>
+                </div>
+              </button>
+              {expanded === o.id && (
+                <div className="border-t p-3 space-y-2">
+                  {o.giao_hang_don_items.map(item => (
+                    <div key={item.id} className="flex justify-between py-1.5 border-b border-gray-50 last:border-0">
+                      <div>
+                        <div className="text-sm font-medium">{item.device_name}</div>
+                        {item.customer_codes && item.customer_codes.length > 0 && (
+                          <div className="flex gap-1 mt-0.5 flex-wrap">
+                            {item.customer_codes.map(c => (
+                              <span key={c} className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5 text-[10px]">{c}</span>
+                            ))}
+                          </div>
+                        )}
+                        {item.expected_receipt && <div className="text-xs text-gray-500">Nhận: {item.expected_receipt}</div>}
+                      </div>
+                      <div className="text-sm font-semibold">×{item.quantity}</div>
+                    </div>
+                  ))}
+                  {o.recipient_info && <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>}
+                  {o.expected_ship_date && <div className="text-xs text-amber-600">🚚 Gửi: {o.expected_ship_date}</div>}
+                  {o.notes && <div className="text-xs italic text-gray-500">📝 {o.notes}</div>}
+                  <div className="flex gap-1 flex-wrap pt-1">
+                    {Object.entries(STATUS_LABEL).map(([k, v]) => (
+                      <button key={k} onClick={() => updateStatus(o.id, k)}
+                        disabled={o.status === k}
+                        className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                          o.status === k ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-400'
+                        }`}>
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -401,211 +682,510 @@ function OrderList({ mine, isAdmin }: { mine: boolean; isAdmin: boolean }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// LICH SU SHEET — đồng bộ + bảng dữ liệu gốc từ Google Sheet
+// TAB 4 — LỊCH SỬ SHEET
 // ══════════════════════════════════════════════════════════════════════════════
-function EditSheetModal({ order, onClose, onSaved }: { order: SheetOrder; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({
-    stt: order.stt, order_time: order.order_time, office: order.office,
-    orderer: order.orderer, device_type: order.device_type,
-    quantity: order.quantity, expected_date: order.expected_date, recipient_info: order.recipient_info,
-  })
-  const [saving, setSaving] = useState(false)
-  const [err, setErr]       = useState('')
+function TabLichSuSheet() {
+  const [orders, setOrders]     = useState<SheetOrder[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [syncing, setSyncing]   = useState(false)
+  const [syncMsg, setSyncMsg]   = useState('')
+  const [search, setSearch]     = useState('')
+  const [hasDevice, setHasDevice] = useState(true)
+  const [page, setPage]         = useState(1)
+  const [total, setTotal]       = useState(0)
+  const LIMIT = 100
+  const [editing, setEditing]   = useState<Partial<SheetOrder> | null>(null)
 
-  function field(k: keyof typeof form, label: string, type = 'text') {
-    return (
-      <div key={k}>
-        <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-        <input type={type} value={form[k]} onChange={e => setForm(f => ({ ...f, [k]: e.target.value }))}
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-      </div>
-    )
-  }
-
-  async function save() {
-    setSaving(true); setErr('')
-    try {
-      const res = await fetch('/api/giao-hang/orders', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: order.id, sheet_row: order.sheet_row, ...form }),
-      })
-      const d = await res.json()
-      if (d.error) { setErr(d.error); return }
-      onSaved(); onClose()
-    } catch (e) { setErr(String(e)) }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900 text-sm">Sửa hàng #{order.sheet_row} — ghi ngược vào Sheet</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-lg">✕</button>
-        </div>
-        <div className="p-5 grid grid-cols-2 gap-3">
-          {field('stt', 'STT')}
-          {field('order_time', 'Thời gian đặt')}
-          {field('office', 'Văn phòng')}
-          {field('orderer', 'Người đặt')}
-          {field('device_type', 'Loại TB')}
-          {field('quantity', 'Số lượng')}
-          {field('expected_date', 'TG dự kiến')}
-          {field('recipient_info', 'Người nhận')}
-        </div>
-        {err && <p className="px-5 pb-2 text-xs text-red-600">❌ {err}</p>}
-        <div className="flex gap-3 px-5 pb-5">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Huỷ</button>
-          <button onClick={save} disabled={saving}
-            className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
-            style={{ background: '#1d6fba' }}>
-            {saving ? '⏳ Đang lưu...' : '💾 Lưu + Ghi Sheet'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function LichSuSheet() {
-  const [orders, setOrders]       = useState<SheetOrder[]>([])
-  const [total, setTotal]         = useState(0)
-  const [loading, setLoading]     = useState(true)
-  const [syncing, setSyncing]     = useState(false)
-  const [syncMsg, setSyncMsg]     = useState('')
-  const [page, setPage]           = useState(1)
-  const [search, setSearch]       = useState('')
-  const [officeFilter, setOffice] = useState('')
-  const [hasDevice, setHasDevice] = useState(true)   // default: hide blank Loại TB rows
-  const [editing, setEditing]     = useState<SheetOrder | null>(null)
-  const LIMIT = 50
-
-  const load = useCallback(async (p = 1) => {
+  const load = useCallback(() => {
     setLoading(true)
-    try {
-      const params = new URLSearchParams({
-        page: String(p), limit: String(LIMIT),
-        ...(search ? { search } : {}),
-        ...(officeFilter ? { office: officeFilter } : {}),
-        ...(hasDevice ? { has_device: '1' } : {}),
-      })
-      const res = await fetch(`/api/giao-hang/orders?${params}`)
-      const d   = await res.json()
-      setOrders(d.orders ?? []); setTotal(d.total ?? 0)
-    } catch { /* ignore */ } finally { setLoading(false) }
-  }, [search, officeFilter, hasDevice])
+    const p = new URLSearchParams({ page: String(page), limit: String(LIMIT) })
+    if (search)    p.set('search', search)
+    if (hasDevice) p.set('has_device', '1')
+    fetch(`/api/giao-hang/orders?${p}`).then(r => r.json())
+      .then(d => { setOrders(d.orders ?? []); setTotal(d.total ?? 0) })
+      .finally(() => setLoading(false))
+  }, [page, search, hasDevice])
 
-  useEffect(() => { setPage(1); load(1) }, [search, officeFilter, hasDevice]) // eslint-disable-line
-  useEffect(() => { load(page) }, [page])                                       // eslint-disable-line
+  useEffect(() => { load() }, [load])
 
   async function sync() {
     setSyncing(true); setSyncMsg('')
     try {
-      const res = await fetch('/api/giao-hang/sync', { method: 'POST' })
-      const d   = await res.json()
-      if (d.error) { setSyncMsg('❌ ' + d.error); return }
-      setSyncMsg(`✅ Đồng bộ xong: ${d.upserted ?? 0} hàng từ Google Sheet`)
-      load(1)
-    } catch (e) { setSyncMsg('❌ ' + String(e)) }
-    finally { setSyncing(false) }
+      const res = await fetch('/api/giao-hang/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const d = await res.json()
+      setSyncMsg(d.ok ? `✅ Đồng bộ ${d.upserted} dòng (${d.source})` : `❌ ${d.error}`)
+      if (d.ok) load()
+    } catch (e) {
+      setSyncMsg('❌ Lỗi kết nối')
+    } finally { setSyncing(false) }
+  }
+
+  async function saveEdit() {
+    if (!editing?.id) return
+    const res = await fetch('/api/giao-hang/orders', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editing),
+    })
+    const d = await res.json()
+    if (d.ok) { setEditing(null); load() }
+    else alert(d.error)
   }
 
   const totalPages = Math.ceil(total / LIMIT)
-  const offices    = [...new Set(orders.map(o => o.office).filter(Boolean))]
 
   return (
-    <div className="p-4">
-      {/* Header bar */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+    <div className="space-y-3">
+      {/* Toolbar */}
+      <div className="flex flex-wrap gap-2 items-center">
         <button onClick={sync} disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-sm font-medium disabled:opacity-50 transition"
-          style={{ background: syncing ? '#9ca3af' : '#16a34a' }}>
-          {syncing
-            ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />Đang đồng bộ...</>
-            : <>🔄 Đồng bộ từ Google Sheet</>}
+          className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-colors">
+          {syncing ? '⏳ Đang đồng bộ…' : '🔄 Đồng bộ Sheet'}
         </button>
-        <input type="text" placeholder="Tìm kiếm..." value={search} onChange={e => setSearch(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex-1 min-w-40 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        <select value={officeFilter} onChange={e => setOffice(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
-          <option value="">Tất cả VP</option>
-          {offices.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-        <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-gray-600 whitespace-nowrap">
-          <input type="checkbox" checked={hasDevice} onChange={e => setHasDevice(e.target.checked)}
-            className="w-4 h-4 rounded accent-blue-600" />
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
+          <input type="checkbox" className="rounded" checked={hasDevice} onChange={e => { setHasDevice(e.target.checked); setPage(1) }} />
           Có Loại TB
         </label>
-        <span className="text-xs text-gray-400">{total} đơn</span>
+        <input className="flex-1 min-w-[180px] border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          placeholder="Tìm kiếm…"
+          value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+        <span className="text-xs text-gray-400">{total} dòng</span>
       </div>
-
-      {syncMsg && (
-        <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${syncMsg.startsWith('✅') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
-          {syncMsg}
-        </div>
-      )}
-
-      {/* Note */}
-      <div className="mb-3 flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700">
-        <span className="text-base">📋</span>
-        <p>Dữ liệu lịch sử đặt hàng đọc từ <strong>Google Sheet "Order hàng VP- Kho"</strong>. Bấm <em>Đồng bộ</em> để tải dữ liệu mới nhất. Bấm ✏️ để sửa và ghi ngược vào sheet.</p>
-      </div>
+      {syncMsg && <div className="text-sm px-3 py-2 bg-gray-50 rounded-xl border">{syncMsg}</div>}
 
       {/* Table */}
-      {loading ? (
-        <div className="flex items-center justify-center h-32 gap-2 text-gray-400">
-          <span className="w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
-          <span className="text-sm">Đang tải...</span>
+      <div className="overflow-x-auto rounded-xl border border-gray-200">
+        <table className="w-full text-xs">
+          <thead className="bg-gray-50 sticky top-0">
+            <tr>
+              {['STT','Thời gian','Office','Người đặt','Loại TB','SL','Ngày DK','Người nhận',''].map(h => (
+                <th key={h} className="px-2 py-2 text-left text-gray-500 font-medium whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={9} className="text-center py-8 text-gray-400">Đang tải…</td></tr>
+            ) : orders.map(o => (
+              <tr key={o.id} className="border-t border-gray-100 hover:bg-gray-50">
+                <td className="px-2 py-1.5 text-gray-400">{o.stt}</td>
+                <td className="px-2 py-1.5 whitespace-nowrap">{o.order_time}</td>
+                <td className="px-2 py-1.5 font-medium">{o.office}</td>
+                <td className="px-2 py-1.5">{o.orderer}</td>
+                <td className="px-2 py-1.5 max-w-[160px]">
+                  <span className="bg-gray-100 text-gray-700 rounded px-1.5 py-0.5 text-[11px] break-words">{o.device_type}</span>
+                </td>
+                <td className="px-2 py-1.5 text-center font-semibold">{o.quantity}</td>
+                <td className="px-2 py-1.5 whitespace-nowrap">{o.expected_date}</td>
+                <td className="px-2 py-1.5 max-w-[140px] truncate text-gray-600">{o.recipient_info}</td>
+                <td className="px-2 py-1.5">
+                  <button onClick={() => setEditing({ ...o })}
+                    className="text-indigo-500 hover:text-indigo-700 text-xs border border-indigo-200 rounded px-1.5 py-0.5">
+                    Sửa
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-1">
+          <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
+            className="px-2 py-1 rounded border text-xs disabled:opacity-40 hover:bg-gray-50">◀</button>
+          <span className="text-xs text-gray-600">{page} / {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page === totalPages}
+            className="px-2 py-1 rounded border text-xs disabled:opacity-40 hover:bg-gray-50">▶</button>
         </div>
-      ) : orders.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-40 text-gray-400">
-          <span className="text-4xl mb-2">📭</span>
-          <p className="text-sm">Chưa có dữ liệu. Bấm &quot;Đồng bộ từ Google Sheet&quot; để tải.</p>
+      )}
+
+      {/* Edit modal */}
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-3">
+            <div className="font-semibold text-gray-800">Chỉnh sửa dòng #{editing.sheet_row}</div>
+            {[
+              ['order_time','Thời gian'],['office','Office'],['orderer','Người đặt'],
+              ['device_type','Loại TB'],['quantity','Số lượng'],
+              ['expected_date','Ngày dự kiến'],['recipient_info','Người nhận'],
+            ].map(([k, label]) => (
+              <div key={k}>
+                <label className="text-xs text-gray-500">{label}</label>
+                <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                  value={String((editing as Record<string, unknown>)[k] ?? '')}
+                  onChange={e => setEditing({ ...editing, [k]: e.target.value })} />
+              </div>
+            ))}
+            <div className="flex gap-2 pt-1">
+              <button onClick={saveEdit} className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium">Lưu</button>
+              <button onClick={() => setEditing(null)} className="px-4 py-2 border border-gray-200 rounded-xl text-sm hover:bg-gray-50">Hủy</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB 5 — GÓI COMBO (CRUD)
+// ══════════════════════════════════════════════════════════════════════════════
+function TabCombos() {
+  const [combos, setCombos]     = useState<Combo[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing]   = useState<Combo | null>(null)
+  const [form, setForm]         = useState({ name: '', description: '', items: [{ device_name: '', quantity: 1, notes: '' }] })
+  const [saving, setSaving]     = useState(false)
+
+  const load = () => {
+    setLoading(true)
+    fetch('/api/giao-hang/combos').then(r => r.json())
+      .then(d => setCombos(d.combos ?? []))
+      .finally(() => setLoading(false))
+  }
+  useEffect(() => { load() }, [])
+
+  function openCreate() {
+    setEditing(null)
+    setForm({ name: '', description: '', items: [{ device_name: '', quantity: 1, notes: '' }] })
+    setShowForm(true)
+  }
+
+  function openEdit(combo: Combo) {
+    setEditing(combo)
+    setForm({
+      name: combo.name,
+      description: combo.description ?? '',
+      items: combo.device_combo_items.length > 0
+        ? combo.device_combo_items.map(i => ({ device_name: i.device_name, quantity: i.quantity, notes: i.notes ?? '' }))
+        : [{ device_name: '', quantity: 1, notes: '' }],
+    })
+    setShowForm(true)
+  }
+
+  async function save() {
+    if (!form.name.trim()) return
+    setSaving(true)
+    const body = { name: form.name, description: form.description, items: form.items.filter(i => i.device_name.trim()) }
+    const res = await fetch('/api/giao-hang/combos', {
+      method: editing ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editing ? { id: editing.id, ...body } : body),
+    })
+    const d = await res.json()
+    setSaving(false)
+    if (d.ok || d.combo) { setShowForm(false); load() }
+    else alert(d.error)
+  }
+
+  async function del(id: string) {
+    if (!confirm('Xóa combo này?')) return
+    await fetch('/api/giao-hang/combos', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    load()
+  }
+
+  function updateItem(idx: number, patch: Partial<typeof form.items[0]>) {
+    setForm(f => ({ ...f, items: f.items.map((it, i) => i === idx ? { ...it, ...patch } : it) }))
+  }
+  function addItem()    { setForm(f => ({ ...f, items: [...f.items, { device_name: '', quantity: 1, notes: '' }] })) }
+  function removeItem(idx: number) { setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) })) }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-between items-center">
+        <div className="text-sm font-semibold text-gray-700">📦 Quản lý gói combo</div>
+        <button onClick={openCreate}
+          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium transition-colors">
+          + Tạo combo
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-gray-400 text-sm">Đang tải…</div>
+      ) : combos.length === 0 ? (
+        <div className="text-center py-8 text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-xl">
+          Chưa có combo nào
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200">
-          <table className="w-full text-sm min-w-[700px]">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                {['#Row', 'STT', 'Thời gian', 'VP', 'Người đặt', 'Loại TB', 'SL', 'TG dự kiến', 'Người nhận', ''].map(h => (
-                  <th key={h} className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+        <div className="space-y-2">
+          {combos.map(combo => (
+            <div key={combo.id} className="bg-white border border-gray-200 rounded-xl p-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-semibold text-sm text-amber-800">📦 {combo.name}</div>
+                  {combo.description && <div className="text-xs text-gray-500 mt-0.5">{combo.description}</div>}
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {combo.device_combo_items.map((item, i) => (
+                      <span key={i} className="bg-amber-50 text-amber-700 border border-amber-200 rounded-lg px-2 py-0.5 text-xs">
+                        {item.device_name} ×{item.quantity}
+                        {item.notes && <span className="text-gray-400 ml-1">({item.notes})</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-1 ml-2">
+                  <button onClick={() => openEdit(combo)}
+                    className="px-2 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">Sửa</button>
+                  <button onClick={() => del(combo.id)}
+                    className="px-2 py-1 text-xs border border-red-200 rounded-lg hover:bg-red-50 text-red-500">Xóa</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Form modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-3 overflow-y-auto max-h-[90vh]">
+            <div className="font-semibold text-gray-800">{editing ? 'Sửa combo' : 'Tạo combo mới'}</div>
+            <div>
+              <label className="text-xs text-gray-500">Tên combo *</label>
+              <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                placeholder="VD: C43 Full" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Mô tả</label>
+              <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                placeholder="Mô tả combo" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium">Thiết bị trong combo</label>
+              <div className="space-y-2 mt-1">
+                {form.items.map((item, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <input className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                      placeholder="Tên thiết bị" value={item.device_name}
+                      onChange={e => updateItem(idx, { device_name: e.target.value })} />
+                    <input type="number" min={1}
+                      className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                      value={item.quantity} onChange={e => updateItem(idx, { quantity: parseInt(e.target.value) || 1 })} />
+                    <input className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                      placeholder="Ghi chú" value={item.notes}
+                      onChange={e => updateItem(idx, { notes: e.target.value })} />
+                    <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600 text-lg font-bold">×</button>
+                  </div>
                 ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {orders.map(o => (
-                <tr key={o.id} className="hover:bg-gray-50 transition">
-                  <td className="px-3 py-2.5 text-xs text-gray-400 font-mono">{o.sheet_row}</td>
-                  <td className="px-3 py-2.5 text-xs text-gray-600">{o.stt || '—'}</td>
-                  <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{o.order_time || '—'}</td>
-                  <td className="px-3 py-2.5 text-xs font-medium text-gray-800">{o.office || '—'}</td>
-                  <td className="px-3 py-2.5 text-xs text-gray-700">{o.orderer || '—'}</td>
-                  <td className="px-3 py-2.5 text-xs text-gray-700">{o.device_type || '—'}</td>
-                  <td className="px-3 py-2.5 text-xs text-center font-medium text-gray-800">{o.quantity || '—'}</td>
-                  <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{o.expected_date || '—'}</td>
-                  <td className="px-3 py-2.5 text-xs text-gray-600 max-w-[160px] truncate">{o.recipient_info || '—'}</td>
-                  <td className="px-3 py-2.5">
-                    <button onClick={() => setEditing(o)}
-                      className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded-lg transition">✏️</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                <button onClick={addItem}
+                  className="w-full py-1.5 border-2 border-dashed border-gray-200 rounded-lg text-xs text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors">
+                  + Thêm thiết bị
+                </button>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={save} disabled={saving}
+                className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-sm font-medium">
+                {saving ? 'Đang lưu…' : 'Lưu combo'}
+              </button>
+              <button onClick={() => setShowForm(false)}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm hover:bg-gray-50">Hủy</button>
+            </div>
+          </div>
         </div>
       )}
+    </div>
+  )
+}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page===1}
-            className="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">← Trước</button>
-          <span className="text-sm text-gray-500">Trang {page} / {totalPages} · {total} đơn</span>
-          <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page===totalPages}
-            className="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">Tiếp →</button>
-        </div>
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB 6 — NGƯỜI NHẬN (CRUD)
+// ══════════════════════════════════════════════════════════════════════════════
+function TabRecipients() {
+  const [recipients, setRecipients] = useState<Recipient[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [showForm, setShowForm]     = useState(false)
+  const [editing, setEditing]       = useState<Recipient | null>(null)
+  const [form, setForm]             = useState({ name: '', type: 'office', office: '', address: '', phone: '', contact_name: '', notes: '' })
+  const [saving, setSaving]         = useState(false)
+
+  const load = () => {
+    setLoading(true)
+    fetch('/api/giao-hang/recipients').then(r => r.json())
+      .then(d => setRecipients(d.recipients ?? []))
+      .finally(() => setLoading(false))
+  }
+  useEffect(() => { load() }, [])
+
+  function openCreate() {
+    setEditing(null)
+    setForm({ name: '', type: 'office', office: '', address: '', phone: '', contact_name: '', notes: '' })
+    setShowForm(true)
+  }
+
+  function openEdit(r: Recipient) {
+    setEditing(r)
+    setForm({ name: r.name, type: r.type, office: r.office ?? '', address: r.address ?? '', phone: r.phone ?? '', contact_name: r.contact_name ?? '', notes: r.notes ?? '' })
+    setShowForm(true)
+  }
+
+  async function save() {
+    if (!form.name.trim()) return
+    setSaving(true)
+    const res = await fetch('/api/giao-hang/recipients', {
+      method: editing ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editing ? { id: editing.id, ...form } : form),
+    })
+    const d = await res.json()
+    setSaving(false)
+    if (d.ok || d.recipient) { setShowForm(false); load() }
+    else alert(d.error)
+  }
+
+  async function del(id: string) {
+    if (!confirm('Xóa người nhận này?')) return
+    await fetch('/api/giao-hang/recipients', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    load()
+  }
+
+  const offices = recipients.filter(r => r.type === 'office')
+  const persons = recipients.filter(r => r.type === 'person')
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <div className="text-sm font-semibold text-gray-700">👤 Quản lý người nhận</div>
+        <button onClick={openCreate}
+          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium transition-colors">
+          + Thêm người nhận
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-gray-400 text-sm">Đang tải…</div>
+      ) : (
+        <>
+          {offices.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">🏢 Văn phòng <span className="bg-gray-100 rounded-full px-1.5">{offices.length}</span></div>
+              <div className="space-y-1.5">
+                {offices.map(r => (
+                  <div key={r.id} className="bg-white border border-gray-200 rounded-xl p-3 flex items-start justify-between">
+                    <div>
+                      <div className="font-medium text-sm">{r.name}</div>
+                      {r.office && <div className="text-xs text-indigo-600">{r.office}</div>}
+                      {r.address && <div className="text-xs text-gray-500 mt-0.5">📍 {r.address}</div>}
+                      {r.phone && <div className="text-xs text-gray-500">📞 {r.phone}</div>}
+                      {r.contact_name && <div className="text-xs text-gray-500">👤 Liên hệ: {r.contact_name}</div>}
+                    </div>
+                    <div className="flex gap-1 ml-2">
+                      <button onClick={() => openEdit(r)}
+                        className="px-2 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">Sửa</button>
+                      <button onClick={() => del(r.id)}
+                        className="px-2 py-1 text-xs border border-red-200 rounded-lg hover:bg-red-50 text-red-500">Xóa</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {persons.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">👤 Cá nhân <span className="bg-gray-100 rounded-full px-1.5">{persons.length}</span></div>
+              <div className="space-y-1.5">
+                {persons.map(r => (
+                  <div key={r.id} className="bg-white border border-gray-200 rounded-xl p-3 flex items-start justify-between">
+                    <div>
+                      <div className="font-medium text-sm">{r.name}</div>
+                      {r.office && <div className="text-xs text-gray-500">{r.office}</div>}
+                      {r.address && <div className="text-xs text-gray-500 mt-0.5">📍 {r.address}</div>}
+                      {r.phone && <div className="text-xs text-gray-500">📞 {r.phone}</div>}
+                    </div>
+                    <div className="flex gap-1 ml-2">
+                      <button onClick={() => openEdit(r)}
+                        className="px-2 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">Sửa</button>
+                      <button onClick={() => del(r.id)}
+                        className="px-2 py-1 text-xs border border-red-200 rounded-lg hover:bg-red-50 text-red-500">Xóa</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {offices.length === 0 && persons.length === 0 && (
+            <div className="text-center py-8 text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-xl">
+              Chưa có người nhận nào
+            </div>
+          )}
+        </>
       )}
 
-      {editing && <EditSheetModal order={editing} onClose={() => setEditing(null)} onSaved={() => load(page)} />}
+      {/* Form modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-3 overflow-y-auto max-h-[90vh]">
+            <div className="font-semibold text-gray-800">{editing ? 'Sửa người nhận' : 'Thêm người nhận'}</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Tên *</label>
+                <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                  placeholder="Tên người nhận hoặc văn phòng"
+                  value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Loại</label>
+                <select className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                  value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                  <option value="office">🏢 Văn phòng</option>
+                  <option value="person">👤 Cá nhân</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Mã VP/Nhóm</label>
+                <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                  placeholder="VD: HN, HCM" value={form.office}
+                  onChange={e => setForm(f => ({ ...f, office: e.target.value }))} />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Địa chỉ</label>
+                <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                  placeholder="Địa chỉ giao hàng" value={form.address}
+                  onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Số điện thoại</label>
+                <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                  placeholder="SĐT liên hệ" value={form.phone}
+                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Người liên hệ</label>
+                <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                  placeholder="Tên người nhận" value={form.contact_name}
+                  onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))} />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Ghi chú</label>
+                <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                  placeholder="Ghi chú thêm" value={form.notes}
+                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={save} disabled={saving}
+                className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-sm font-medium">
+                {saving ? 'Đang lưu…' : 'Lưu'}
+              </button>
+              <button onClick={() => setShowForm(false)}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm hover:bg-gray-50">Hủy</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -613,33 +1193,51 @@ function LichSuSheet() {
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN DASHBOARD
 // ══════════════════════════════════════════════════════════════════════════════
-export default function GiaoHangDashboard({
-  userEmail = '',
-  isAdmin   = false,
-}: {
-  userEmail?: string
-  isAdmin?: boolean
-}) {
-  const [tab, setTab]         = useState<'dat-hang' | 'don-toi' | 'tat-ca' | 'sheet'>('dat-hang')
-  const [refresh, setRefresh] = useState(0)
+type Tab = 'dat_hang' | 'my_orders' | 'all_orders' | 'lich_su' | 'combos' | 'recipients'
+
+export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: string; isAdmin: boolean }) {
+  const [tab, setTab] = useState<Tab>('dat_hang')
 
   const TABS = [
-    { key: 'dat-hang' as const, label: '🛒 Đặt hàng' },
-    { key: 'don-toi'  as const, label: '📋 Đơn của tôi' },
-    ...(isAdmin ? [{ key: 'tat-ca' as const, label: '📊 Tất cả đơn' }] : []),
-    { key: 'sheet'    as const, label: '📋 Lịch sử Sheet' },
+    { key: 'dat_hang',    label: '🛒 Đặt hàng' },
+    { key: 'my_orders',   label: '📋 Đơn của tôi' },
+    ...(isAdmin ? [{ key: 'all_orders' as Tab, label: '📊 Tất cả đơn' }] : []),
+    { key: 'lich_su',     label: '📋 Lịch sử Sheet' },
+    { key: 'combos',      label: '📦 Gói combo' },
+    { key: 'recipients',  label: '👤 Người nhận' },
   ]
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <h1 className="text-xl font-bold text-gray-900">🚚 Đặt hàng thiết bị</h1>
-        <p className="text-xs text-gray-400 mt-0.5">Đặt hàng qua web · Lịch sử đồng bộ Google Sheet</p>
+    <div className="max-w-3xl mx-auto p-4 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-gray-800">🚚 Giao nhận thiết bị</h1>
+        <div className="text-xs text-gray-400">{userEmail}</div>
       </div>
 
-      <div className="bg-white border-b border-gray-100 px-6">
-        <div className="flex gap-0 overflow-x-auto">
-          {TABS.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
-                tab === t.key ? 'border-blue-600 text-blue-700' : 'border-transparent text
+      {/* Tab bar */}
+      <div className="flex gap-1 overflow-x-auto pb-1">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key as Tab)}
+            className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-medium transition-colors whitespace-nowrap ${
+              tab === t.key
+                ? 'bg-indigo-600 text-white shadow'
+                : 'bg-white text-gray-600 border border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 min-h-[400px]">
+        {tab === 'dat_hang'   && <TabDatHang userEmail={userEmail} />}
+        {tab === 'my_orders'  && <TabMyOrders userEmail={userEmail} />}
+        {tab === 'all_orders' && <TabAllOrders />}
+        {tab === 'lich_su'    && <TabLichSuSheet />}
+        {tab === 'combos'     && <TabCombos />}
+        {tab === 'recipients' && <TabRecipients />}
+      </div>
+    </div>
+  )
+}
