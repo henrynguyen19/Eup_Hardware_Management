@@ -1178,8 +1178,68 @@ function TabLichSuSheet() {
 // ══════════════════════════════════════════════════════════════════════════════
 // TAB 5 — GÓI COMBO (CRUD)
 // ══════════════════════════════════════════════════════════════════════════════
+function DeviceComboItemRow({ item, devices, onUpdate, onRemove }: {
+  item: { device_name: string; quantity: number; notes: string }
+  devices: Equipment[]
+  onUpdate: (patch: Partial<typeof item>) => void
+  onRemove: () => void
+}) {
+  const [search, setSearch] = useState(item.device_name)
+  const [open, setOpen]     = useState(false)
+
+  const filtered = search.trim()
+    ? devices.filter(d => d.name.toLowerCase().includes(search.toLowerCase())).slice(0, 12)
+    : devices.slice(0, 12)
+
+  function select(name: string) {
+    setSearch(name); onUpdate({ device_name: name }); setOpen(false)
+  }
+
+  return (
+    <div className="flex gap-2 items-start">
+      <div className="flex-1 relative">
+        <input
+          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+          placeholder="Tìm và chọn thiết bị…"
+          value={search}
+          onChange={e => { setSearch(e.target.value); onUpdate({ device_name: e.target.value }); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+        />
+        {open && filtered.length > 0 && (
+          <div className="absolute z-50 top-full left-0 right-0 mt-0.5 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+            {filtered.map(d => (
+              <button key={d.equipment_id} onMouseDown={() => select(d.name)}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex items-center gap-2">
+                <span className="text-base">{typeStyle(d.device_type).icon}</span>
+                <span className="flex-1">{d.name}</span>
+                {d.device_type && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${typeStyle(d.device_type).color}`}>
+                    {typeStyle(d.device_type).label}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <input type="number" min={1}
+        className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-indigo-300"
+        value={item.quantity}
+        onChange={e => onUpdate({ quantity: parseInt(e.target.value) || 1 })} />
+      <input
+        className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
+        placeholder="Ghi chú"
+        value={item.notes}
+        onChange={e => onUpdate({ notes: e.target.value })} />
+      <button onClick={onRemove} className="text-red-400 hover:text-red-600 text-lg font-bold mt-0.5">×</button>
+    </div>
+  )
+}
+
 function TabCombos() {
   const [combos, setCombos]     = useState<Combo[]>([])
+  const [devices, setDevices]   = useState<Equipment[]>([])
   const [loading, setLoading]   = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing]   = useState<Combo | null>(null)
@@ -1188,9 +1248,10 @@ function TabCombos() {
 
   const load = () => {
     setLoading(true)
-    fetch('/api/giao-hang/combos').then(r => r.json())
-      .then(d => setCombos(d.combos ?? []))
-      .finally(() => setLoading(false))
+    Promise.all([
+      fetch('/api/giao-hang/combos').then(r => r.json()).then(d => setCombos(d.combos ?? [])),
+      fetch('/api/kho/equipment').then(r => r.json()).then(d => setDevices(d.data ?? [])),
+    ]).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
 
@@ -1307,18 +1368,13 @@ function TabCombos() {
               <label className="text-xs text-gray-500 font-medium">Thiết bị trong combo</label>
               <div className="space-y-2 mt-1">
                 {form.items.map((item, idx) => (
-                  <div key={idx} className="flex gap-2 items-center">
-                    <input className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
-                      placeholder="Tên thiết bị" value={item.device_name}
-                      onChange={e => updateItem(idx, { device_name: e.target.value })} />
-                    <input type="number" min={1}
-                      className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-indigo-300"
-                      value={item.quantity} onChange={e => updateItem(idx, { quantity: parseInt(e.target.value) || 1 })} />
-                    <input className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
-                      placeholder="Ghi chú" value={item.notes}
-                      onChange={e => updateItem(idx, { notes: e.target.value })} />
-                    <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600 text-lg font-bold">×</button>
-                  </div>
+                  <DeviceComboItemRow
+                    key={idx}
+                    item={item}
+                    devices={devices}
+                    onUpdate={patch => updateItem(idx, patch)}
+                    onRemove={() => removeItem(idx)}
+                  />
                 ))}
                 <button onClick={addItem}
                   className="w-full py-1.5 border-2 border-dashed border-gray-200 rounded-lg text-xs text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors">
