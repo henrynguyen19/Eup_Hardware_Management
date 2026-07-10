@@ -21,14 +21,17 @@ function isCompanyWarehouse(sourceStock: string): boolean {
     const list = env.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
     return list.some(w => sourceStock.toLowerCase().includes(w))
   }
-  // Default: tất cả kho có prefix "warehouse-" là kho công ty
-  return sourceStock.toLowerCase().startsWith('warehouse-')
+  // Default: các kho nội bộ công ty đã xác nhận từ sheet "Chi tiết xuất kho" cột D
+  const INTERNAL = ['warehouse-admin', 'hardware-machine', 'old device']
+  const src = sourceStock.toLowerCase().trim()
+  return INTERNAL.some(w => src === w || src.startsWith(w))
 }
 
 function getCompanyWarehouses(): string[] {
   const env = process.env.COMPANY_WAREHOUSE_NAMES
   if (env) return env.split(',').map(s => s.trim()).filter(Boolean)
-  return ['WareHouse-Admin', 'WareHouse-Hardware', 'WareHouse-OldDevice']
+  // Từ sheet "Chi tiết xuất kho" cột D — cập nhật khi có thêm giá trị mới
+  return ['WareHouse-Admin', 'Hardware-Machine', 'Old Device']
 }
 
 async function crmCall(
