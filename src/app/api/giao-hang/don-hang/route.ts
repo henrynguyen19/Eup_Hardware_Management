@@ -9,7 +9,7 @@ function db() {
   )
 }
 
-const VALID_STATUSES = ['cho_xu_ly', 'dang_xu_ly', 'da_gui', 'da_nhap', 'hoan_thanh', 'da_huy']
+const VALID_STATUSES = ['cho_xu_ly', 'dang_xu_ly', 'da_gui', 'da_nhan', 'da_huy']
 
 // ─── GET /api/giao-hang/don-hang ─────────────────────────────────────────────
 export async function GET(req: NextRequest) {

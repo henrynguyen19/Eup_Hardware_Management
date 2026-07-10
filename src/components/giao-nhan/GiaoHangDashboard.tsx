@@ -37,26 +37,26 @@ function typeStyle(dt?: string) {
   return TYPE_MAP[dt ?? ''] ?? { icon: '📦', color: 'bg-gray-100 text-gray-600 border-gray-200', label: dt ?? 'Khác' }
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  cho_xu_ly:  'Chờ xử lý',
-  dang_xu_ly: 'Đang xử lý',
-  da_gui:     'Đã gửi',
-  da_nhap:    'Đã nhập',
-  hoan_thanh: 'Hoàn thành',
-  da_huy:     'Đã hủy',
+const STATUS_CONFIG: Record<string, { label: string; dot: string; badge: string }> = {
+  cho_xu_ly:  { label: 'Chờ xử lý', dot: 'bg-orange-400',  badge: 'bg-orange-50  text-orange-700  border border-orange-300'  },
+  dang_xu_ly: { label: 'Đang xử lý', dot: 'bg-blue-500',   badge: 'bg-blue-50    text-blue-700    border border-blue-300'    },
+  da_gui:     { label: 'Đã gửi',     dot: 'bg-violet-500', badge: 'bg-violet-50  text-violet-700  border border-violet-300'  },
+  da_nhan:    { label: 'Đã nhận',    dot: 'bg-green-500',  badge: 'bg-green-50   text-green-700   border border-green-300'   },
+  da_huy:     { label: 'Hủy',        dot: 'bg-red-400',    badge: 'bg-red-50     text-red-600     border border-red-300'     },
 }
-const STATUS_COLOR: Record<string, string> = {
-  cho_xu_ly:  'bg-yellow-100 text-yellow-700',
-  dang_xu_ly: 'bg-blue-100 text-blue-700',
-  da_gui:     'bg-purple-100 text-purple-700',
-  da_nhap:    'bg-teal-100 text-teal-700',
-  hoan_thanh: 'bg-green-100 text-green-700',
-  da_huy:     'bg-gray-100 text-gray-500',
-}
+// keep legacy aliases
+const STATUS_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(STATUS_CONFIG).map(([k, v]) => [k, v.label])
+)
+const VALID_STATUSES_UI = ['cho_xu_ly', 'dang_xu_ly', 'da_gui', 'da_nhan', 'da_huy']
+
 function StatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_CONFIG[status]
+  if (!cfg) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">{status}</span>
   return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[status] ?? 'bg-gray-100 text-gray-600'}`}>
-      {STATUS_LABEL[status] ?? status}
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
+      {cfg.label}
     </span>
   )
 }
@@ -703,16 +703,21 @@ function TabAllOrders() {
                       {o.status_updated_at && <> lúc {new Date(o.status_updated_at).toLocaleString('vi-VN')}</>}
                     </div>
                   )}
-                  <div className="flex gap-1 flex-wrap pt-1">
-                    {Object.entries(STATUS_LABEL).map(([k, v]) => (
-                      <button key={k} onClick={() => updateStatus(o.id, k)}
-                        disabled={o.status === k}
-                        className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                          o.status === k ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-400'
-                        }`}>
-                        {v}
-                      </button>
-                    ))}
+                  <div className="flex gap-1 flex-wrap pt-1 border-t border-gray-100">
+                    <span className="text-[10px] text-gray-400 w-full mb-0.5">Cập nhật trạng thái:</span>
+                    {VALID_STATUSES_UI.map(k => {
+                      const cfg = STATUS_CONFIG[k]
+                      const active = o.status === k
+                      return (
+                        <button key={k} onClick={() => updateStatus(o.id, k)} disabled={active}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                            active ? `${cfg.badge} cursor-default opacity-80 ring-1 ring-offset-1 ring-current` : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700'
+                          }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                          {cfg.label}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )}
