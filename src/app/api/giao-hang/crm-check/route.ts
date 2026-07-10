@@ -9,11 +9,26 @@ const CRM_SOAP_URL = process.env.CRM_SOAP_URL ?? ''
  * Cấu hình qua env var COMPANY_WAREHOUSE_NAMES (comma-separated)
  * hoặc fallback về danh sách mặc định
  */
+/**
+ * Kho công ty (nguồn gửi) — nếu SourceStock khớp = thiết bị chưa được nhận
+ * Cột D trong sheet "Chi tiết xuất kho" chỉ có: WareHouse-Admin, WareHouse-Hardware, WareHouse-OldDevice
+ * → kiểm tra bằng prefix "WareHouse-" (case-insensitive)
+ * Override qua env var COMPANY_WAREHOUSE_NAMES nếu cần
+ */
+function isCompanyWarehouse(sourceStock: string): boolean {
+  const env = process.env.COMPANY_WAREHOUSE_NAMES
+  if (env) {
+    const list = env.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+    return list.some(w => sourceStock.toLowerCase().includes(w))
+  }
+  // Default: tất cả kho có prefix "warehouse-" là kho công ty
+  return sourceStock.toLowerCase().startsWith('warehouse-')
+}
+
 function getCompanyWarehouses(): string[] {
   const env = process.env.COMPANY_WAREHOUSE_NAMES
   if (env) return env.split(',').map(s => s.trim()).filter(Boolean)
-  // Default: update this list to match column D of your transfer sheet
-  return ['Company', 'Kho Công Ty', 'HN', 'HCM', 'DN', 'Warehouse']
+  return ['WareHouse-Admin', 'WareHouse-Hardware', 'WareHouse-OldDevice']
 }
 
 async function crmCall(
@@ -112,7 +127,7 @@ export async function GET(req: NextRequest) {
           updateMan:      String(s.UpdateMan      ?? ''),
           updateAction:   String(s.UpdateAction   ?? ''),
           // isAtCompany = true nếu SourceStock khớp với kho công ty (chưa nhận)
-          isAtCompany:    companyWarehouses.some(w => src.toLowerCase().includes(w.toLowerCase())),
+          isAtCompany:    isCompanyWarehouse(src),
         }
       } else {
         return NextResponse.json({
