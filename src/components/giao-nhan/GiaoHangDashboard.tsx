@@ -793,6 +793,29 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
     }).catch(() => {})
   }, [])
 
+  // Auto-mark bundled items as "Không có mã" when device types are known:
+  //   GPS Tracker → SIM already attached
+  //   MDVR        → SIM + Thẻ nhớ already attached
+  useEffect(() => {
+    if (Object.keys(deviceTypes).length === 0) return
+    const items   = order.giao_hang_don_items
+    const hasGps  = items.some(i => deviceTypes[i.device_name] === 'GPS Tracker')
+    const hasMdvr = items.some(i => deviceTypes[i.device_name] === 'MDVR')
+    if (!hasGps && !hasMdvr) return
+    setNoSerial(prev => {
+      const next = { ...prev }
+      for (const item of items) {
+        // Skip items already explicitly saved (device_serials is array → user already set)
+        if (Array.isArray(item.device_serials)) continue
+        const dtype = deviceTypes[item.device_name] ?? ''
+        if (dtype === 'Simcard' && (hasGps || hasMdvr)) next[item.id] = true
+        if (dtype === 'Storage' && hasMdvr)              next[item.id] = true
+      }
+      return next
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceTypes])
+
   async function checkCRM(itemId: string) {
     const barcode = crmInput[itemId]?.trim()
     if (!barcode) return
@@ -859,19 +882,36 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
           return (
             <div key={item.id} className={`border rounded-xl overflow-hidden ${isGpsMdvr ? 'border-blue-200' : 'border-gray-200'}`}>
               {/* Item header */}
-              <div className={`flex items-center justify-between px-3 py-2 ${isGpsMdvr ? 'bg-blue-50' : 'bg-gray-50'}`}>
-                <div className="font-medium text-sm text-gray-800">
-                  {isGpsMdvr ? '📡' : '📦'} {item.device_name}
-                  <span className="ml-1 text-gray-400 font-normal text-xs">×{item.quantity}</span>
-                  {isGpsMdvr && <span className="ml-1.5 bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">GPS/MDVR</span>}
-                </div>
-                <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none">
-                  <input type="checkbox" className="rounded"
-                    checked={noSerial[item.id] ?? false}
-                    onChange={e => toggleNoSerial(item.id, e.target.checked)} />
-                  Không có mã
-                </label>
-              </div>
+              {(() => {
+                const items   = order.giao_hang_don_items
+                const hasGps  = items.some(i => deviceTypes[i.device_name] === 'GPS Tracker')
+                const hasMdvr = items.some(i => deviceTypes[i.device_name] === 'MDVR')
+                const dtype   = deviceTypes[item.device_name] ?? ''
+                const isBundledSim = dtype === 'Simcard' && (hasGps || hasMdvr)
+                const isBundledMem = dtype === 'Storage'  && hasMdvr
+                const isBundled    = isBundledSim || isBundledMem
+                const bundleNote   = isBundledSim
+                  ? (hasGps && hasMdvr ? 'Ghép sẵn GPS/MDVR' : hasGps ? 'Ghép sẵn GPS Tracker' : 'Ghép sẵn MDVR')
+                  : 'Ghép sẵn MDVR'
+                return (
+                  <div className={`flex items-center justify-between px-3 py-2 ${
+                    isGpsMdvr ? 'bg-blue-50' : isBundled ? 'bg-amber-50' : 'bg-gray-50'
+                  }`}>
+                    <div className="font-medium text-sm text-gray-800 flex items-center gap-1.5 flex-wrap">
+                      <span>{isGpsMdvr ? '📡' : isBundled ? '🔗' : '📦'} {item.device_name}</span>
+                      <span className="text-gray-400 font-normal text-xs">×{item.quantity}</span>
+                      {isGpsMdvr && <span className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">GPS/MDVR</span>}
+                      {isBundled  && <span className="bg-amber-100 text-amber-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">🔗 {bundleNote}</span>}
+                    </div>
+                    <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none shrink-0">
+                      <input type="checkbox" className="rounded"
+                        checked={noSerial[item.id] ?? false}
+                        onChange={e => toggleNoSerial(item.id, e.target.checked)} />
+                      Không có mã
+                    </label>
+                  </div>
+                )
+              })()}
 
               <div className="px-3 py-2 space-y-2">
                 {/* GPS/MDVR: CRM scan panel */}
