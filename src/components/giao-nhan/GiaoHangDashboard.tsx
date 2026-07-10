@@ -1010,7 +1010,6 @@ function TabAllOrders() {
           ))}
         </div>
       )}
-    </div>
 
       {/* Serial input modal */}
       {serialModal && (
