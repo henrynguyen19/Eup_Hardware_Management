@@ -1216,11 +1216,30 @@ function RepeatDevicesPanel({ devices, t }: { devices: DupDevice[]; t:(vi:string
   )
 }
 
+interface SyncStatus { totalMonths: number; syncedMonths: number; missing: string[]; latestSynced: string | null }
+
 function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; onDone:()=>void }) {
-  const [syncing, setSyncing]   = useState(false)
-  const [syncLog, setSyncLog]   = useState<string[]>([])
-  const [syncDone, setSyncDone] = useState(false)
+  const [syncing, setSyncing]       = useState(false)
+  const [syncLog, setSyncLog]       = useState<string[]>([])
+  const [syncDone, setSyncDone]     = useState(false)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
   const abortRef = useRef(false)
+
+  useEffect(() => {
+    fetch('/api/device-inventory/sync-crm')
+      .then(r => r.json())
+      .then((d: Record<string, unknown>) => {
+        const rows = (d.log as { month: string }[] | null) ?? []
+        const sorted = rows.map(r => r.month).sort()
+        setSyncStatus({
+          totalMonths:  Number(d.totalMonths ?? 0),
+          syncedMonths: Number(d.syncedMonths ?? 0),
+          missing:      (d.missing as string[]) ?? [],
+          latestSynced: sorted.length > 0 ? sorted[sorted.length - 1] : null,
+        })
+      })
+      .catch(() => {})
+  }, [syncDone])
 
   async function startSync() {
     setSyncing(true); setSyncDone(false); setSyncLog([]); abortRef.current = false
@@ -1248,14 +1267,31 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
     if (finalDone) onDone()
   }
 
+  const fmtMonth = (ym: string) => { const [y, m] = ym.split('-'); return `${m}/${y}` }
+
   return (
     <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-indigo-800">{t('Sync kho thiết bị từ CRM','Sync Device Inventory from CRM')}</p>
-          <p className="text-xs text-indigo-600 mt-0.5">{t('Tự động tải từng tháng từ 01/2024 → hiện tại','Auto-load month by month from 01/2024 → present')}</p>
+          {syncStatus ? (
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+              <span className="text-xs text-indigo-700">
+                ✅ {t('Đã sync','Synced')}: <strong>{syncStatus.syncedMonths}/{syncStatus.totalMonths}</strong> {t('tháng (01/2023 → hiện tại)','months (01/2023 → present)')}
+                {syncStatus.latestSynced && <> · {t('mới nhất','latest')}: <strong>{fmtMonth(syncStatus.latestSynced)}</strong></>}
+              </span>
+              {syncStatus.missing.length > 0 && (
+                <span className="text-xs text-amber-600">
+                  ⚠ {t('Chưa sync','Missing')}: {syncStatus.missing.length} {t('tháng','months')}
+                  {syncStatus.missing.length <= 4 && <> ({syncStatus.missing.map(fmtMonth).join(', ')})</>}
+                </span>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-indigo-500 mt-0.5">{t('Tải từng tháng từ 01/2023 → hiện tại','Load month by month from 01/2023 → present')}</p>
+          )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           {syncing
             ? <button onClick={()=>{abortRef.current=true}} className="px-4 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600">⛔ {t('Dừng','Stop')}</button>
             : <button onClick={startSync} className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">🔄 {syncDone?t('Sync lại','Re-sync'):t('Bắt đầu Sync','Start Sync')}</button>}
@@ -1270,6 +1306,7 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
     </div>
   )
 }
+
 
 function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void; active: boolean }) {
   const [section, setSection] = useState<'repair'|'failure'|'hashtag'>('repair')
@@ -1297,10 +1334,11 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
   const [invErr, setInvErr]       = useState('')
   const [invLoaded, setInvLoaded] = useState(false)
 
-  async function loadInv() {
+  async function loadInv(forceRefresh = false) {
     setLoadingI(true); setInvErr('')
     try {
-      const res  = await fetch('/api/device-inventory/stats')
+      const url  = forceRefresh ? '/api/device-inventory/stats?refresh=1' : '/api/device-inventory/stats'
+      const res  = await fetch(url)
       const txt  = await res.text()
       let d: Record<string,unknown>
       try { d=JSON.parse(txt) } catch { setInvErr(`Parse error: ${txt.substring(0,120)}`); setLoadingI(false); return }
@@ -1436,7 +1474,7 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
 
       {section==='failure' && (
         <div className="space-y-5">
-          <InventorySyncPanel t={t} onDone={loadInv} />
+          <InventorySyncPanel t={t} onDone={() => loadInv(true)} />
           {loadingI ? <div className="py-8 text-center text-sm text-gray-400">{t('Đang tải...','Loading...')}</div>
           : invErr ? (
             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">

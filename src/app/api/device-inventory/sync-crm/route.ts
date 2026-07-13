@@ -16,7 +16,7 @@ export const runtime     = 'nodejs'
 export const maxDuration = 60
 
 const CRM_URL       = 'https://slt.ctms.vn/Eup_Java_CRM_SOAP/CRMEup_Servlet_SOAP'
-const HISTORY_START = '2024-01'   // YYYY-MM
+const HISTORY_START = '2023-01'   // YYYY-MM
 
 const sb = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -225,6 +225,8 @@ export async function POST(req: NextRequest) {
         synced_at:    new Date().toISOString(),
       }, { onConflict: 'month' })
       syncedSet.add(targetMonth)
+      // Xóa cache stats để lần load tiếp sẽ tính lại từ dữ liệu mới
+      await db.from('device_inventory_stats_cache').delete().eq('id', 'singleton')
     }
 
     // Tìm tháng chưa sync tiếp theo
@@ -269,7 +271,7 @@ export async function GET() {
   return NextResponse.json({
     totalMonths:  allMonths.length,
     syncedMonths: syncedSet.size,
-    missingMonths: missing,
+    missing,
     log: syncedRows ?? [],
   })
 }
