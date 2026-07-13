@@ -48,13 +48,16 @@ AS $$
     FROM repair_items
     WHERE imei IS NOT NULL AND imei <> ''
   ),
-  -- Step 3: tập IMEI đang gửi hãng (status cho_gui = chờ gửi, da_gui = đã gửi chưa về)
-  -- Dùng status thay vì destination để đồng bộ với danh sách "thiết bị chờ/sửa quá 7 ngày"
-  sent_supplier AS (
-    SELECT DISTINCT imei
+  -- Step 3: đếm thiết bị đang gửi hãng theo product_name (không qua IMEI join)
+  -- Dùng status IN (cho_gui, da_gui) và group theo product_name
+  -- → đồng bộ với danh sách "thiết bị chờ/sửa quá 7 ngày" (stale-devices API)
+  sent_supplier_by_product AS (
+    SELECT product_name, COUNT(DISTINCT imei) AS cnt
     FROM repair_items
     WHERE imei IS NOT NULL AND imei <> ''
+      AND product_name IS NOT NULL AND product_name <> ''
       AND status IN ('cho_gui', 'da_gui')
+    GROUP BY product_name
   ),
   -- Step 4: tập IMEI báo phế
   sent_scrap AS (
@@ -64,17 +67,17 @@ AS $$
   )
   SELECT
     ui.product_name::TEXT,
-    COUNT(DISTINCT ui.device_code)                                                        AS total_imported,
-    COUNT(DISTINCT r.imei)                                                                AS total_repaired,
-    COUNT(DISTINCT s.imei)                                                                AS total_supplier,
-    COUNT(DISTINCT sc.imei)                                                               AS total_scrap,
-    ROUND(COUNT(DISTINCT r.imei)::NUMERIC  / NULLIF(COUNT(DISTINCT ui.device_code),0)*100, 1) AS repair_rate,
-    ROUND(COUNT(DISTINCT s.imei)::NUMERIC  / NULLIF(COUNT(DISTINCT ui.device_code),0)*100, 1) AS supplier_rate,
-    ROUND(COUNT(DISTINCT sc.imei)::NUMERIC / NULLIF(COUNT(DISTINCT ui.device_code),0)*100, 1) AS scrap_rate
+    COUNT(DISTINCT ui.device_code)                                                              AS total_imported,
+    COUNT(DISTINCT r.imei)                                                                      AS total_repaired,
+    COALESCE(MAX(sp.cnt), 0)                                                                    AS total_supplier,
+    COUNT(DISTINCT sc.imei)                                                                     AS total_scrap,
+    ROUND(COUNT(DISTINCT r.imei)::NUMERIC   / NULLIF(COUNT(DISTINCT ui.device_code),0)*100, 1) AS repair_rate,
+    ROUND(COALESCE(MAX(sp.cnt),0)::NUMERIC  / NULLIF(COUNT(DISTINCT ui.device_code),0)*100, 1) AS supplier_rate,
+    ROUND(COUNT(DISTINCT sc.imei)::NUMERIC  / NULLIF(COUNT(DISTINCT ui.device_code),0)*100, 1) AS scrap_rate
   FROM unique_inv ui
-  LEFT JOIN repaired     r  ON r.imei  = ui.device_code
-  LEFT JOIN sent_supplier s  ON s.imei  = ui.device_code
-  LEFT JOIN sent_scrap    sc ON sc.imei = ui.device_code
+  LEFT JOIN repaired                 r  ON r.imei         = ui.device_code
+  LEFT JOIN sent_supplier_by_product sp ON sp.product_name = ui.product_name
+  LEFT JOIN sent_scrap               sc ON sc.imei         = ui.device_code
   GROUP BY ui.product_name
   ORDER BY total_imported DESC;
 $$;
@@ -93,14 +96,4 @@ STABLE
 AS $$
   WITH
   unique_inv AS (
-    SELECT DISTINCT device_code
-    FROM device_inventory
-    WHERE device_code IS NOT NULL AND device_code <> ''
-  ),
-  repaired AS (
-    SELECT DISTINCT imei
-    FROM repair_items
-    WHERE imei IS NOT NULL AND imei <> ''
-  )
-  SELECT
-    (SELECT COUNT(*) FRO
+    SELECT DIST
