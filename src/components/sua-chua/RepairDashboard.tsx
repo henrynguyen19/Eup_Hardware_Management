@@ -253,18 +253,18 @@ function SingleWeekView({
       {/* Status bar chart */}
       {banGiao > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.suaChua.repairChartTitle}</h3>
-          <ResponsiveContainer width="100%" height={200}>
+          <h3 className="text-base font-semibold text-gray-700 mb-3">{t.suaChua.repairChartTitle}</h3>
+          <ResponsiveContainer width="100%" height={360}>
             <BarChart
               data={STATUS_TYPES.map(st => ({
                 name: st.label,
                 'Số lượng': devStats.filter(s => s.week_id === week.id && s.status_type === st.key).reduce((a, s) => a + s.quantity, 0),
               }))}
-              margin={{ top: 5, right: 10, bottom: 5, left: 0 }}
+              margin={{ top: 10, right: 20, bottom: 10, left: 10 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
+              <XAxis dataKey="name" tick={{ fontSize: 13 }} />
+              <YAxis tick={{ fontSize: 13 }} />
               <Tooltip />
               <Bar dataKey="Số lượng" radius={4}>
                 {STATUS_TYPES.map((st, i) => <Cell key={i} fill={st.color} />)}
@@ -318,7 +318,7 @@ function AnalyticsSection({
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
-        <h3 className="text-sm font-semibold text-gray-700">{t.suaChua.detailAnalysis}</h3>
+        <h3 className="text-base font-semibold text-gray-700">{t.suaChua.detailAnalysis}</h3>
         {selectedDevice !== 'all' && (
           <span className="text-xs font-medium px-2 py-0.5 rounded-full text-white"
             style={{ background: DEVICE_COLORS[selectedDevice] ?? '#6b7280' }}>
@@ -352,20 +352,20 @@ function AnalyticsSection({
                 {/* By device (only when viewing all) */}
                 {selectedDevice === 'all' && byDevice.length > 0 && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">
+                    <p className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">
                       {t.suaChua.byDeviceType} <span className="font-normal normal-case text-gray-400">({tabTotal} {t.suaChua.kpiDevices})</span>
                     </p>
-                    <ResponsiveContainer width="100%" height={Math.max(160, byDevice.length * 28)}>
-                      <BarChart data={byDevice} layout="vertical" margin={{ top: 0, right: 50, bottom: 0, left: 52 }}>
-                        <XAxis type="number" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                        <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={48} axisLine={false} tickLine={false} />
+                    <ResponsiveContainer width="100%" height={Math.max(280, byDevice.length * 44)}>
+                      <BarChart data={byDevice} layout="vertical" margin={{ top: 0, right: 60, bottom: 0, left: 70 }}>
+                        <XAxis type="number" tick={{ fontSize: 13 }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 13 }} width={70} axisLine={false} tickLine={false} />
                         <Tooltip
                           formatter={(v: unknown) => {
                             const n = Number(v)
                             return [`${n} (${pctOf(n, tabTotal)})`, stInfo.label]
                           }}
                         />
-                        <Bar dataKey="qty" radius={3} label={{ position: 'right', fontSize: 10, fill: '#6b7280', formatter: (v: number) => pctOf(v, tabTotal) }}>
+                        <Bar dataKey="qty" radius={3} label={{ position: 'right', fontSize: 12, fill: '#6b7280', formatter: (v: number) => pctOf(v, tabTotal) }}>
                           {byDevice.map((d, i) => <Cell key={i} fill={d.color} />)}
                         </Bar>
                       </BarChart>
@@ -375,13 +375,13 @@ function AnalyticsSection({
                 {/* By fault type */}
                 {byFault.length > 0 && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">
+                    <p className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">
                       {t.suaChua.byFaultType} <span className="font-normal normal-case text-gray-400">({tabTotal} {t.suaChua.cases})</span>
                     </p>
-                    <ResponsiveContainer width="100%" height={Math.max(160, byFault.length * 28)}>
-                      <BarChart data={byFault} layout="vertical" margin={{ top: 0, right: 50, bottom: 0, left: 62 }}>
-                        <XAxis type="number" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                        <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={58} axisLine={false} tickLine={false} />
+                    <ResponsiveContainer width="100%" height={Math.max(280, byFault.length * 44)}>
+                      <BarChart data={byFault} layout="vertical" margin={{ top: 0, right: 60, bottom: 0, left: 80 }}>
+                        <XAxis type="number" tick={{ fontSize: 13 }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 13 }} width={90} axisLine={false} tickLine={false} />
                         <Tooltip
                           formatter={(v: unknown) => {
                             const n = Number(v)
@@ -389,7 +389,7 @@ function AnalyticsSection({
                           }}
                         />
                         <Bar dataKey="qty" fill={stInfo.color} radius={3}
-                          label={{ position: 'right', fontSize: 10, fill: '#6b7280', formatter: (v: number) => pctOf(v, tabTotal) }}
+                          label={{ position: 'right', fontSize: 12, fill: '#6b7280', formatter: (v: number) => pctOf(v, tabTotal) }}
                         />
                       </BarChart>
                     </ResponsiveContainer>
@@ -667,6 +667,15 @@ function DashboardTab() {
   const navBtn = 'w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-100 text-gray-600 text-sm font-bold'
   return (
     <div className="space-y-5">
+      <style>{`
+        @media print {
+          body > * { display: none !important; }
+          #__next > * { display: none !important; }
+          .print-area { display: block !important; }
+          aside, nav, header, [class*="sidebar"], [class*="Sidebar"] { display: none !important; }
+          .print\:hidden { display: none !important; }
+        }
+      `}</style>
       {/* ── Period selector ── */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
@@ -737,6 +746,16 @@ function DashboardTab() {
               style={selectedDevice === dt ? { background: DEVICE_COLORS[dt] } : {}}
             >{dt}</button>
           ))}
+        </div>
+        {/* Export/print button */}
+        <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end">
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition print:hidden"
+            title="In / chụp màn hình để đưa vào Word"
+          >
+            🖨️ Xuất báo cáo
+          </button>
         </div>
       </div>
       {/* ── Loading ── */}
@@ -837,14 +856,14 @@ function DashboardTab() {
                 ))}
               </div>
               <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.suaChua.lineChartTitle}</h3>
-                <ResponsiveContainer width="100%" height={320}>
+                <h3 className="text-base font-semibold text-gray-700 mb-3">{t.suaChua.lineChartTitle}</h3>
+                <ResponsiveContainer width="100%" height={420}>
                   <LineChart data={lineChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
+                    <XAxis dataKey="name" tick={{ fontSize: 13 }} />
+                    <YAxis tick={{ fontSize: 13 }} />
                     <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: 13 }} />
                     {selectedDevices.map(dt => (
                       <Line key={dt} type="monotone" dataKey={dt} stroke={DEVICE_COLORS[dt]} dot={false} strokeWidth={2} />
                     ))}
@@ -856,14 +875,14 @@ function DashboardTab() {
           {/* BAR CHART */}
           {chartMode === 'bar' && (
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.suaChua.barChartTitle}</h3>
-              <ResponsiveContainer width="100%" height={320}>
+              <h3 className="text-base font-semibold text-gray-700 mb-3">{t.suaChua.barChartTitle}</h3>
+              <ResponsiveContainer width="100%" height={420}>
                 <BarChart data={barChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <XAxis dataKey="name" tick={{ fontSize: 13 }} />
+                  <YAxis tick={{ fontSize: 13 }} />
                   <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Legend wrapperStyle={{ fontSize: 13 }} />
                   {STATUS_TYPES.map(st => (
                     <Bar key={st.key} dataKey={st.label} stackId="a" fill={st.color} />
                   ))}
@@ -1301,7 +1320,7 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
     <div className="space-y-5">
       {/* Week date range */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.suaChua.weekPeriod}</h3>
+        <h3 className="text-base font-semibold text-gray-700 mb-3">{t.suaChua.weekPeriod}</h3>
         <div className="grid grid-cols-2 gap-4 max-w-sm">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">{t.suaChua.fromDate}</label>
