@@ -864,23 +864,16 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
     }).catch(() => {})
   }, [])
 
-  // Auto-mark bundled items as "Không có mã" when device types are known:
-  //   GPS Tracker → SIM already attached
-  //   MDVR        → SIM + Thẻ nhớ already attached
+  // Khi deviceTypes load: force GPS/MDVR → noSerial=false (luôn cần mã)
+  // Không cần set noSerial cho accessories vì modal đã ẩn chúng luôn
   useEffect(() => {
     if (Object.keys(deviceTypes).length === 0) return
-    const items   = order.giao_hang_don_items
-    const hasGps  = items.some(i => deviceTypes[i.device_name] === 'GPS Tracker')
-    const hasMdvr = items.some(i => deviceTypes[i.device_name] === 'MDVR')
-    if (!hasGps && !hasMdvr) return
+    const items = order.giao_hang_don_items
     setNoSerial(prev => {
       const next = { ...prev }
       for (const item of items) {
-        // Skip items already explicitly saved (device_serials is array → user already set)
-        if (Array.isArray(item.device_serials)) continue
         const dtype = deviceTypes[item.device_name] ?? ''
-        if (dtype === 'Simcard' && (hasGps || hasMdvr)) next[item.id] = true
-        if (dtype === 'Storage' && hasMdvr)              next[item.id] = true
+        if (GPS_MDVR_TYPES.includes(dtype)) next[item.id] = false
       }
       return next
     })
@@ -953,11 +946,11 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
           return items2.map(item => {
           const dtype    = deviceTypes[item.device_name] ?? ''
           const isGpsMdvr = GPS_MDVR_TYPES.includes(dtype)
-          // Ẩn phụ kiện đi kèm GPS/MDVR — mã GPS/MDVR đại diện cho cả combo
-          const isBundledSim2 = dtype === 'Simcard' && hasGps2
-          const isBundledMem2 = dtype === 'Storage'  && hasMdvr2
-          if (isBundledSim2 || isBundledMem2) return null
+          // Nếu trong đơn có GPS/MDVR → chỉ hiện GPS/MDVR, ẩn tất cả phụ kiện còn lại
+          if (hasGps2 && !isGpsMdvr) return null
           const cr       = crmResult[item.id] ?? null
+          // GPS/MDVR luôn cần nhập mã — override noSerial kể cả khi deviceTypes chưa load
+          const effectiveNoSerial = isGpsMdvr ? false : (noSerial[item.id] ?? false)
           return (
             <div key={item.id} className={`border rounded-xl overflow-hidden ${isGpsMdvr ? 'border-blue-200' : 'border-gray-200'}`}>
               {/* Item header */}
@@ -985,7 +978,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
                     {!isGpsMdvr && (
                       <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none shrink-0">
                         <input type="checkbox" className="rounded"
-                          checked={noSerial[item.id] ?? false}
+                          checked={effectiveNoSerial}
                           onChange={e => toggleNoSerial(item.id, e.target.checked)} />
                         Không có mã
                       </label>
@@ -996,7 +989,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
 
               <div className="px-3 py-2 space-y-2">
                 {/* GPS/MDVR: CRM scan panel */}
-                {isGpsMdvr && !noSerial[item.id] && (
+                {isGpsMdvr && !effectiveNoSerial && (
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5 space-y-1.5">
                     <div className="text-[10px] font-semibold text-blue-700 uppercase tracking-wide">🔍 Quét barcode — kiểm tra CRM</div>
                     <div className="flex gap-1">
@@ -1048,7 +1041,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
                 )}
 
                 {/* Serial chips + manual input */}
-                {!noSerial[item.id] && (
+                {!effectiveNoSerial && (
                   <>
                     {(itemSerials[item.id] ?? []).length > 0 && (
                       <div className="flex flex-wrap gap-1">
