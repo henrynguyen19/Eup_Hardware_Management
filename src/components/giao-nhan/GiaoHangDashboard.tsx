@@ -715,6 +715,7 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
           {expanded === o.id && (
             <div className="border-t border-gray-100 p-3 space-y-2">
               {(() => {
+                // Group by combo_name (new orders) — fallback to flat chips for old orders
                 const comboMap = new Map<string, typeof o.giao_hang_don_items>()
                 const standalone: typeof o.giao_hang_don_items = []
                 for (const item of o.giao_hang_don_items) {
@@ -723,50 +724,44 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
                     comboMap.get(item.combo_name)!.push(item)
                   } else { standalone.push(item) }
                 }
-                return (<>
-                  {Array.from(comboMap.entries()).map(([cname, citems]) => (
-                    <div key={cname} className="py-1.5 border-b border-gray-50 last:border-0">
-                      <div className="text-sm font-semibold text-amber-700">🎁 {cname}</div>
-                      <div className="flex flex-wrap gap-1 mt-0.5">
-                        {citems.map(ci => (
-                          <span key={ci.id} className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
-                            {ci.device_name} ×{ci.quantity}
-                          </span>
-                        ))}
-                      </div>
-                      {citems.some(ci => (ci.device_serials ?? []).length > 0) && (
-                        <div className="flex gap-1 mt-0.5 flex-wrap">
-                          {citems.flatMap(ci => ci.device_serials ?? []).map(s => (
-                            <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
+                return (
+                  <div className="space-y-1.5">
+                    {/* Combos — grouped */}
+                    {Array.from(comboMap.entries()).map(([cname, citems]) => (
+                      <div key={cname} className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                        <div className="text-xs font-semibold text-amber-700 mb-1">🎁 {cname}</div>
+                        <div className="flex flex-wrap gap-1">
+                          {citems.map(ci => (
+                            <span key={ci.id} className="text-[11px] text-gray-600 bg-white border border-gray-200 rounded-full px-2 py-0.5">
+                              {ci.device_name} <span className="font-semibold">×{ci.quantity}</span>
+                            </span>
                           ))}
                         </div>
-                      )}
-                    </div>
-                  ))}
-                  {standalone.map(item => (
-                    <div key={item.id} className="flex items-start justify-between py-1.5 border-b border-gray-50 last:border-0">
-                      <div>
-                        <div className="text-sm font-medium">{item.device_name}</div>
-                        {item.customer_codes && item.customer_codes.length > 0 && (
-                          <div className="flex gap-1 mt-0.5 flex-wrap">
-                            {item.customer_codes.map(c => (
-                              <span key={c} className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5 text-[10px]">{c}</span>
-                            ))}
-                          </div>
-                        )}
-                        {item.expected_receipt && <div className="text-xs text-gray-500 mt-0.5">Nhận: {item.expected_receipt}</div>}
-                        {item.device_serials && item.device_serials.length > 0 && (
-                          <div className="flex gap-1 mt-0.5 flex-wrap">
-                            {item.device_serials.map(s => (
+                        {citems.some(ci => (ci.device_serials ?? []).length > 0) && (
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {citems.flatMap(ci => ci.device_serials ?? []).map(s => (
                               <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
                             ))}
                           </div>
                         )}
                       </div>
-                      <div className="text-sm font-semibold text-gray-700">×{item.quantity}</div>
-                    </div>
-                  ))}
-                </>)
+                    ))}
+                    {/* Standalone items — compact chips */}
+                    {standalone.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {standalone.map(item => (
+                          <div key={item.id} className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5 text-sm">
+                            <span className="text-gray-700">{item.device_name}</span>
+                            <span className="font-semibold text-gray-500 text-xs">×{item.quantity}</span>
+                            {item.device_serials && item.device_serials.length > 0 && (
+                              <span className="ml-0.5 bg-violet-50 text-violet-700 border border-violet-100 rounded px-1 py-0.5 text-[10px] font-mono">📎 {item.device_serials.join(', ')}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
               })()}
               {o.recipient_info && (
                 <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>
@@ -1260,50 +1255,42 @@ function TabAllOrders() {
                         comboMap.get(item.combo_name)!.push(item)
                       } else { standalone.push(item) }
                     }
-                    return (<>
-                      {Array.from(comboMap.entries()).map(([cname, citems]) => (
-                        <div key={cname} className="py-1.5 border-b border-gray-50 last:border-0">
-                          <div className="text-sm font-semibold text-amber-700">🎁 {cname}</div>
-                          <div className="flex flex-wrap gap-1 mt-0.5">
-                            {citems.map(ci => (
-                              <span key={ci.id} className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
-                                {ci.device_name} ×{ci.quantity}
-                              </span>
-                            ))}
-                          </div>
-                          {citems.some(ci => (ci.device_serials ?? []).length > 0) && (
-                            <div className="flex gap-1 mt-0.5 flex-wrap">
-                              {citems.flatMap(ci => ci.device_serials ?? []).map(s => (
-                                <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
+                    return (
+                      <div className="space-y-1.5">
+                        {Array.from(comboMap.entries()).map(([cname, citems]) => (
+                          <div key={cname} className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                            <div className="text-xs font-semibold text-amber-700 mb-1">🎁 {cname}</div>
+                            <div className="flex flex-wrap gap-1">
+                              {citems.map(ci => (
+                                <span key={ci.id} className="text-[11px] text-gray-600 bg-white border border-gray-200 rounded-full px-2 py-0.5">
+                                  {ci.device_name} <span className="font-semibold">×{ci.quantity}</span>
+                                </span>
                               ))}
                             </div>
-                          )}
-                        </div>
-                      ))}
-                      {standalone.map(item => (
-                        <div key={item.id} className="flex justify-between py-1.5 border-b border-gray-50 last:border-0">
-                          <div>
-                            <div className="text-sm font-medium">{item.device_name}</div>
-                            {item.customer_codes && item.customer_codes.length > 0 && (
-                              <div className="flex gap-1 mt-0.5 flex-wrap">
-                                {item.customer_codes.map(c => (
-                                  <span key={c} className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5 text-[10px]">{c}</span>
-                                ))}
-                              </div>
-                            )}
-                            {item.expected_receipt && <div className="text-xs text-gray-500">Nhận: {item.expected_receipt}</div>}
-                            {item.device_serials && item.device_serials.length > 0 && (
-                              <div className="flex gap-1 mt-0.5 flex-wrap">
-                                {item.device_serials.map(s => (
+                            {citems.some(ci => (ci.device_serials ?? []).length > 0) && (
+                              <div className="flex gap-1 mt-1 flex-wrap">
+                                {citems.flatMap(ci => ci.device_serials ?? []).map(s => (
                                   <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
                                 ))}
                               </div>
                             )}
                           </div>
-                          <div className="text-sm font-semibold">×{item.quantity}</div>
-                        </div>
-                      ))}
-                    </>)
+                        ))}
+                        {standalone.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {standalone.map(item => (
+                              <div key={item.id} className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5 text-sm">
+                                <span className="text-gray-700">{item.device_name}</span>
+                                <span className="font-semibold text-gray-500 text-xs">×{item.quantity}</span>
+                                {item.device_serials && item.device_serials.length > 0 && (
+                                  <span className="ml-0.5 bg-violet-50 text-violet-700 border border-violet-100 rounded px-1 py-0.5 text-[10px] font-mono">📎 {item.device_serials.join(', ')}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
                   })()}
                   {o.recipient_info && <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>}
                   {o.expected_ship_date && <div className="text-xs text-amber-600">🚚 Gửi: {o.expected_ship_date}</div>}
