@@ -433,7 +433,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
   const [ordererName, setOrdererName] = useState('')
   const [office, setOffice]           = useState('')
   const [expectedDate, setExpectedDate]     = useState('')
-  const [expectedShipDate, setExpectedShipDate] = useState('')
+  const [expectedShipDate, setExpectedShipDate] = useState(() => new Date().toISOString().split('T')[0])
   const [notes, setNotes]             = useState('')
   const [submitting, setSubmitting]   = useState(false)
   const [result, setResult]           = useState<{ ok: boolean; msg: string } | null>(null)
@@ -456,7 +456,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
   }
 
   async function submit() {
-    if (cart.length === 0) { setResult({ ok: false, msg: 'Chưa chọn thiết bị nào' }); return }
+    if (cart.length === 0 && cartCombos.length === 0) { setResult({ ok: false, msg: 'Chưa chọn thiết bị hoặc combo' }); return }
     setSubmitting(true); setResult(null)
     try {
       const res = await fetch('/api/giao-hang/dat-hang', {
@@ -494,7 +494,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
       const data = await res.json()
       if (res.ok) {
         setResult({ ok: true, msg: `✅ Đặt hàng thành công! Mã: ${data.order_code}` })
-        setCart([]); setCartCombos([]); setOrdererName(''); setOffice(''); setExpectedDate(''); setExpectedShipDate('')
+        setCart([]); setCartCombos([]); setOrdererName(''); setOffice(''); setExpectedDate(''); setExpectedShipDate(new Date().toISOString().split('T')[0])
         setNotes(''); setRecipientId(''); setRecipientInfo('')
       } else {
         setResult({ ok: false, msg: data.error ?? 'Lỗi đặt hàng' })
@@ -504,50 +504,84 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
 
   const offices = [...new Set(recipients.filter(r => r.type === 'office').map(r => r.office ?? r.name))]
 
+  const totalDevices = cart.reduce((s, c) => s + c.quantity, 0)
+    + cartCombos.reduce((s, cc) => s + cc.combo.device_combo_items.reduce((a, ci) => a + ci.quantity, 0) * cc.quantity, 0)
+
   return (
-    <div className="flex flex-col lg:flex-row gap-4">
-      {/* ─── LEFT: combo chips + device picker ──────────────────────────────── */}
-      <div className="lg:w-[56%] space-y-3">
-        <ComboPicker cartCombos={cartCombos} onChange={setCartCombos} />
-        <DevicePicker
-          cart={cart} onChange={setCart}
-          devices={devices} popular={popular} loading={loadingDevices}
-        />
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
+      {/* ═══ SECTION 1: COMBO ════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+          <span className="text-sm font-semibold text-amber-800">🎁 Chọn Combo</span>
+          {cartCombos.length > 0 && (
+            <span className="bg-amber-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-auto">
+              {cartCombos.length} combo đã chọn
+            </span>
+          )}
+        </div>
+        <div className="p-4">
+          <ComboPicker cartCombos={cartCombos} onChange={setCartCombos} />
+        </div>
       </div>
 
-      {/* ─── RIGHT: cart + info form + submit ───────────────────────────────── */}
-      <div className="lg:w-[44%] flex flex-col gap-3">
-        {/* SIM warning */}
-        <SimWarning cart={cart} devices={devices} />
-
-        {/* Cart */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-              🛒 Giỏ hàng
+      {/* ═══ SECTION 3: GIỎ HÀNG ════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden xl:row-span-2">
+        <div className="px-4 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center gap-2">
+          <span className="text-sm font-semibold text-indigo-800">🛒 Danh sách đã chọn</span>
+          {totalDevices > 0 && (
+            <span className="bg-indigo-600 text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-auto">
+              {totalDevices} thiết bị
             </span>
-            {cart.length > 0 && (
-              <span className="bg-indigo-600 text-white rounded-full px-2 py-0.5 text-[10px] font-semibold">
-                {cart.reduce((s, c) => s + c.quantity, 0)} thiết bị
-              </span>
-            )}
-          </div>
-          <ComboCartList cartCombos={cartCombos} onChange={setCartCombos} />
-          <CartList cart={cart} onChange={setCart} />
+          )}
         </div>
+        <div className="p-4 space-y-2">
+          <SimWarning cart={cart} devices={devices} />
+          {cartCombos.length === 0 && cart.length === 0 ? (
+            <div className="text-sm text-gray-400 text-center py-8">Chưa chọn thiết bị hoặc combo nào</div>
+          ) : (
+            <>
+              <ComboCartList cartCombos={cartCombos} onChange={setCartCombos} />
+              <CartList cart={cart} onChange={setCart} />
+            </>
+          )}
+        </div>
+      </div>
 
-        {/* Info form */}
-        <div className="bg-gray-50 rounded-xl border p-3 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
+      {/* ═══ SECTION 2: THIẾT BỊ LẺ ════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 flex items-center gap-2">
+          <span className="text-sm font-semibold text-blue-800">📦 Chọn thiết bị lẻ</span>
+          {cart.length > 0 && (
+            <span className="bg-blue-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-auto">
+              {cart.reduce((s, c) => s + c.quantity, 0)} thiết bị
+            </span>
+          )}
+        </div>
+        <div className="p-4">
+          <DevicePicker
+            cart={cart} onChange={setCart}
+            devices={devices} popular={popular} loading={loadingDevices}
+          />
+        </div>
+      </div>
+
+      {/* ═══ SECTION 4: THÔNG TIN ĐƠN ══════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+          <span className="text-sm font-semibold text-gray-700">📋 Thông tin đơn hàng</span>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[10px] text-gray-500 font-medium uppercase">Người đặt</label>
-              <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              <label className="text-xs text-gray-500 font-medium">Người đặt</label>
+              <input className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 placeholder="Tên người đặt"
                 value={ordererName} onChange={e => setOrdererName(e.target.value)} />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 font-medium uppercase">Văn phòng</label>
-              <input className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              <label className="text-xs text-gray-500 font-medium">Văn phòng</label>
+              <input className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 placeholder="Hà Nội, HCM…"
                 list="office-list"
                 value={office} onChange={e => setOffice(e.target.value)} />
@@ -558,8 +592,8 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
           </div>
 
           <div>
-            <label className="text-[10px] text-gray-500 font-medium uppercase">👤 Người nhận</label>
-            <select className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
+            <label className="text-xs text-gray-500 font-medium">👤 Người nhận</label>
+            <select className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
               value={recipientId} onChange={e => handleRecipientChange(e.target.value)}>
               <option value="">— Chọn người nhận —</option>
               {['office','person'].map(type => {
@@ -576,44 +610,47 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
                 )
               })}
             </select>
-            <input className="mt-1 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 text-gray-600"
+            <input className="mt-1.5 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 text-gray-600"
               placeholder="Hoặc nhập tên — địa chỉ — SĐT"
               value={recipientInfo} onChange={e => setRecipientInfo(e.target.value)} />
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[10px] text-gray-500 font-medium uppercase">🚚 Ngày gửi</label>
-              <input type="date" className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              <label className="text-xs text-gray-500 font-medium">🚚 Ngày gửi</label>
+              <input type="date" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 value={expectedShipDate} onChange={e => setExpectedShipDate(e.target.value)} />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 font-medium uppercase">📅 Ngày giao</label>
-              <input type="date" className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              <label className="text-xs text-gray-500 font-medium">📅 Ngày giao</label>
+              <input type="date" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 value={expectedDate} onChange={e => setExpectedDate(e.target.value)} />
             </div>
           </div>
 
           <div>
-            <label className="text-[10px] text-gray-500 font-medium uppercase">Ghi chú</label>
+            <label className="text-xs text-gray-500 font-medium">Ghi chú</label>
             <textarea rows={2}
-              className="mt-0.5 w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
+              className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
               placeholder="Ghi chú thêm…"
               value={notes} onChange={e => setNotes(e.target.value)} />
           </div>
+
+          {result && (
+            <div className={`p-3 rounded-xl text-sm ${result.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+              {result.msg}
+            </div>
+          )}
+
+          <button onClick={submit} disabled={submitting || (cart.length === 0 && cartCombos.length === 0)}
+            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-semibold rounded-xl text-sm transition-colors">
+            {submitting ? 'Đang gửi…' : (cart.length + cartCombos.length) === 0
+              ? '🛒 Đặt hàng'
+              : `🛒 Đặt hàng${cartCombos.length > 0 ? ` — ${cartCombos.length} combo` : ''}${cart.length > 0 ? ` + ${cart.length} loại lẻ` : ''}`}
+          </button>
         </div>
-
-        {result && (
-          <div className={`p-3 rounded-xl text-sm ${result.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-            {result.msg}
-          </div>
-        )}
-
-        <button onClick={submit} disabled={submitting || (cart.length === 0 && cartCombos.length === 0)}
-          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition-colors">
-          {submitting ? 'Đang gửi…' : (cart.length + cartCombos.length) === 0 ? '🛒 Đặt hàng' : `🛒 Đặt hàng${cartCombos.length > 0 ? ` — ${cartCombos.length} combo` : ''}${cart.length > 0 ? ` + ${cart.length} loại lẻ` : ''}`}
-        </button>
       </div>
+
     </div>
   )
 }
@@ -903,12 +940,14 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
                       {isGpsMdvr && <span className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">GPS/MDVR</span>}
                       {isBundled  && <span className="bg-amber-100 text-amber-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">🔗 {bundleNote}</span>}
                     </div>
-                    <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none shrink-0">
-                      <input type="checkbox" className="rounded"
-                        checked={noSerial[item.id] ?? false}
-                        onChange={e => toggleNoSerial(item.id, e.target.checked)} />
-                      Không có mã
-                    </label>
+                    {!isGpsMdvr && (
+                      <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none shrink-0">
+                        <input type="checkbox" className="rounded"
+                          checked={noSerial[item.id] ?? false}
+                          onChange={e => toggleNoSerial(item.id, e.target.checked)} />
+                        Không có mã
+                      </label>
+                    )}
                   </div>
                 )
               })()}
