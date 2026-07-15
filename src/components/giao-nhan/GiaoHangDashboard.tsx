@@ -936,7 +936,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
 
         {(() => {
           const items2 = order.giao_hang_don_items
-          // Combo nào có GPS/MDVR thì serial GPS/MDVR đại diện cho cả combo
+          // Combo nào chứa GPS/MDVR để biết SIM/Storage trong combo đó có thể ẩn
           const comboHasGpsMdvr = new Map<string, boolean>()
           for (const it of items2) {
             if (it.combo_name && GPS_MDVR_TYPES.includes(deviceTypes[it.device_name] ?? '')) {
@@ -950,21 +950,19 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
           const thisComboHasGps = isInCombo ? (comboHasGpsMdvr.get(item.combo_name!) ?? false) : false
           const nameLower = item.device_name.toLowerCase()
 
-          // Luôn ẩn: dây nguồn, bộ phụ kiện (không có mã serial)
-          if (nameLower.includes('dây nguồn') || nameLower.includes('bộ phụ kiện')
-            || nameLower.includes('dây kết nối') || dtype === 'Power' || dtype === 'Cable')
+          // Luôn ẩn: dây nguồn, dây cáp kết nối, bộ phụ kiện (không có mã serial)
+          if (dtype === 'Power' || dtype === 'Cable'
+            || nameLower.includes('dây nguồn') || nameLower.includes('dây kết nối')
+            || nameLower.includes('dây cáp') || nameLower.includes('bộ phụ kiện'))
             return null
 
-          // Ẩn SIM và Storage khi trong combo (đi kèm thiết bị chính, không cần mã riêng)
-          if ((dtype === 'Simcard' || dtype === 'Storage') && isInCombo) return null
+          // Khi combo CÓ GPS/MDVR: ẩn SIM và Storage (đi kèm, không cần mã riêng)
+          if (isInCombo && thisComboHasGps && (dtype === 'Simcard' || dtype === 'Storage')) return null
 
-          // Ẩn non-GPS/MDVR trong combo có GPS/MDVR (serial GPS đại diện cả combo)
-          if (!isGpsMdvr && isInCombo && thisComboHasGps) return null
-
+          // Mọi thiết bị còn lại: hiện hết
+          // (GPS/MDVR, Camera, Cảm biến, Đầu đọc thẻ, standalone, combo không có GPS/MDVR)
           const cr = crmResult[item.id] ?? null
-          // GPS/MDVR luôn cần nhập mã dù noSerial đã lưu trước
           const effectiveNoSerial = isGpsMdvr ? false : (noSerial[item.id] ?? false)
-          return (
           return (
             <div key={item.id} className={`border rounded-xl overflow-hidden ${isGpsMdvr ? 'border-blue-200' : 'border-gray-200'}`}>
               {/* Item header */}
