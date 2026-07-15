@@ -1891,7 +1891,7 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
   ]
 
   return (
-    <div className="max-w-3xl mx-auto p-4 space-y-4">
+    <div className="w-full px-4 py-4 space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-800">🚚 Giao nhận thiết bị</h1>
@@ -1912,15 +1912,12 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
         ))}
       </div>
 
-      {/* Tab content */}
-      <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 min-h-[400px]">
-        {tab === 'dat_hang'   && <TabDatHang userEmail={userEmail} />}
-        {tab === 'my_orders'  && <TabMyOrders userEmail={userEmail} />}
-        {tab === 'all_orders' && <TabAllOrders />}
-        {tab === 'lich_su'    && <TabLichSuSheet />}
-        {tab === 'combos'     && <TabCombos />}
-        {tab === 'recipients' && <TabRecipients />}
-      </div>
-    </div>
-  )
-}
+      {/* Tab content — dat_hang dùng full width, tab khác giữ max-w */}
+      {tab === 'dat_hang' ? (
+        <TabDatHang userEmail={userEmail} />
+      ) : (
+        <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 min-h-[400px] max-w-4xl">
+          {tab === 'my_orders'  && <TabMyOrders userEmail={userEmail} />}
+          {tab === 'all_orders' && <TabAllOrders />}
+          {tab === 'lich_su'    && <TabLichSuSheet />}
+          {tab === 'combos'     && <TabCombos />
