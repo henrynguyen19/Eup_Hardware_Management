@@ -67,3 +67,9 @@ export async function POST(req: NextRequest) {
       is_new: is_new ?? false,
       updated_by: user.email,
     })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ data }, { status: 201 })
+}
