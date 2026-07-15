@@ -507,38 +507,60 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
   const totalDevices = cart.reduce((s, c) => s + c.quantity, 0)
     + cartCombos.reduce((s, cc) => s + cc.combo.device_combo_items.reduce((a, ci) => a + ci.quantity, 0) * cc.quantity, 0)
 
-  return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+  // Panel height: full viewport minus header/tabs
+  const panelCls = "flex flex-col bg-white rounded-2xl border border-gray-200 overflow-hidden min-h-0"
+  const bodyScroll = "flex-1 overflow-y-auto p-4"
 
-      {/* ═══ SECTION 1: COMBO ════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
-          <span className="text-sm font-semibold text-amber-800">🎁 Chọn Combo</span>
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-3" style={{ height: 'calc(100vh - 160px)', minHeight: 520 }}>
+
+      {/* ── 1. CHỌN COMBO ─────────────────────────────────────────── */}
+      <div className={panelCls}>
+        <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center justify-between shrink-0">
+          <span className="text-sm font-semibold text-amber-800">🎁 Combo</span>
           {cartCombos.length > 0 && (
-            <span className="bg-amber-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-auto">
-              {cartCombos.length} combo đã chọn
+            <span className="bg-amber-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold">
+              {cartCombos.length} đã chọn
             </span>
           )}
         </div>
-        <div className="p-4">
+        <div className={bodyScroll}>
           <ComboPicker cartCombos={cartCombos} onChange={setCartCombos} />
         </div>
       </div>
 
-      {/* ═══ SECTION 3: GIỎ HÀNG ════════════════════════════════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden xl:row-span-2">
-        <div className="px-4 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center gap-2">
-          <span className="text-sm font-semibold text-indigo-800">🛒 Danh sách đã chọn</span>
+      {/* ── 2. CHỌN THIẾT BỊ LẺ ──────────────────────────────────── */}
+      <div className={panelCls}>
+        <div className="px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex items-center justify-between shrink-0">
+          <span className="text-sm font-semibold text-blue-800">📦 Thiết bị lẻ</span>
+          {cart.length > 0 && (
+            <span className="bg-blue-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold">
+              {cart.reduce((s, c) => s + c.quantity, 0)} thiết bị
+            </span>
+          )}
+        </div>
+        <div className={bodyScroll}>
+          <DevicePicker
+            cart={cart} onChange={setCart}
+            devices={devices} popular={popular} loading={loadingDevices}
+          />
+        </div>
+      </div>
+
+      {/* ── 3. GIỎ HÀNG ──────────────────────────────────────────── */}
+      <div className={panelCls}>
+        <div className="px-4 py-2.5 bg-violet-50 border-b border-violet-100 flex items-center justify-between shrink-0">
+          <span className="text-sm font-semibold text-violet-800">🛒 Đã chọn</span>
           {totalDevices > 0 && (
-            <span className="bg-indigo-600 text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-auto">
+            <span className="bg-violet-600 text-white rounded-full px-2 py-0.5 text-[10px] font-bold">
               {totalDevices} thiết bị
             </span>
           )}
         </div>
-        <div className="p-4 space-y-2">
+        <div className={bodyScroll}>
           <SimWarning cart={cart} devices={devices} />
           {cartCombos.length === 0 && cart.length === 0 ? (
-            <div className="text-sm text-gray-400 text-center py-8">Chưa chọn thiết bị hoặc combo nào</div>
+            <p className="text-sm text-gray-400 text-center pt-12">Chưa chọn gì</p>
           ) : (
             <>
               <ComboCartList cartCombos={cartCombos} onChange={setCartCombos} />
@@ -548,31 +570,13 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
         </div>
       </div>
 
-      {/* ═══ SECTION 2: THIẾT BỊ LẺ ════════════════════════════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 flex items-center gap-2">
-          <span className="text-sm font-semibold text-blue-800">📦 Chọn thiết bị lẻ</span>
-          {cart.length > 0 && (
-            <span className="bg-blue-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold ml-auto">
-              {cart.reduce((s, c) => s + c.quantity, 0)} thiết bị
-            </span>
-          )}
+      {/* ── 4. THÔNG TIN ĐƠN ─────────────────────────────────────── */}
+      <div className={panelCls}>
+        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 shrink-0">
+          <span className="text-sm font-semibold text-gray-700">📋 Thông tin đơn</span>
         </div>
-        <div className="p-4">
-          <DevicePicker
-            cart={cart} onChange={setCart}
-            devices={devices} popular={popular} loading={loadingDevices}
-          />
-        </div>
-      </div>
-
-      {/* ═══ SECTION 4: THÔNG TIN ĐƠN ══════════════════════════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-          <span className="text-sm font-semibold text-gray-700">📋 Thông tin đơn hàng</span>
-        </div>
-        <div className="p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+        <div className={`${bodyScroll} space-y-3`}>
+          <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-gray-500 font-medium">Người đặt</label>
               <input className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
@@ -615,7 +619,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
               value={recipientInfo} onChange={e => setRecipientInfo(e.target.value)} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-gray-500 font-medium">🚚 Ngày gửi</label>
               <input type="date" className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
@@ -655,9 +659,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
   )
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// TAB 2 — ĐƠN CỦA TÔI
-// ══════════════════════════════════════════════════════════════════════════════
+
 function TabMyOrders({ userEmail }: { userEmail: string }) {
   const [orders, setOrders]   = useState<DonHang[]>([])
   const [loading, setLoading] = useState(true)
