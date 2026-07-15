@@ -8,7 +8,7 @@ interface ComboItem   { device_name: string; quantity: number; notes?: string; s
 interface Combo       { id: string; name: string; description?: string; device_combo_items: ComboItem[] }
 interface Recipient   { id: string; name: string; type: string; office?: string; address?: string; phone?: string; contact_name?: string; notes?: string }
 interface CartItem    { device_name: string; quantity: number; customer_codes: string[]; expected_receipt: string }
-interface DonItem     { id: string; device_name: string; quantity: number; customer_codes?: string[]; expected_receipt?: string; sheet_row?: number; device_serials?: string[] }
+interface DonItem     { id: string; device_name: string; quantity: number; customer_codes?: string[]; expected_receipt?: string; sheet_row?: number; device_serials?: string[]; combo_name?: string }
 interface DonHang {
   id: string; order_code: string; orderer_email: string; orderer_name: string
   office: string; expected_date?: string; expected_ship_date?: string; recipient_info?: string; notes?: string
@@ -472,22 +472,25 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
           recipient_info: recipientInfo,
           notes,
           items: (() => {
-            // Expand combos and merge with individual cart items
-            const allItems: CartItem[] = [...cart]
-            for (const { combo, quantity: comboQty } of cartCombos) {
-              for (const ci of combo.device_combo_items) {
-                const idx = allItems.findIndex(c => c.device_name === ci.device_name)
-                const addQty = ci.quantity * comboQty
-                if (idx >= 0) allItems[idx] = { ...allItems[idx], quantity: allItems[idx].quantity + addQty }
-                else allItems.push({ device_name: ci.device_name, quantity: addQty, customer_codes: [], expected_receipt: '' })
-              }
-            }
-            return allItems.map(c => ({
+            // Standalone items (no combo)
+            const allItems: { device_name: string; quantity: number; customer_codes: string[]; expected_receipt?: string; combo_name?: string }[] = cart.map(c => ({
               device_name:      c.device_name,
               quantity:         c.quantity,
               customer_codes:   c.customer_codes,
               expected_receipt: c.expected_receipt || undefined,
             }))
+            // Combo items — keep combo_name to group later
+            for (const { combo, quantity: comboQty } of cartCombos) {
+              for (const ci of combo.device_combo_items) {
+                allItems.push({
+                  device_name:  ci.device_name,
+                  quantity:     ci.quantity * comboQty,
+                  customer_codes: [],
+                  combo_name:   combo.name,
+                })
+              }
+            }
+            return allItems
           })(),
         }),
       })
@@ -711,31 +714,60 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
           </button>
           {expanded === o.id && (
             <div className="border-t border-gray-100 p-3 space-y-2">
-              {o.giao_hang_don_items.map(item => (
-                <div key={item.id} className="flex items-start justify-between py-1.5 border-b border-gray-50 last:border-0">
-                  <div>
-                    <div className="text-sm font-medium">{item.device_name}</div>
-                    {item.customer_codes && item.customer_codes.length > 0 && (
-                      <div className="flex gap-1 mt-0.5 flex-wrap">
-                        {item.customer_codes.map(c => (
-                          <span key={c} className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5 text-[10px]">{c}</span>
+              {(() => {
+                const comboMap = new Map<string, typeof o.giao_hang_don_items>()
+                const standalone: typeof o.giao_hang_don_items = []
+                for (const item of o.giao_hang_don_items) {
+                  if (item.combo_name) {
+                    if (!comboMap.has(item.combo_name)) comboMap.set(item.combo_name, [])
+                    comboMap.get(item.combo_name)!.push(item)
+                  } else { standalone.push(item) }
+                }
+                return (<>
+                  {Array.from(comboMap.entries()).map(([cname, citems]) => (
+                    <div key={cname} className="py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="text-sm font-semibold text-amber-700">🎁 {cname}</div>
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {citems.map(ci => (
+                          <span key={ci.id} className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
+                            {ci.device_name} ×{ci.quantity}
+                          </span>
                         ))}
                       </div>
-                    )}
-                    {item.expected_receipt && (
-                      <div className="text-xs text-gray-500 mt-0.5">Nhận: {item.expected_receipt}</div>
-                    )}
-                    {item.device_serials && item.device_serials.length > 0 && (
-                      <div className="flex gap-1 mt-0.5 flex-wrap">
-                        {item.device_serials.map(s => (
-                          <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
-                        ))}
+                      {citems.some(ci => (ci.device_serials ?? []).length > 0) && (
+                        <div className="flex gap-1 mt-0.5 flex-wrap">
+                          {citems.flatMap(ci => ci.device_serials ?? []).map(s => (
+                            <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {standalone.map(item => (
+                    <div key={item.id} className="flex items-start justify-between py-1.5 border-b border-gray-50 last:border-0">
+                      <div>
+                        <div className="text-sm font-medium">{item.device_name}</div>
+                        {item.customer_codes && item.customer_codes.length > 0 && (
+                          <div className="flex gap-1 mt-0.5 flex-wrap">
+                            {item.customer_codes.map(c => (
+                              <span key={c} className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5 text-[10px]">{c}</span>
+                            ))}
+                          </div>
+                        )}
+                        {item.expected_receipt && <div className="text-xs text-gray-500 mt-0.5">Nhận: {item.expected_receipt}</div>}
+                        {item.device_serials && item.device_serials.length > 0 && (
+                          <div className="flex gap-1 mt-0.5 flex-wrap">
+                            {item.device_serials.map(s => (
+                              <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div className="text-sm font-semibold text-gray-700">×{item.quantity}</div>
-                </div>
-              ))}
+                      <div className="text-sm font-semibold text-gray-700">×{item.quantity}</div>
+                    </div>
+                  ))}
+                </>)
+              })()}
               {o.recipient_info && (
                 <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>
               )}
@@ -914,9 +946,17 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
             : 'GPS Tracker / MDVR: quét barcode để kiểm tra CRM. Thiết bị khác: nhập mã thủ công.'}
         </div>
 
-        {order.giao_hang_don_items.map(item => {
+        {(() => {
+          const items2   = order.giao_hang_don_items
+          const hasGps2  = items2.some(i => GPS_MDVR_TYPES.includes(deviceTypes[i.device_name] ?? ''))
+          const hasMdvr2 = items2.some(i => (deviceTypes[i.device_name] ?? '') === 'MDVR')
+          return items2.map(item => {
           const dtype    = deviceTypes[item.device_name] ?? ''
           const isGpsMdvr = GPS_MDVR_TYPES.includes(dtype)
+          // Ẩn phụ kiện đi kèm GPS/MDVR — mã GPS/MDVR đại diện cho cả combo
+          const isBundledSim2 = dtype === 'Simcard' && hasGps2
+          const isBundledMem2 = dtype === 'Storage'  && hasMdvr2
+          if (isBundledSim2 || isBundledMem2) return null
           const cr       = crmResult[item.id] ?? null
           return (
             <div key={item.id} className={`border rounded-xl overflow-hidden ${isGpsMdvr ? 'border-blue-200' : 'border-gray-200'}`}>
@@ -1036,7 +1076,8 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
               </div>
             </div>
           )
-        })}
+        })
+      })()}
 
         <div className="flex gap-2 pt-1">
           <button onClick={confirm}
@@ -1217,29 +1258,60 @@ function TabAllOrders() {
               </button>
               {expanded === o.id && (
                 <div className="border-t p-3 space-y-2">
-                  {o.giao_hang_don_items.map(item => (
-                    <div key={item.id} className="flex justify-between py-1.5 border-b border-gray-50 last:border-0">
-                      <div>
-                        <div className="text-sm font-medium">{item.device_name}</div>
-                        {item.customer_codes && item.customer_codes.length > 0 && (
-                          <div className="flex gap-1 mt-0.5 flex-wrap">
-                            {item.customer_codes.map(c => (
-                              <span key={c} className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5 text-[10px]">{c}</span>
+                  {(() => {
+                    const comboMap = new Map<string, typeof o.giao_hang_don_items>()
+                    const standalone: typeof o.giao_hang_don_items = []
+                    for (const item of o.giao_hang_don_items) {
+                      if (item.combo_name) {
+                        if (!comboMap.has(item.combo_name)) comboMap.set(item.combo_name, [])
+                        comboMap.get(item.combo_name)!.push(item)
+                      } else { standalone.push(item) }
+                    }
+                    return (<>
+                      {Array.from(comboMap.entries()).map(([cname, citems]) => (
+                        <div key={cname} className="py-1.5 border-b border-gray-50 last:border-0">
+                          <div className="text-sm font-semibold text-amber-700">🎁 {cname}</div>
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {citems.map(ci => (
+                              <span key={ci.id} className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
+                                {ci.device_name} ×{ci.quantity}
+                              </span>
                             ))}
                           </div>
-                        )}
-                        {item.expected_receipt && <div className="text-xs text-gray-500">Nhận: {item.expected_receipt}</div>}
-                        {item.device_serials && item.device_serials.length > 0 && (
-                          <div className="flex gap-1 mt-0.5 flex-wrap">
-                            {item.device_serials.map(s => (
-                              <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
-                            ))}
+                          {citems.some(ci => (ci.device_serials ?? []).length > 0) && (
+                            <div className="flex gap-1 mt-0.5 flex-wrap">
+                              {citems.flatMap(ci => ci.device_serials ?? []).map(s => (
+                                <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {standalone.map(item => (
+                        <div key={item.id} className="flex justify-between py-1.5 border-b border-gray-50 last:border-0">
+                          <div>
+                            <div className="text-sm font-medium">{item.device_name}</div>
+                            {item.customer_codes && item.customer_codes.length > 0 && (
+                              <div className="flex gap-1 mt-0.5 flex-wrap">
+                                {item.customer_codes.map(c => (
+                                  <span key={c} className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-1.5 py-0.5 text-[10px]">{c}</span>
+                                ))}
+                              </div>
+                            )}
+                            {item.expected_receipt && <div className="text-xs text-gray-500">Nhận: {item.expected_receipt}</div>}
+                            {item.device_serials && item.device_serials.length > 0 && (
+                              <div className="flex gap-1 mt-0.5 flex-wrap">
+                                {item.device_serials.map(s => (
+                                  <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      <div className="text-sm font-semibold">×{item.quantity}</div>
-                    </div>
-                  ))}
+                          <div className="text-sm font-semibold">×{item.quantity}</div>
+                        </div>
+                      ))}
+                    </>)
+                  })()}
                   {o.recipient_info && <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>}
                   {o.expected_ship_date && <div className="text-xs text-amber-600">🚚 Gửi: {o.expected_ship_date}</div>}
                   {o.notes && <div className="text-xs italic text-gray-500">📝 {o.notes}</div>}
@@ -1927,4 +1999,3 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
     </div>
   )
 }
-

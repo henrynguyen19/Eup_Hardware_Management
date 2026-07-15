@@ -69,6 +69,7 @@ interface OrderItem {
   quantity:         number
   customer_codes?:  string[]
   expected_receipt?: string
+  combo_name?:      string
 }
 
 interface OrderBody {
@@ -191,6 +192,7 @@ export async function POST(req: NextRequest) {
       customer_codes:   item.customer_codes ?? [],
       expected_receipt: item.expected_receipt ?? null,
       sheet_row:        itemSheetRows[i] ?? null,
+      combo_name:       item.combo_name ?? null,
     }))
 
     const { error: itemErr } = await admin.from('giao_hang_don_items').insert(itemsToInsert)
