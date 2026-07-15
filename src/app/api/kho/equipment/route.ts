@@ -15,13 +15,17 @@ async function getUser() {
 }
 
 // GET: lấy danh sách thiết bị
-export async function GET() {
+// ?minimal=1 → chỉ trả về các field cần cho picker (nhẹ hơn nhiều)
+export async function GET(req: NextRequest) {
   const user = await getUser()
   if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
 
+  const minimal = req.nextUrl.searchParams.has('minimal')
+  const fields  = minimal ? 'equipment_id,name,device_type,category' : '*'
+
   const { data, error } = await supabaseAdmin()
     .from('equipment_cards')
-    .select('*')
+    .select(fields)
     .order('device_type')
     .order('name')
 
@@ -60,12 +64,4 @@ export async function POST(req: NextRequest) {
       main_photo_public_id: main_photo_public_id ?? null,
       detail_photos: detail_photos ?? [],
       documents: documents ?? [],
-      is_new: is_new ?? false,
-      updated_by: user.email,
-    })
-    .select()
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ data }, { status: 201 })
-}
+  

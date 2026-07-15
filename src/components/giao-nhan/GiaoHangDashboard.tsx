@@ -155,6 +155,27 @@ function DevicePicker({ cart, onChange, devices, popular, loading }: {
 
   return (
     <div className="space-y-2">
+      {/* Search — always at top */}
+      <input
+        className="w-full border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        placeholder="🔍 Tìm thiết bị…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        autoFocus={false}
+      />
+
+      {/* Type filter tabs */}
+      <div className="flex gap-1 flex-wrap">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setActiveType(t.key)}
+            className={`px-2 py-0.5 rounded-lg text-xs font-medium border transition-colors ${
+              activeType === t.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+            }`}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
       {/* Popular chips */}
       {popularNames.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -172,57 +193,35 @@ function DevicePicker({ cart, onChange, devices, popular, loading }: {
         </div>
       )}
 
-      {/* Type filter tabs */}
-      <div className="flex gap-1 flex-wrap">
-        {tabs.map(t => (
-          <button key={t.key} onClick={() => setActiveType(t.key)}
-            className={`px-2 py-0.5 rounded-lg text-xs font-medium border transition-colors ${
-              activeType === t.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
-            }`}>
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Search */}
-      <input
-        className="w-full border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-        placeholder="Tìm thiết bị…"
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
-
-      {/* Device grid */}
-      <div className="grid grid-cols-2 gap-1.5 max-h-80 overflow-y-auto pr-1">
+      {/* Device list — simple flat chips for fast render */}
+      <div className="flex flex-col gap-1 max-h-80 overflow-y-auto pr-1">
         {filtered().map(dev => {
           const active = cart.some(c => c.device_name === dev.name)
           const cartItem = cart.find(c => c.device_name === dev.name)
           const ts = typeStyle(dev.device_type)
           return (
-            <button key={dev.equipment_id} onClick={() => toggle(dev.name)}
-              className={`flex flex-col items-start p-2 rounded-xl border text-left transition-all ${
-                active ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-200' : 'bg-white border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
-              }`}>
-              <div className="flex items-center justify-between w-full gap-1">
-                <span className="text-xs font-medium leading-tight flex-1 min-w-0">{ts.icon} {dev.name}</span>
-                {active && (
-                  <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
-                    <button onClick={e => adjustQty(e, dev.name, -1)}
-                      className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 font-bold text-xs hover:bg-indigo-200 flex items-center justify-center">−</button>
-                    <span className="w-5 text-center text-xs font-semibold text-indigo-700">{cartItem?.quantity}</span>
-                    <button onClick={e => adjustQty(e, dev.name, 1)}
-                      className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 font-bold text-xs hover:bg-indigo-200 flex items-center justify-center">+</button>
-                  </div>
-                )}
-              </div>
-              {dev.device_type && !active && (
-                <span className={`mt-1 px-1 py-0.5 rounded text-[10px] border ${ts.color}`}>{ts.label}</span>
+            <div key={dev.equipment_id}
+              className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                active ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-150 hover:border-indigo-200 hover:bg-gray-50'
+              }`}
+              onClick={() => toggle(dev.name)}>
+              <span className="text-xs text-gray-800 flex-1 min-w-0 truncate">{ts.icon} {dev.name}</span>
+              {active ? (
+                <div className="flex items-center gap-0.5 shrink-0 ml-2" onClick={e => e.stopPropagation()}>
+                  <button onClick={e => adjustQty(e, dev.name, -1)}
+                    className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 font-bold text-xs hover:bg-indigo-200 flex items-center justify-center">−</button>
+                  <span className="w-5 text-center text-xs font-semibold text-indigo-700">{cartItem?.quantity}</span>
+                  <button onClick={e => adjustQty(e, dev.name, 1)}
+                    className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 font-bold text-xs hover:bg-indigo-200 flex items-center justify-center">+</button>
+                </div>
+              ) : (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded border ml-2 shrink-0 ${ts.color}`}>{ts.label}</span>
               )}
-            </button>
+            </div>
           )
         })}
         {filtered().length === 0 && (
-          <div className="col-span-2 text-center py-6 text-gray-400 text-sm">Không có thiết bị phù hợp</div>
+          <div className="text-center py-6 text-gray-400 text-sm">Không có thiết bị phù hợp</div>
         )}
       </div>
     </div>
@@ -240,6 +239,7 @@ function ComboPicker({ cartCombos, onChange }: {
 }) {
   const [combos, setCombos]   = useState<Combo[]>([])
   const [loading, setLoading] = useState(true)
+  const [search, setSearch]   = useState('')
 
   useEffect(() => {
     fetch('/api/giao-hang/combos').then(r => r.json())
@@ -262,11 +262,21 @@ function ComboPicker({ cartCombos, onChange }: {
 
   if (loading || combos.length === 0) return null
 
+  const filteredCombos = search
+    ? combos.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
+    : combos
+
   return (
     <div>
       <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">📦 Gói combo nhanh</div>
+      <input
+        className="w-full border border-amber-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 mb-2"
+        placeholder="🔍 Tìm combo…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
       <div className="flex flex-wrap gap-1.5">
-        {combos.map(combo => {
+        {filteredCombos.map(combo => {
           const cc = cartCombos.find(c => c.combo.id === combo.id)
           const active = !!cc
           return (
@@ -439,11 +449,13 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
   const [result, setResult]           = useState<{ ok: boolean; msg: string } | null>(null)
 
   useEffect(() => {
+    // Equipment + recipients load together → unblock UI fast (minimal=1 skips photos/docs)
     Promise.all([
-      fetch('/api/kho/equipment').then(r => r.json()).then(d => setDevices(d.data ?? [])),
-      fetch('/api/giao-hang/popular').then(r => r.json()).then(d => setPopular(d.data ?? {})),
+      fetch('/api/kho/equipment?minimal=1').then(r => r.json()).then(d => setDevices(d.data ?? [])),
       fetch('/api/giao-hang/recipients').then(r => r.json()).then(d => setRecipients(d.recipients ?? [])),
     ]).finally(() => setLoadingDevices(false))
+    // Popular loads in background (calls Google Sheets — slow on cold start)
+    fetch('/api/giao-hang/popular').then(r => r.json()).then(d => setPopular(d.data ?? {})).catch(() => {})
   }, [])
 
   function handleRecipientChange(id: string) {
