@@ -1920,4 +1920,11 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
           {tab === 'my_orders'  && <TabMyOrders userEmail={userEmail} />}
           {tab === 'all_orders' && <TabAllOrders />}
           {tab === 'lich_su'    && <TabLichSuSheet />}
-          {tab === 'combos'     && <TabCombos />
+          {tab === 'combos'     && <TabCombos />}
+          {tab === 'recipients' && <TabRecipients />}
+        </div>
+      )}
+    </div>
+  )
+}
+
