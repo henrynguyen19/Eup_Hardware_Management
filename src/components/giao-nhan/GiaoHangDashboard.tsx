@@ -941,8 +941,12 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
           return items2.map(item => {
           const dtype    = deviceTypes[item.device_name] ?? ''
           const isGpsMdvr = GPS_MDVR_TYPES.includes(dtype)
-          // Nếu trong đơn có GPS/MDVR → chỉ hiện GPS/MDVR, ẩn tất cả phụ kiện còn lại
-          if (hasGps2 && !isGpsMdvr) return null
+          // Ẩn SIM và Storage khi trong đơn có GPS/MDVR (mã GPS/MDVR đại diện cho combo)
+          // Các thiết bị khác (GPS Tracker lẻ, standalone, phụ kiện có mã riêng) đều hiện
+          const hasMdvr2 = items2.some(i => (deviceTypes[i.device_name] ?? '') === 'MDVR')
+          const isBundledSim = dtype === 'Simcard' && hasGps2
+          const isBundledMem = dtype === 'Storage'  && hasMdvr2
+          if (isBundledSim || isBundledMem) return null
           const cr       = crmResult[item.id] ?? null
           // GPS/MDVR luôn cần nhập mã — override noSerial kể cả khi deviceTypes chưa load
           const effectiveNoSerial = isGpsMdvr ? false : (noSerial[item.id] ?? false)
