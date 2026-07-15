@@ -935,21 +935,36 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
         </div>
 
         {(() => {
-          const items2   = order.giao_hang_don_items
-          const hasGps2  = items2.some(i => GPS_MDVR_TYPES.includes(deviceTypes[i.device_name] ?? ''))
-          const hasMdvr2 = items2.some(i => (deviceTypes[i.device_name] ?? '') === 'MDVR')
+          const items2 = order.giao_hang_don_items
+          // Combo nào có GPS/MDVR thì serial GPS/MDVR đại diện cho cả combo
+          const comboHasGpsMdvr = new Map<string, boolean>()
+          for (const it of items2) {
+            if (it.combo_name && GPS_MDVR_TYPES.includes(deviceTypes[it.device_name] ?? '')) {
+              comboHasGpsMdvr.set(it.combo_name, true)
+            }
+          }
           return items2.map(item => {
-          const dtype    = deviceTypes[item.device_name] ?? ''
+          const dtype     = deviceTypes[item.device_name] ?? ''
           const isGpsMdvr = GPS_MDVR_TYPES.includes(dtype)
-          // Ẩn SIM và Storage khi trong đơn có GPS/MDVR (mã GPS/MDVR đại diện cho combo)
-          // Các thiết bị khác (GPS Tracker lẻ, standalone, phụ kiện có mã riêng) đều hiện
-          const hasMdvr2 = items2.some(i => (deviceTypes[i.device_name] ?? '') === 'MDVR')
-          const isBundledSim = dtype === 'Simcard' && hasGps2
-          const isBundledMem = dtype === 'Storage'  && hasMdvr2
-          if (isBundledSim || isBundledMem) return null
-          const cr       = crmResult[item.id] ?? null
-          // GPS/MDVR luôn cần nhập mã — override noSerial kể cả khi deviceTypes chưa load
+          const isInCombo = !!item.combo_name
+          const thisComboHasGps = isInCombo ? (comboHasGpsMdvr.get(item.combo_name!) ?? false) : false
+          const nameLower = item.device_name.toLowerCase()
+
+          // Luôn ẩn: dây nguồn, bộ phụ kiện (không có mã serial)
+          if (nameLower.includes('dây nguồn') || nameLower.includes('bộ phụ kiện')
+            || nameLower.includes('dây kết nối') || dtype === 'Power' || dtype === 'Cable')
+            return null
+
+          // Ẩn SIM và Storage khi trong combo (đi kèm thiết bị chính, không cần mã riêng)
+          if ((dtype === 'Simcard' || dtype === 'Storage') && isInCombo) return null
+
+          // Ẩn non-GPS/MDVR trong combo có GPS/MDVR (serial GPS đại diện cả combo)
+          if (!isGpsMdvr && isInCombo && thisComboHasGps) return null
+
+          const cr = crmResult[item.id] ?? null
+          // GPS/MDVR luôn cần nhập mã dù noSerial đã lưu trước
           const effectiveNoSerial = isGpsMdvr ? false : (noSerial[item.id] ?? false)
+          return (
           return (
             <div key={item.id} className={`border rounded-xl overflow-hidden ${isGpsMdvr ? 'border-blue-200' : 'border-gray-200'}`}>
               {/* Item header */}
