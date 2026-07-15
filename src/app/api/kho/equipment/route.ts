@@ -64,4 +64,6 @@ export async function POST(req: NextRequest) {
       main_photo_public_id: main_photo_public_id ?? null,
       detail_photos: detail_photos ?? [],
       documents: documents ?? [],
-  
+      is_new: is_new ?? false,
+      updated_by: user.email,
+    })
