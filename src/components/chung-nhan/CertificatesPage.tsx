@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
 
 interface DriveItem {
@@ -91,9 +91,11 @@ function FilePreviewModal({ file, onClose }: { file: DriveItem; onClose: () => v
 export default function CertificatesPage({
   rootFolderId: rootFolderIdProp,
   title: titleProp,
+  isAdmin = false,
 }: {
   rootFolderId?: string
   title?: string
+  isAdmin?: boolean
 } = {}) {
   const { t } = useLanguage()
   const effectiveRootId = rootFolderIdProp ?? ROOT_FOLDER_ID
@@ -105,6 +107,14 @@ export default function CertificatesPage({
     { id: effectiveRootId, name: effectiveTitle }
   ])
   const [preview, setPreview]       = useState<DriveItem | null>(null)
+
+  // Admin actions
+  const [showNewFolder, setShowNewFolder]   = useState(false)
+  const [newFolderName, setNewFolderName]   = useState('')
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [uploading, setUploading]           = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<string>('')
+  const fileInputRef                        = useRef<HTMLInputElement>(null)
 
   const currentFolderId = breadcrumb[breadcrumb.length - 1].id
 
@@ -133,6 +143,55 @@ export default function CertificatesPage({
 
   function navigateTo(idx: number) {
     setBreadcrumb(prev => prev.slice(0, idx + 1))
+  }
+
+  async function createFolder() {
+    if (!newFolderName.trim()) return
+    setCreatingFolder(true)
+    try {
+      const res = await fetch('/api/certificates/browse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentId: currentFolderId, folderName: newFolderName.trim() }),
+      })
+      const d = await res.json()
+      if (!d.ok) throw new Error(d.error)
+      setNewFolderName('')
+      setShowNewFolder(false)
+      // Reload current folder
+      setLoading(true)
+      fetch(`/api/certificates/browse?folderId=${currentFolderId}`)
+        .then(r => r.json()).then(d => setResult(d)).finally(() => setLoading(false))
+    } catch (e) {
+      alert('Lỗi tạo thư mục: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setCreatingFolder(false)
+    }
+  }
+
+  async function uploadFiles(files: FileList) {
+    setUploading(true)
+    const total = files.length
+    for (let i = 0; i < total; i++) {
+      const file = files[i]
+      setUploadProgress(`Đang tải lên ${i + 1}/${total}: ${file.name}`)
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('parentId', currentFolderId)
+      const res = await fetch('/api/certificates/file', { method: 'POST', body: fd })
+      const d = await res.json()
+      if (!d.ok) {
+        alert(`Lỗi upload ${file.name}: ${d.error}`)
+        break
+      }
+    }
+    setUploadProgress('')
+    setUploading(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    // Reload
+    setLoading(true)
+    fetch(`/api/certificates/browse?folderId=${currentFolderId}`)
+      .then(r => r.json()).then(d => setResult(d)).finally(() => setLoading(false))
   }
 
   const folders = result?.items.filter(i => i.isFolder)  ?? []
@@ -174,14 +233,76 @@ export default function CertificatesPage({
           )}
         </div>
 
-        {/* Back button */}
-        {breadcrumb.length > 1 && (
-          <button
-            onClick={() => navigateTo(breadcrumb.length - 2)}
-            className="mt-3 flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 transition"
-          >
-            {t.chungNhan.back}
-          </button>
+        {/* Back button + Admin actions */}
+        <div className="flex items-center justify-between mt-3">
+          {breadcrumb.length > 1 ? (
+            <button
+              onClick={() => navigateTo(breadcrumb.length - 2)}
+              className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 transition"
+            >
+              {t.chungNhan.back}
+            </button>
+          ) : <div />}
+
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              {uploadProgress && (
+                <span className="text-xs text-blue-600 animate-pulse">{uploadProgress}</span>
+              )}
+              <button
+                onClick={() => setShowNewFolder(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition"
+              >
+                📁 Tạo thư mục
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-white transition disabled:opacity-50"
+                style={{ background: '#A70A0A' }}
+              >
+                {uploading ? '⏳ Đang tải…' : '⬆️ Upload file'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={e => e.target.files && uploadFiles(e.target.files)}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* New folder modal */}
+        {showNewFolder && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowNewFolder(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+              <h3 className="font-semibold text-gray-800 mb-3">📁 Tạo thư mục mới</h3>
+              <input
+                autoFocus
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 mb-3"
+                placeholder="Tên thư mục…"
+                value={newFolderName}
+                onChange={e => setNewFolderName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && createFolder()}
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={createFolder}
+                  disabled={creatingFolder || !newFolderName.trim()}
+                  className="flex-1 py-2 text-sm font-medium text-white rounded-xl disabled:opacity-50 transition"
+                  style={{ background: '#A70A0A' }}
+                >
+                  {creatingFolder ? 'Đang tạo…' : 'Tạo'}
+                </button>
+                <button onClick={() => setShowNewFolder(false)}
+                  className="px-4 py-2 text-sm border border-gray-200 rounded-xl hover:bg-gray-50">
+                  Hủy
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 

@@ -3,14 +3,16 @@ import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { google } from 'googleapis'
 
 // ── Google Drive auth via Service Account ────────────────────
-function getDriveClient() {
+function getDriveClient(write = false) {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
   if (!raw) throw new Error('Thiếu GOOGLE_SERVICE_ACCOUNT_JSON trong .env.local')
 
   const credentials = JSON.parse(raw)
   const auth = new google.auth.GoogleAuth({
     credentials,
-    scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+    scopes: write
+      ? ['https://www.googleapis.com/auth/drive']
+      : ['https://www.googleapis.com/auth/drive.readonly'],
   })
   return google.drive({ version: 'v3', auth })
 }
@@ -60,7 +62,4 @@ export async function GET(req: NextRequest) {
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error('[Drive proxy]', msg)
-    return NextResponse.json({ error: msg }, { status: 500 })
-  }
-}
+    console.error('[Drive proxy]'

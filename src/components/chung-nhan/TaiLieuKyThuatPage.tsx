@@ -33,6 +33,7 @@ export default function TaiLieuKyThuatPage({ isAdmin = false, canTaiLieu = true,
         <CertificatesPage
           rootFolderId={FOLDER_CHUNG_NHAN}
           title={vi ? 'Giấy chứng nhận' : 'Certificates'}
+          isAdmin={isAdmin}
         />
       )
     }
@@ -66,7 +67,7 @@ export default function TaiLieuKyThuatPage({ isAdmin = false, canTaiLieu = true,
       )
     }
 
-    return <CertificatesPage rootFolderId={folderId} title={title} />
+    return <CertificatesPage rootFolderId={folderId} title={title} isAdmin={isAdmin} />
   }
 
   return (
