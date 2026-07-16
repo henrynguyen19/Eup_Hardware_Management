@@ -50,6 +50,12 @@ const STATUS_LABEL: Record<string, string> = Object.fromEntries(
 )
 const VALID_STATUSES_UI = ['cho_xu_ly', 'dang_xu_ly', 'da_gui', 'da_nhan', 'da_huy']
 
+// ─── Phân quyền kho ─────────────────────────────────────────────────────────
+const KHO_EMAILS = ['julie', 'kai', 'thor', 'nick', 'bob'].map(n => `${n}@eup.net.vn`)
+function isKhoUser(email: string) {
+  return KHO_EMAILS.includes(email.toLowerCase())
+}
+
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status]
   if (!cfg) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">{status}</span>
@@ -1192,7 +1198,7 @@ function printLabel(order: DonHang) {
 // ══════════════════════════════════════════════════════════════════════════════
 // TAB 3 — TẤT CẢ ĐƠN (admin)
 // ══════════════════════════════════════════════════════════════════════════════
-function TabAllOrders() {
+function TabAllOrders({ isKho }: { isKho: boolean }) {
   const [orders, setOrders]   = useState<DonHang[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
@@ -1331,26 +1337,30 @@ function TabAllOrders() {
                     </div>
                   )}
                   <div className="flex gap-1 flex-wrap pt-1 border-t border-gray-100">
-                    <span className="text-[10px] text-gray-400 w-full mb-0.5">Cập nhật trạng thái:</span>
-                    {VALID_STATUSES_UI.map(k => {
-                      const cfg = STATUS_CONFIG[k]
-                      const active = o.status === k
-                      return (
-                        <button key={k} onClick={() => handleStatusClick(o, k)} disabled={active}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                            active ? `${cfg.badge} cursor-default opacity-80 ring-1 ring-offset-1 ring-current` : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700'
-                          }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                          {cfg.label}
+                    {isKho && (
+                      <>
+                        <span className="text-[10px] text-gray-400 w-full mb-0.5">Cập nhật trạng thái:</span>
+                        {VALID_STATUSES_UI.map(k => {
+                          const cfg = STATUS_CONFIG[k]
+                          const active = o.status === k
+                          return (
+                            <button key={k} onClick={() => handleStatusClick(o, k)} disabled={active}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                                active ? `${cfg.badge} cursor-default opacity-80 ring-1 ring-offset-1 ring-current` : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700'
+                              }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                              {cfg.label}
+                            </button>
+                          )
+                        })}
+                        <button onClick={() => setSerialOnlyModal(o)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-violet-200 text-violet-600 hover:bg-violet-50 hover:border-violet-400">
+                          📝 Nhập mã
                         </button>
-                      )
-                    })}
-                    <button onClick={() => setSerialOnlyModal(o)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-violet-200 text-violet-600 hover:bg-violet-50 hover:border-violet-400">
-                      📝 Nhập mã
-                    </button>
+                      </>
+                    )}
                     <button onClick={() => printLabel(o)}
-                      className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400">
+                      className={`${isKho ? 'ml-auto' : ''} inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400`}>
                       🖨️ In đơn
                     </button>
                   </div>
@@ -1599,7 +1609,7 @@ function DeviceComboItemRow({ item, devices, onUpdate, onRemove }: {
   )
 }
 
-function TabCombos() {
+function TabCombos({ isKho }: { isKho: boolean }) {
   const [combos, setCombos]     = useState<Combo[]>([])
   const [devices, setDevices]   = useState<Equipment[]>([])
   const [loading, setLoading]   = useState(true)
@@ -1670,10 +1680,12 @@ function TabCombos() {
     <div className="space-y-3">
       <div className="flex justify-between items-center">
         <div className="text-sm font-semibold text-gray-700">📦 Quản lý gói combo</div>
-        <button onClick={openCreate}
-          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium transition-colors">
-          + Tạo combo
-        </button>
+        {isKho && (
+          <button onClick={openCreate}
+            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium transition-colors">
+            + Tạo combo
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -1699,12 +1711,14 @@ function TabCombos() {
                     ))}
                   </div>
                 </div>
-                <div className="flex gap-1 ml-2">
-                  <button onClick={() => openEdit(combo)}
-                    className="px-2 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">Sửa</button>
-                  <button onClick={() => del(combo.id)}
-                    className="px-2 py-1 text-xs border border-red-200 rounded-lg hover:bg-red-50 text-red-500">Xóa</button>
-                </div>
+                {isKho && (
+                  <div className="flex gap-1 ml-2">
+                    <button onClick={() => openEdit(combo)}
+                      className="px-2 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">Sửa</button>
+                    <button onClick={() => del(combo.id)}
+                      className="px-2 py-1 text-xs border border-red-200 rounded-lg hover:bg-red-50 text-red-500">Xóa</button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -1960,6 +1974,7 @@ function TabRecipients() {
 type Tab = 'dat_hang' | 'my_orders' | 'all_orders' | 'lich_su' | 'combos' | 'recipients'
 
 export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: string; isAdmin: boolean }) {
+  const isKho = isKhoUser(userEmail)
   const [tab, setTab] = useState<Tab>('dat_hang')
 
   const TABS = [
@@ -1999,9 +2014,9 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
       ) : (
         <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 min-h-[400px] max-w-4xl">
           {tab === 'my_orders'  && <TabMyOrders userEmail={userEmail} />}
-          {tab === 'all_orders' && <TabAllOrders />}
+          {tab === 'all_orders' && <TabAllOrders isKho={isKho} />}
           {tab === 'lich_su'    && <TabLichSuSheet />}
-          {tab === 'combos'     && <TabCombos />}
+          {tab === 'combos'     && <TabCombos isKho={isKho} />}
           {tab === 'recipients' && <TabRecipients />}
         </div>
       )}
