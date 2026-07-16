@@ -1265,18 +1265,42 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
         <div className="space-y-2">
           {orders.map(o => (
             <div key={o.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <button className="w-full flex items-center justify-between p-3 text-left hover:bg-gray-50"
+              <button className="w-full grid grid-cols-[auto_1fr_1fr_1fr_auto_auto] items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50"
                 onClick={() => setExpanded(expanded === o.id ? null : o.id)}>
-                <div>
-                  <div className="font-mono text-sm font-semibold text-indigo-700">{o.order_code}</div>
-                  <div className="text-xs text-gray-500">
-                    {o.orderer_name || o.orderer_email} · {o.office} · {new Date(o.created_at).toLocaleDateString('vi-VN')}
-                  </div>
+                {/* Mã đơn */}
+                <div className="font-mono text-sm font-semibold text-indigo-700 whitespace-nowrap">{o.order_code}</div>
+                {/* Người đặt + VP */}
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-gray-800 truncate">{o.orderer_name || o.orderer_email}</div>
+                  <div className="text-xs text-gray-400 truncate">{o.office}</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <StatusBadge status={o.status} />
-                  <span className="text-gray-400 text-sm">{expanded === o.id ? '▲' : '▼'}</span>
+                {/* Ngày tạo + ngày gửi */}
+                <div className="min-w-0">
+                  <div className="text-xs text-gray-500 whitespace-nowrap">📅 {new Date(o.created_at).toLocaleDateString('vi-VN')}</div>
+                  {o.expected_ship_date && <div className="text-xs text-amber-600 whitespace-nowrap">🚚 {o.expected_ship_date}</div>}
                 </div>
+                {/* Nội dung đơn — tóm tắt */}
+                <div className="min-w-0">
+                  {(() => {
+                    const comboNames = [...new Set(o.giao_hang_don_items.filter(i => i.combo_name).map(i => i.combo_name!))]
+                    const standalone = o.giao_hang_don_items.filter(i => !i.combo_name)
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {comboNames.map(cn => (
+                          <span key={cn} className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 truncate max-w-[120px]">📦 {cn}</span>
+                        ))}
+                        {standalone.length > 0 && (
+                          <span className="text-[10px] bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{standalone.reduce((s,i)=>s+i.quantity,0)} thiết bị lẻ</span>
+                        )}
+                      </div>
+                    )
+                  })()}
+                  {o.recipient_info && <div className="text-[10px] text-gray-400 mt-0.5 truncate">👤 {o.recipient_info.split('—')[0].trim()}</div>}
+                </div>
+                {/* Status badge */}
+                <StatusBadge status={o.status} />
+                {/* Expand */}
+                <span className="text-gray-400 text-xs">{expanded === o.id ? '▲' : '▼'}</span>
               </button>
               {expanded === o.id && (
                 <div className="border-t p-3 space-y-2">
@@ -2011,7 +2035,7 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
       {tab === 'dat_hang' ? (
         <TabDatHang userEmail={userEmail} />
       ) : (
-        <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 min-h-[400px] max-w-4xl">
+        <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 min-h-[400px] w-full">
           {tab === 'my_orders'  && <TabMyOrders userEmail={userEmail} />}
           {tab === 'all_orders' && <TabAllOrders isKho={isKho} />}
           {tab === 'lich_su'    && <TabLichSuSheet />}
