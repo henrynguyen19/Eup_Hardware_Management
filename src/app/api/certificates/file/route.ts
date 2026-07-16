@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { google } from 'googleapis'
 
-// ── Google Drive auth via Service Account ────────────────────
 function getDriveClient(write = false) {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
   if (!raw) throw new Error('Thiếu GOOGLE_SERVICE_ACCOUNT_JSON trong .env.local')
-
   const credentials = JSON.parse(raw)
   const auth = new google.auth.GoogleAuth({
     credentials,
@@ -17,9 +16,25 @@ function getDriveClient(write = false) {
   return google.drive({ version: 'v3', auth })
 }
 
+function adminDB() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
+}
+
+async function canWrite(userId: string): Promise<boolean> {
+  const { data } = await adminDB()
+    .from('user_permissions_view')
+    .select('permissions')
+    .eq('user_id', userId)
+    .single()
+  const perms: string[] = data?.permissions ?? []
+  return perms.includes('admin:users') || perms.includes('chung_nhan:write')
+}
+
 // GET /api/certificates/file?id=DRIVE_FILE_ID
 export async function GET(req: NextRequest) {
-  // Chỉ user đã đăng nhập mới được xem
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
@@ -30,20 +45,16 @@ export async function GET(req: NextRequest) {
   try {
     const drive = getDriveClient()
 
-    // Lấy metadata để biết mimeType
     const meta = await drive.files.get({ fileId, fields: 'name,mimeType,size' })
     const mimeType = meta.data.mimeType ?? 'application/octet-stream'
     const fileName = meta.data.name ?? 'file'
 
-    // Stream nội dung file
     const fileRes = await drive.files.get(
       { fileId, alt: 'media' },
       { responseType: 'stream' }
     )
 
     const stream = fileRes.data as NodeJS.ReadableStream
-
-    // Chuyển stream Node.js → ReadableStream Web API
     const webStream = new ReadableStream({
       start(controller) {
         stream.on('data', (chunk: Buffer) => controller.enqueue(chunk))
@@ -56,10 +67,59 @@ export async function GET(req: NextRequest) {
       headers: {
         'Content-Type': mimeType,
         'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
-        // Cache 5 phút — tránh gọi Drive API liên tục
         'Cache-Control': 'private, max-age=300',
       },
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error('[Drive proxy]'
+    console.error('[Drive proxy]', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
+}
+
+// POST /api/certificates/file
+// FormData: file (Blob), parentId (string)
+// Upload file lên Drive — yêu cầu chung_nhan:write hoặc admin:users
+export async function POST(req: NextRequest) {
+  const supabase = createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
+
+  if (!(await canWrite(user.id))) {
+    return NextResponse.json({ error: 'Không có quyền upload file' }, { status: 403 })
+  }
+
+  try {
+    const formData = await req.formData()
+    const file     = formData.get('file') as File | null
+    const parentId = formData.get('parentId') as string | null
+
+    if (!file || !parentId) {
+      return NextResponse.json({ error: 'Thiếu file hoặc parentId' }, { status: 400 })
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const drive  = getDriveClient(true)
+
+    const { Readable } = await import('stream')
+    const stream = Readable.from(buffer)
+
+    const res = await drive.files.create({
+      requestBody: {
+        name:    file.name,
+        parents: [parentId],
+      },
+      media: {
+        mimeType: file.type || 'application/octet-stream',
+        body:     stream,
+      },
+      fields: 'id,name,mimeType,size,modifiedTime',
+    })
+
+    return NextResponse.json({ ok: true, file: res.data })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[Drive upload]', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
+}
