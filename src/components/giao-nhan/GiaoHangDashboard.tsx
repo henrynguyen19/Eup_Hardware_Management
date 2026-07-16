@@ -579,7 +579,6 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
           )}
         </div>
         <div className={bodyScroll}>
-          <SimWarning cart={cart} devices={devices} />
           {cartCombos.length === 0 && cart.length === 0 ? (
             <p className="text-sm text-gray-400 text-center pt-12">Chưa chọn gì</p>
           ) : (
