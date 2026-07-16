@@ -33,4 +33,8 @@ export default async function ChungNhanPage() {
         isAdmin={isAdmin}
         canWriteCerts={canWriteCerts}
         canTaiLieu={permissions.includes('tai_lieu:read') || permissions.includes('chung_nhan:read') || isAdmin || canWriteCerts}
-        canHuongDan={permissions.inclu
+        canHuongDan={permissions.includes('huong_dan:read') || permissions.includes('chung_nhan:read') || isAdmin}
+      />
+    </AppShell>
+  )
+}
