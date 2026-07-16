@@ -9,6 +9,11 @@ interface Combo       { id: string; name: string; description?: string; device_c
 interface Recipient   { id: string; name: string; type: string; office?: string; address?: string; phone?: string; contact_name?: string; notes?: string }
 interface CartItem    { device_name: string; quantity: number; customer_codes: string[]; expected_receipt: string }
 interface DonItem     { id: string; device_name: string; quantity: number; customer_codes?: string[]; expected_receipt?: string; sheet_row?: number; device_serials?: string[]; combo_name?: string }
+interface SerialCRMResult {
+  serial: string; ok: boolean; transferred: boolean
+  productName: string; sourceStock: string; destStock: string
+  updateTime: string; updateMan: string; error?: string
+}
 interface DonHang {
   id: string; order_code: string; orderer_email: string; orderer_name: string
   office: string; expected_date?: string; expected_ship_date?: string; recipient_info?: string; notes?: string
@@ -1205,6 +1210,8 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [serialModal, setSerialModal] = useState<DonHang | null>(null)
   const [serialOnlyModal, setSerialOnlyModal] = useState<DonHang | null>(null)
+  const [crmResults, setCrmResults] = useState<Record<string, SerialCRMResult[]>>({})
+  const [crmChecking, setCrmChecking] = useState<Set<string>>(new Set())
 
   const load = useCallback(() => {
     setLoading(true)
@@ -1234,6 +1241,25 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
       body: JSON.stringify({ id, item_serials: itemSerials }),
     })
     load()
+  }
+
+  async function checkCRM(order: DonHang) {
+    const serials = order.giao_hang_don_items.flatMap(i => i.device_serials ?? []).filter(Boolean)
+    if (serials.length === 0) return
+    setCrmChecking(prev => new Set([...prev, order.id]))
+    try {
+      const res = await fetch('/api/giao-hang/batch-crm-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serials }),
+      })
+      const d = await res.json()
+      if (d.ok) {
+        setCrmResults(prev => ({ ...prev, [order.id]: d.results }))
+      }
+    } finally {
+      setCrmChecking(prev => { const n = new Set(prev); n.delete(order.id); return n })
+    }
   }
 
   function handleStatusClick(order: DonHang, status: string) {
@@ -1359,6 +1385,34 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                       {o.status_updated_at && <> lúc {new Date(o.status_updated_at).toLocaleString('vi-VN')}</>}
                     </div>
                   )}
+                  {/* CRM kết quả kiểm tra chuyển kho */}
+                  {crmResults[o.id] && (
+                    <div className="border border-blue-100 bg-blue-50 rounded-xl p-2 space-y-1">
+                      <div className="text-[10px] font-medium text-blue-600 mb-1">📡 Kết quả kiểm tra CRM</div>
+                      {crmResults[o.id].map(r => (
+                        <div key={r.serial} className="flex items-center gap-2 text-xs">
+                          <span className="font-mono text-gray-700 shrink-0">{r.serial}</span>
+                          {r.ok ? (
+                            r.transferred ? (
+                              <span className="inline-flex items-center gap-1 text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                                ✅ Đã chuyển kho → {r.destStock || r.productName}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-orange-700 bg-orange-50 border border-orange-200 rounded-full px-2 py-0.5">
+                                ⏳ Chưa chuyển ({r.sourceStock})
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-red-500">❌ {r.error}</span>
+                          )}
+                          {r.ok && r.updateTime && (
+                            <span className="text-gray-400 text-[10px]">{r.updateMan} · {r.updateTime}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="flex gap-1 flex-wrap pt-1 border-t border-gray-100">
                     {isKho && (
                       <>
@@ -1381,6 +1435,14 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                           📝 Nhập mã
                         </button>
                       </>
+                    )}
+                    {o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0) && (
+                      <button
+                        onClick={() => checkCRM(o)}
+                        disabled={crmChecking.has(o.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-400 disabled:opacity-50">
+                        {crmChecking.has(o.id) ? '⏳ Đang check…' : '📡 Kiểm tra CRM'}
+                      </button>
                     )}
                     <button onClick={() => printLabel(o)}
                       className={`${isKho ? 'ml-auto' : ''} inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400`}>
