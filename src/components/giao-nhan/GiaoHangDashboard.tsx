@@ -737,53 +737,7 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
           {expanded === o.id && (
             <div className="border-t border-gray-100 p-3 space-y-2">
               {(() => {
-                // Group by combo_name (new orders) — fallback to flat chips for old orders
-                const comboMap = new Map<string, typeof o.giao_hang_don_items>()
-                const standalone: typeof o.giao_hang_don_items = []
-                for (const item of o.giao_hang_don_items) {
-                  if (item.combo_name) {
-                    if (!comboMap.has(item.combo_name)) comboMap.set(item.combo_name, [])
-                    comboMap.get(item.combo_name)!.push(item)
-                  } else { standalone.push(item) }
-                }
-                return (
-                  <div className="space-y-1.5">
-                    {/* Combos — grouped */}
-                    {Array.from(comboMap.entries()).map(([cname, citems]) => (
-                      <div key={cname} className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-                        <div className="text-xs font-semibold text-amber-700 mb-1">🎁 {cname}</div>
-                        <div className="flex flex-wrap gap-1">
-                          {citems.map(ci => (
-                            <span key={ci.id} className="text-[11px] text-gray-600 bg-white border border-gray-200 rounded-full px-2 py-0.5">
-                              {ci.device_name} <span className="font-semibold">×{ci.quantity}</span>
-                            </span>
-                          ))}
-                        </div>
-                        {citems.some(ci => (ci.device_serials ?? []).length > 0) && (
-                          <div className="flex gap-1 mt-1 flex-wrap">
-                            {citems.flatMap(ci => ci.device_serials ?? []).map(s => (
-                              <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {/* Standalone items — compact chips */}
-                    {standalone.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {standalone.map(item => (
-                          <div key={item.id} className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5 text-sm">
-                            <span className="text-gray-700">{item.device_name}</span>
-                            <span className="font-semibold text-gray-500 text-xs">×{item.quantity}</span>
-                            {item.device_serials && item.device_serials.length > 0 && (
-                              <span className="ml-0.5 bg-violet-50 text-violet-700 border border-violet-100 rounded px-1 py-0.5 text-[10px] font-mono">📎 {item.device_serials.join(', ')}</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
+                return <DeviceIMEIList items={o.giao_hang_don_items} />
               })()}
               {o.recipient_info && (
                 <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>
@@ -830,6 +784,89 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
 
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ─── Helper: hiển thị thiết bị + IMEI trong expanded order ───
+function DeviceIMEIList({ items }: { items: DonItem[] }) {
+  const comboMap = new Map<string, DonItem[]>()
+  const standalone: DonItem[] = []
+  for (const item of items) {
+    if (item.combo_name) {
+      if (!comboMap.has(item.combo_name)) comboMap.set(item.combo_name, [])
+      comboMap.get(item.combo_name)!.push(item)
+    } else { standalone.push(item) }
+  }
+  return (
+    <div className="space-y-1.5">
+      {Array.from(comboMap.entries()).map(([cname, citems]) => (
+        <div key={cname} className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+          <div className="text-xs font-semibold text-amber-700 mb-1.5">🎁 {cname}</div>
+          <div className="space-y-1">
+            {citems.map(ci => (
+              <div key={ci.id}>
+                <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                  <span className="font-medium">{ci.device_name}</span>
+                  <span className="text-gray-400">×{ci.quantity}</span>
+                </div>
+                {ci.quantity > 1 ? (
+                  <div className="ml-3 mt-0.5 space-y-0.5">
+                    {Array.from({ length: ci.quantity }, (_, si) => {
+                      const sn = (ci.device_serials ?? [])[si]
+                      return (
+                        <div key={si} className="flex items-center gap-1 text-[10px]">
+                          <span className="text-gray-400 w-6 shrink-0">#{si+1}</span>
+                          {sn
+                            ? <span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5">{sn}</span>
+                            : <span className="text-gray-300 italic">chưa nhập</span>
+                          }
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (ci.device_serials ?? []).length > 0 && (
+                  <div className="ml-3 mt-0.5">
+                    <span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px]">{ci.device_serials![0]}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {standalone.length > 0 && (
+        <div className="space-y-1">
+          {standalone.map(item => (
+            <div key={item.id} className="bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5">
+              <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                <span className="font-medium">{item.device_name}</span>
+                <span className="text-gray-400">×{item.quantity}</span>
+              </div>
+              {item.quantity > 1 ? (
+                <div className="ml-3 mt-0.5 space-y-0.5">
+                  {Array.from({ length: item.quantity }, (_, si) => {
+                    const sn = (item.device_serials ?? [])[si]
+                    return (
+                      <div key={si} className="flex items-center gap-1 text-[10px]">
+                        <span className="text-gray-400 w-6 shrink-0">#{si+1}</span>
+                        {sn
+                          ? <span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5">{sn}</span>
+                          : <span className="text-gray-300 italic">chưa nhập</span>
+                        }
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (item.device_serials ?? []).length > 0 && (
+                <div className="ml-3 mt-0.5">
+                  <span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px]">{item.device_serials![0]}</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // SERIAL INPUT MODAL — GPS/MDVR: CRM check per item; others: manual serial
 // ══════════════════════════════════════════════════════════════════════════════
 const GPS_MDVR_TYPES = ['GPS Tracker', 'MDVR']
@@ -897,41 +934,50 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceTypes])
 
-  async function checkCRM(itemId: string) {
-    const barcode = crmInput[itemId]?.trim()
+  async function checkCRM(itemId: string, slotIdx: number) {
+    const slotKey = `${itemId}:${slotIdx}`
+    const barcode = crmInput[slotKey]?.trim()
     if (!barcode) return
-    setCrmLoading(l => ({ ...l, [itemId]: true }))
-    setCrmResult(r  => ({ ...r,  [itemId]: null }))
-    setCrmError(e   => ({ ...e,  [itemId]: '' }))
+    setCrmLoading(l => ({ ...l, [slotKey]: true }))
+    setCrmResult(r  => ({ ...r,  [slotKey]: null }))
+    setCrmError(e   => ({ ...e,  [slotKey]: '' }))
     try {
       const res = await fetch(`/api/giao-hang/crm-check?barcode=${encodeURIComponent(barcode)}`)
       const d = await res.json()
       if (d.ok) {
-        setCrmResult(r => ({ ...r, [itemId]: d }))
-        // Auto-add barcode as serial if not already present
-        if (!(itemSerials[itemId] ?? []).includes(barcode)) {
-          setItemSerials(s => ({ ...s, [itemId]: [...(s[itemId] ?? []), barcode] }))
-          setNoSerial(n => ({ ...n, [itemId]: false }))
-        }
+        setCrmResult(r => ({ ...r, [slotKey]: d }))
+        setItemSerials(s => {
+          const arr = [...(s[itemId] ?? [])]
+          arr[slotIdx] = barcode
+          return { ...s, [itemId]: arr }
+        })
+        setNoSerial(n => ({ ...n, [itemId]: false }))
       } else {
-        setCrmError(e => ({ ...e, [itemId]: d.error ?? 'Lỗi CRM' }))
+        setCrmError(e => ({ ...e, [slotKey]: d.error ?? 'Lỗi CRM' }))
       }
-    } catch { setCrmError(e => ({ ...e, [itemId]: 'Lỗi kết nối' })) }
-    finally { setCrmLoading(l => ({ ...l, [itemId]: false })) }
+    } catch { setCrmError(e => ({ ...e, [slotKey]: 'Lỗi kết nối' })) }
+    finally { setCrmLoading(l => ({ ...l, [slotKey]: false })) }
   }
 
-  function addSerial(itemId: string) {
-    const v = drafts[itemId]?.trim()
+  function addSerial(itemId: string, slotIdx: number) {
+    const slotKey = `${itemId}:${slotIdx}`
+    const v = drafts[slotKey]?.trim()
     if (!v) return
-    if (!(itemSerials[itemId] ?? []).includes(v)) {
-      setItemSerials(s => ({ ...s, [itemId]: [...(s[itemId] ?? []), v] }))
-      setNoSerial(n => ({ ...n, [itemId]: false }))
-    }
-    setDrafts(d => ({ ...d, [itemId]: '' }))
+    setItemSerials(s => {
+      const arr = [...(s[itemId] ?? [])]
+      arr[slotIdx] = v
+      return { ...s, [itemId]: arr }
+    })
+    setNoSerial(n => ({ ...n, [itemId]: false }))
+    setDrafts(d => ({ ...d, [slotKey]: '' }))
   }
 
-  function removeSerial(itemId: string, serial: string) {
-    setItemSerials(s => ({ ...s, [itemId]: s[itemId].filter(x => x !== serial) }))
+  function clearSlot(itemId: string, slotIdx: number) {
+    setItemSerials(s => {
+      const arr = [...(s[itemId] ?? [])]
+      arr[slotIdx] = ''
+      return { ...s, [itemId]: arr }
+    })
   }
 
   function toggleNoSerial(itemId: string, checked: boolean) {
@@ -942,7 +988,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
   function confirm() {
     onConfirm(order.giao_hang_don_items.map(item => ({
       item_id: item.id,
-      serials: noSerial[item.id] ? [] : (itemSerials[item.id] ?? []),
+      serials: noSerial[item.id] ? [] : (itemSerials[item.id] ?? []).filter(Boolean),
     })))
   }
 
@@ -981,126 +1027,133 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
           // Khi combo CÓ GPS/MDVR: ẩn SIM và Storage (đi kèm, không cần mã riêng)
           if (isInCombo && thisComboHasGps && (dtype === 'Simcard' || dtype === 'Storage')) return null
 
-          // Mọi thiết bị còn lại: hiện hết
-          // (GPS/MDVR, Camera, Cảm biến, Đầu đọc thẻ, standalone, combo không có GPS/MDVR)
-          const cr = crmResult[item.id] ?? null
           const effectiveNoSerial = isGpsMdvr ? false : (noSerial[item.id] ?? false)
+          const qty = item.quantity
+          const isFirstVisible = items2.find(i => {
+            const dt = deviceTypes[i.device_name] ?? ''
+            const inC = !!i.combo_name
+            const cHasGps = inC ? (comboHasGpsMdvr.get(i.combo_name!) ?? false) : false
+            const nl = i.device_name.toLowerCase()
+            if (dt === 'Power' || dt === 'Cable' || nl.includes('dây nguồn') || nl.includes('dây kết nối') || nl.includes('dây cáp') || nl.includes('bộ phụ kiện')) return false
+            if (inC && cHasGps && (dt === 'Simcard' || dt === 'Storage')) return false
+            return true
+          }) === item
+
           return (
             <div key={item.id} className={`border rounded-xl overflow-hidden ${isGpsMdvr ? 'border-blue-200' : 'border-gray-200'}`}>
               {/* Item header */}
-              {(() => {
-                const items   = order.giao_hang_don_items
-                const hasGps  = items.some(i => deviceTypes[i.device_name] === 'GPS Tracker')
-                const hasMdvr = items.some(i => deviceTypes[i.device_name] === 'MDVR')
-                const dtype   = deviceTypes[item.device_name] ?? ''
-                const isBundledSim = dtype === 'Simcard' && (hasGps || hasMdvr)
-                const isBundledMem = dtype === 'Storage'  && hasMdvr
-                const isBundled    = isBundledSim || isBundledMem
-                const bundleNote   = isBundledSim
-                  ? (hasGps && hasMdvr ? 'Ghép sẵn GPS/MDVR' : hasGps ? 'Ghép sẵn GPS Tracker' : 'Ghép sẵn MDVR')
-                  : 'Ghép sẵn MDVR'
-                return (
-                  <div className={`flex items-center justify-between px-3 py-2 ${
-                    isGpsMdvr ? 'bg-blue-50' : isBundled ? 'bg-amber-50' : 'bg-gray-50'
-                  }`}>
-                    <div className="font-medium text-sm text-gray-800 flex items-center gap-1.5 flex-wrap">
-                      <span>{isGpsMdvr ? '📡' : isBundled ? '🔗' : '📦'} {item.device_name}</span>
-                      <span className="text-gray-400 font-normal text-xs">×{item.quantity}</span>
-                      {isGpsMdvr && <span className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">GPS/MDVR</span>}
-                      {isBundled  && <span className="bg-amber-100 text-amber-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">🔗 {bundleNote}</span>}
-                    </div>
-                    {!isGpsMdvr && (
-                      <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none shrink-0">
-                        <input type="checkbox" className="rounded"
-                          checked={effectiveNoSerial}
-                          onChange={e => toggleNoSerial(item.id, e.target.checked)} />
-                        Không có mã
-                      </label>
-                    )}
-                  </div>
-                )
-              })()}
-
-              <div className="px-3 py-2 space-y-2">
-                {/* GPS/MDVR: CRM scan panel */}
-                {isGpsMdvr && !effectiveNoSerial && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5 space-y-1.5">
-                    <div className="text-[10px] font-semibold text-blue-700 uppercase tracking-wide">🔍 Quét barcode — kiểm tra CRM</div>
-                    <div className="flex gap-1">
-                      <input
-                        className="flex-1 border border-blue-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                        placeholder="Quét hoặc nhập barcode/IMEI"
-                        value={crmInput[item.id] ?? ''}
-                        onChange={e => setCrmInput(i => ({ ...i, [item.id]: e.target.value }))}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); checkCRM(item.id) } }}
-                        autoFocus={order.giao_hang_don_items.indexOf(item) === 0}
-                      />
-                      <button onClick={() => checkCRM(item.id)} disabled={crmLoading[item.id]}
-                        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
-                        {crmLoading[item.id] ? '…' : 'Kiểm tra'}
-                      </button>
-                    </div>
-                    {crmError[item.id] && <div className="text-xs text-red-500">{crmError[item.id]}</div>}
-                    {cr?.stock && (
-                      <div className={`text-xs border rounded-lg p-2 space-y-0.5 ${cr.stock.isAtCompany ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
-                        <div className="font-semibold text-gray-800">{cr.stock.productName}</div>
-                        <div className="flex flex-wrap gap-x-3 text-gray-600">
-                          <span>📦 Kho: <span className="font-medium">{cr.stock.sourceStock || '—'}</span></span>
-                          <span className={`font-medium ${cr.stock.status === 'HAVE' ? 'text-green-600' : 'text-orange-500'}`}>{cr.stock.status}</span>
-                        </div>
-                        {cr.suggested_status === 'da_nhan'
-                          ? <div className="text-green-700 text-[11px]">✅ Thiết bị đã ở kho người nhận</div>
-                          : <div className="text-orange-600 text-[11px]">⏳ Vẫn ở kho công ty</div>
-                        }
-                      </div>
-                    )}
-                    {cr?.grouped && Object.keys(cr.grouped).length > 0 && (
-                      <div className="bg-white border border-blue-100 rounded-lg p-2">
-                        <div className="text-[10px] font-medium text-gray-500 mb-1">🔧 Linh kiện đi kèm:</div>
-                        {Object.entries(cr.grouped).map(([kind, items]) => (
-                          <div key={kind} className="flex items-start gap-2 text-xs mb-0.5">
-                            <span className="text-gray-400 min-w-[80px] shrink-0">{kind}</span>
-                            <div className="flex flex-wrap gap-1">
-                              {(items as {Device_Code:string; Device_TypeName:string}[]).map(it => (
-                                <span key={it.Device_Code} className="bg-violet-50 text-violet-700 border border-violet-200 rounded px-1.5 py-0.5">
-                                  {it.Device_Code}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Serial chips + manual input */}
-                {!effectiveNoSerial && (
-                  <>
-                    {(itemSerials[item.id] ?? []).length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {(itemSerials[item.id] ?? []).map(s => (
-                          <span key={s} className="inline-flex items-center gap-0.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-full px-2 py-0.5 text-xs">
-                            {s}
-                            <button onClick={() => removeSerial(item.id, s)} className="ml-0.5 text-violet-400 hover:text-red-500">×</button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-1">
-                      <input
-                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400"
-                        placeholder={isGpsMdvr ? 'Thêm thủ công nếu cần' : 'Nhập mã serial/IMEI (Enter)'}
-                        value={drafts[item.id] ?? ''}
-                        onChange={e => setDrafts(d => ({ ...d, [item.id]: e.target.value }))}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSerial(item.id) } }}
-                      />
-                      <button onClick={() => addSerial(item.id)}
-                        className="px-2 py-1 bg-violet-50 text-violet-700 border border-violet-200 rounded-lg text-xs hover:bg-violet-100">+</button>
-                    </div>
-                  </>
+              <div className={`flex items-center justify-between px-3 py-2 ${isGpsMdvr ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                <div className="font-medium text-sm text-gray-800 flex items-center gap-1.5 flex-wrap">
+                  <span>{isGpsMdvr ? '📡' : '📦'} {item.device_name}</span>
+                  <span className="text-gray-400 font-normal text-xs">×{qty}</span>
+                  {isGpsMdvr && <span className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full font-medium">GPS/MDVR</span>}
+                  <span className="text-[10px] text-gray-400">
+                    ({(itemSerials[item.id] ?? []).filter(Boolean).length}/{qty} mã)
+                  </span>
+                </div>
+                {!isGpsMdvr && (
+                  <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none shrink-0">
+                    <input type="checkbox" className="rounded"
+                      checked={effectiveNoSerial}
+                      onChange={e => toggleNoSerial(item.id, e.target.checked)} />
+                    Không có mã
+                  </label>
                 )}
               </div>
+
+              {/* Per-unit slots */}
+              {!effectiveNoSerial && (
+                <div className="px-3 py-2 space-y-2">
+                  {Array.from({ length: qty }, (_, si) => {
+                    const slotKey = `${item.id}:${si}`
+                    const savedSerial = (itemSerials[item.id] ?? [])[si] ?? ''
+                    const cr = crmResult[slotKey] ?? null
+                    return (
+                      <div key={si} className={qty > 1 ? 'border border-gray-100 rounded-lg p-2 space-y-1.5 bg-gray-50/50' : 'space-y-1.5'}>
+                        {qty > 1 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Thiết bị #{si + 1}</span>
+                            {savedSerial && <span className="text-[10px] text-green-600 font-medium">✓ Đã nhập</span>}
+                          </div>
+                        )}
+                        {isGpsMdvr && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5 space-y-1.5">
+                            <div className="text-[10px] font-semibold text-blue-700 uppercase tracking-wide">🔍 Quét barcode — kiểm tra CRM</div>
+                            <div className="flex gap-1">
+                              <input
+                                className="flex-1 border border-blue-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                placeholder="Quét hoặc nhập barcode/IMEI"
+                                value={crmInput[slotKey] ?? ''}
+                                onChange={e => setCrmInput(i => ({ ...i, [slotKey]: e.target.value }))}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); checkCRM(item.id, si) } }}
+                                autoFocus={si === 0 && isFirstVisible}
+                              />
+                              <button onClick={() => checkCRM(item.id, si)} disabled={crmLoading[slotKey]}
+                                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
+                                {crmLoading[slotKey] ? '…' : 'Kiểm tra'}
+                              </button>
+                            </div>
+                            {crmError[slotKey] && <div className="text-xs text-red-500">{crmError[slotKey]}</div>}
+                            {cr?.stock && (
+                              <div className={`text-xs border rounded-lg p-2 space-y-0.5 ${cr.stock.isAtCompany ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
+                                <div className="font-semibold text-gray-800">{cr.stock.productName}</div>
+                                <div className="flex flex-wrap gap-x-3 text-gray-600">
+                                  <span>📦 Kho: <span className="font-medium">{cr.stock.sourceStock || '—'}</span></span>
+                                  <span className={`font-medium ${cr.stock.status === 'HAVE' ? 'text-green-600' : 'text-orange-500'}`}>{cr.stock.status}</span>
+                                </div>
+                                {cr.suggested_status === 'da_nhan'
+                                  ? <div className="text-green-700 text-[11px]">✅ Thiết bị đã ở kho người nhận</div>
+                                  : <div className="text-orange-600 text-[11px]">⏳ Vẫn ở kho công ty</div>
+                                }
+                              </div>
+                            )}
+                            {cr?.grouped && Object.keys(cr.grouped).length > 0 && (
+                              <div className="bg-white border border-blue-100 rounded-lg p-2">
+                                <div className="text-[10px] font-medium text-gray-500 mb-1">🔧 Linh kiện đi kèm:</div>
+                                {Object.entries(cr.grouped).map(([kind, gitems]) => (
+                                  <div key={kind} className="flex items-start gap-2 text-xs mb-0.5">
+                                    <span className="text-gray-400 min-w-[80px] shrink-0">{kind}</span>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(gitems as {Device_Code:string; Device_TypeName:string}[]).map(it => (
+                                        <span key={it.Device_Code} className="bg-violet-50 text-violet-700 border border-violet-200 rounded px-1.5 py-0.5">
+                                          {it.Device_Code}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {/* Serial display + input */}
+                        {savedSerial ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-0.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-full px-2 py-0.5 text-xs font-mono">
+                              {savedSerial}
+                              <button onClick={() => clearSlot(item.id, si)} className="ml-0.5 text-violet-400 hover:text-red-500">×</button>
+                            </span>
+                          </div>
+                        ) : (
+                          !isGpsMdvr && (
+                            <div className="flex gap-1">
+                              <input
+                                className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400"
+                                placeholder="Nhập mã serial/IMEI (Enter)"
+                                value={drafts[slotKey] ?? ''}
+                                onChange={e => setDrafts(d => ({ ...d, [slotKey]: e.target.value }))}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSerial(item.id, si) } }}
+                              />
+                              <button onClick={() => addSerial(item.id, si)}
+                                className="px-2 py-1 bg-violet-50 text-violet-700 border border-violet-200 rounded-lg text-xs hover:bg-violet-100">+</button>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )
         })
@@ -1331,50 +1384,7 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
               {expanded === o.id && (
                 <div className="border-t p-3 space-y-2">
                   {(() => {
-                    const comboMap = new Map<string, typeof o.giao_hang_don_items>()
-                    const standalone: typeof o.giao_hang_don_items = []
-                    for (const item of o.giao_hang_don_items) {
-                      if (item.combo_name) {
-                        if (!comboMap.has(item.combo_name)) comboMap.set(item.combo_name, [])
-                        comboMap.get(item.combo_name)!.push(item)
-                      } else { standalone.push(item) }
-                    }
-                    return (
-                      <div className="space-y-1.5">
-                        {Array.from(comboMap.entries()).map(([cname, citems]) => (
-                          <div key={cname} className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-                            <div className="text-xs font-semibold text-amber-700 mb-1">🎁 {cname}</div>
-                            <div className="flex flex-wrap gap-1">
-                              {citems.map(ci => (
-                                <span key={ci.id} className="text-[11px] text-gray-600 bg-white border border-gray-200 rounded-full px-2 py-0.5">
-                                  {ci.device_name} <span className="font-semibold">×{ci.quantity}</span>
-                                </span>
-                              ))}
-                            </div>
-                            {citems.some(ci => (ci.device_serials ?? []).length > 0) && (
-                              <div className="flex gap-1 mt-1 flex-wrap">
-                                {citems.flatMap(ci => ci.device_serials ?? []).map(s => (
-                                  <span key={s} className="bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px] font-mono">📎 {s}</span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {standalone.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {standalone.map(item => (
-                              <div key={item.id} className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5 text-sm">
-                                <span className="text-gray-700">{item.device_name}</span>
-                                <span className="font-semibold text-gray-500 text-xs">×{item.quantity}</span>
-                                {item.device_serials && item.device_serials.length > 0 && (
-                                  <span className="ml-0.5 bg-violet-50 text-violet-700 border border-violet-100 rounded px-1 py-0.5 text-[10px] font-mono">📎 {item.device_serials.join(', ')}</span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )
+                    return <DeviceIMEIList items={o.giao_hang_don_items} />
                   })()}
                   {o.recipient_info && <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>}
                   {o.expected_ship_date && <div className="text-xs text-amber-600">🚚 Gửi: {o.expected_ship_date}</div>}
