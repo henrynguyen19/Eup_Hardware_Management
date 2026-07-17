@@ -786,9 +786,12 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ─── Helper: hiển thị thiết bị + IMEI trong expanded order ───
 function DeviceIMEIList({ items }: { items: DonItem[] }) {
+  // Chỉ hiện thiết bị có serial (GPS Tracker...) — ẩn SIM, MDVR, accessories
+  const serialItems = items.filter(i => (i.device_serials ?? []).some(Boolean))
+  const allItems    = items // dùng để hiện tên combo/đơn hàng đầy đủ
   const comboMap = new Map<string, DonItem[]>()
   const standalone: DonItem[] = []
-  for (const item of items) {
+  for (const item of allItems) {
     if (item.combo_name) {
       if (!comboMap.has(item.combo_name)) comboMap.set(item.combo_name, [])
       comboMap.get(item.combo_name)!.push(item)
@@ -800,7 +803,7 @@ function DeviceIMEIList({ items }: { items: DonItem[] }) {
         <div key={cname} className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
           <div className="text-xs font-semibold text-amber-700 mb-1.5">🎁 {cname}</div>
           <div className="space-y-1">
-            {citems.map(ci => (
+            {citems.filter(ci => (ci.device_serials ?? []).some(Boolean)).map(ci => (
               <div key={ci.id}>
                 <div className="flex items-center gap-1.5 text-xs text-gray-700">
                   <span className="font-medium">{ci.device_name}</span>
@@ -831,9 +834,9 @@ function DeviceIMEIList({ items }: { items: DonItem[] }) {
           </div>
         </div>
       ))}
-      {standalone.length > 0 && (
+      {standalone.filter(i => (i.device_serials ?? []).some(Boolean)).length > 0 && (
         <div className="space-y-1">
-          {standalone.map(item => (
+          {standalone.filter(item => (item.device_serials ?? []).some(Boolean)).map(item => (
             <div key={item.id} className="bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5">
               <div className="flex items-center gap-1.5 text-xs text-gray-700">
                 <span className="font-medium">{item.device_name}</span>
@@ -869,7 +872,7 @@ function DeviceIMEIList({ items }: { items: DonItem[] }) {
 
 // SERIAL INPUT MODAL — GPS/MDVR: CRM check per item; others: manual serial
 // ══════════════════════════════════════════════════════════════════════════════
-const GPS_MDVR_TYPES = ['GPS Tracker', 'MDVR']
+const GPS_NEEDS_SERIAL = ['GPS Tracker'] // chỉ GPS Tracker mới cần CRM scan + IMEI
 
 interface CrmCheckResult {
   stock?: {
@@ -927,7 +930,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
       const next = { ...prev }
       for (const item of items) {
         const dtype = deviceTypes[item.device_name] ?? ''
-        if (GPS_MDVR_TYPES.includes(dtype)) next[item.id] = false
+        if (GPS_NEEDS_SERIAL.includes(dtype)) next[item.id] = false
       }
       return next
     })
@@ -1007,25 +1010,23 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
           // Combo nào chứa GPS/MDVR để biết SIM/Storage trong combo đó có thể ẩn
           const comboHasGpsMdvr = new Map<string, boolean>()
           for (const it of items2) {
-            if (it.combo_name && GPS_MDVR_TYPES.includes(deviceTypes[it.device_name] ?? '')) {
+            if (it.combo_name && GPS_NEEDS_SERIAL.includes(deviceTypes[it.device_name] ?? '')) {
               comboHasGpsMdvr.set(it.combo_name, true)
             }
           }
           return items2.map(item => {
           const dtype     = deviceTypes[item.device_name] ?? ''
-          const isGpsMdvr = GPS_MDVR_TYPES.includes(dtype)
+          const isGpsMdvr = GPS_NEEDS_SERIAL.includes(dtype)
           const isInCombo = !!item.combo_name
           const thisComboHasGps = isInCombo ? (comboHasGpsMdvr.get(item.combo_name!) ?? false) : false
           const nameLower = item.device_name.toLowerCase()
 
-          // Luôn ẩn: dây nguồn, dây cáp kết nối, bộ phụ kiện (không có mã serial)
-          if (dtype === 'Power' || dtype === 'Cable'
+          // Luôn ẩn: accessory + SIM + thẻ nhớ + MDVR camera (không cần IMEI)
+          if (dtype === 'Power' || dtype === 'Cable' || dtype === 'Simcard'
+            || dtype === 'Storage' || dtype === 'MDVR'
             || nameLower.includes('dây nguồn') || nameLower.includes('dây kết nối')
             || nameLower.includes('dây cáp') || nameLower.includes('bộ phụ kiện'))
             return null
-
-          // Khi combo CÓ GPS/MDVR: ẩn SIM và Storage (đi kèm, không cần mã riêng)
-          if (isInCombo && thisComboHasGps && (dtype === 'Simcard' || dtype === 'Storage')) return null
 
           const effectiveNoSerial = isGpsMdvr ? false : (noSerial[item.id] ?? false)
           const qty = item.quantity
