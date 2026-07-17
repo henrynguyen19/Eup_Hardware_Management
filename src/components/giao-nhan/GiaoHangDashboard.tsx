@@ -56,7 +56,7 @@ const STATUS_LABEL: Record<string, string> = Object.fromEntries(
 const VALID_STATUSES_UI = ['cho_xu_ly', 'dang_xu_ly', 'da_gui', 'da_nhan', 'da_huy']
 
 // ─── Phân quyền kho ─────────────────────────────────────────────────────────
-const KHO_EMAILS = ['julie', 'kai', 'thor', 'nick', 'bob'].map(n => `${n}@eup.net.vn`)
+const KHO_EMAILS = ['admin', 'julie', 'kai', 'thor', 'nick', 'bob'].map(n => `${n}@eup.net.vn`)
 function isKhoUser(email: string) {
   return KHO_EMAILS.includes(email.toLowerCase())
 }
@@ -685,7 +685,7 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
 }
 
 
-function TabMyOrders({ userEmail }: { userEmail: string }) {
+function TabMyOrders({ userEmail, isKho }: { userEmail: string; isKho: boolean }) {
   const [orders, setOrders]   = useState<DonHang[]>([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -753,10 +753,12 @@ function TabMyOrders({ userEmail }: { userEmail: string }) {
                 </div>
               )}
               <div className="flex gap-2 pt-1 border-t border-gray-100 mt-1">
-                <button onClick={() => setSerialOnlyModal(o)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-violet-200 text-violet-600 hover:bg-violet-50">
-                  📝 Nhập mã thiết bị
-                </button>
+                {isKho && (
+                  <button onClick={() => setSerialOnlyModal(o)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-violet-200 text-violet-600 hover:bg-violet-50">
+                    📝 Nhập mã thiết bị
+                  </button>
+                )}
                 <button onClick={() => printLabel(o)}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50">
                   🖨️ In đơn
@@ -2109,7 +2111,7 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
         <TabDatHang userEmail={userEmail} />
       ) : (
         <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 min-h-[400px] w-full">
-          {tab === 'my_orders'  && <TabMyOrders userEmail={userEmail} />}
+          {tab === 'my_orders'  && <TabMyOrders userEmail={userEmail} isKho={isKho} />}
           {tab === 'all_orders' && <TabAllOrders isKho={isKho} />}
           {tab === 'lich_su'    && <TabLichSuSheet />}
           {tab === 'combos'     && <TabCombos isKho={isKho} />}
