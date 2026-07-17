@@ -54,6 +54,14 @@ const STATUS_LABEL: Record<string, string> = Object.fromEntries(
   Object.entries(STATUS_CONFIG).map(([k, v]) => [k, v.label])
 )
 const VALID_STATUSES_UI = ['cho_xu_ly', 'dang_xu_ly', 'da_gui', 'da_nhan', 'da_huy']
+// Left-border màu theo trạng thái cho card đơn hàng
+const STATUS_BORDER_STYLE: Record<string, string> = {
+  cho_xu_ly:  'border-l-4 border-l-orange-400',
+  dang_xu_ly: 'border-l-4 border-l-blue-500',
+  da_gui:     'border-l-4 border-l-violet-500',
+  da_nhan:    'border-l-4 border-l-green-500',
+  da_huy:     'border-l-4 border-l-red-400',
+}
 
 // ─── Phân quyền kho ─────────────────────────────────────────────────────────
 const KHO_EMAILS = ['admin', 'julie', 'kai', 'thor', 'nick', 'bob'].map(n => `${n}@eup.net.vn`)
@@ -1328,15 +1336,27 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        <input className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          placeholder="Tìm theo người đặt, mã đơn…"
+      <div className="space-y-2">
+        <input className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          placeholder="🔍 Tìm theo người đặt, mã đơn, văn phòng…"
           value={search} onChange={e => setSearch(e.target.value)} />
-        <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          <option value="">Tất cả TT</option>
-          {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+        <div className="flex gap-1.5 flex-wrap">
+          <button onClick={() => setStatusFilter('')}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${!statusFilter ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-400 hover:text-indigo-600'}`}>
+            Tất cả
+          </button>
+          {VALID_STATUSES_UI.map(k => {
+            const cfg = STATUS_CONFIG[k]
+            const active = statusFilter === k
+            return (
+              <button key={k} onClick={() => setStatusFilter(active ? '' : k)}
+                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${active ? cfg.badge + ' ring-1 ring-offset-1 ring-current shadow-sm' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700'}`}>
+                <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+                {cfg.label}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {loading ? (
@@ -1346,7 +1366,7 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
       ) : (
         <div className="space-y-2">
           {orders.map(o => (
-            <div key={o.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <div key={o.id} className={`bg-white border border-gray-200 rounded-xl overflow-hidden ${STATUS_BORDER_STYLE[o.status] ?? ''}`}>
               <button className="w-full grid grid-cols-[auto_1fr_1fr_1fr_auto_auto] items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50"
                 onClick={() => setExpanded(expanded === o.id ? null : o.id)}>
                 {/* Mã đơn */}
@@ -1426,42 +1446,62 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                     </div>
                   )}
 
-                  <div className="flex gap-1 flex-wrap pt-1 border-t border-gray-100">
-                    {isKho && (
-                      <>
-                        <span className="text-[10px] text-gray-400 w-full mb-0.5">Cập nhật trạng thái:</span>
-                        {VALID_STATUSES_UI.map(k => {
-                          const cfg = STATUS_CONFIG[k]
-                          const active = o.status === k
-                          return (
-                            <button key={k} onClick={() => handleStatusClick(o, k)} disabled={active}
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                                active ? `${cfg.badge} cursor-default opacity-80 ring-1 ring-offset-1 ring-current` : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700'
-                              }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                              {cfg.label}
-                            </button>
-                          )
-                        })}
+                  {isKho ? (
+                    <div className="pt-3 border-t border-gray-100 space-y-3">
+                      {/* Status buttons — large & clear */}
+                      <div>
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Cập nhật trạng thái</div>
+                        <div className="flex gap-2 flex-wrap">
+                          {VALID_STATUSES_UI.map(k => {
+                            const cfg = STATUS_CONFIG[k]
+                            const active = o.status === k
+                            return (
+                              <button key={k} onClick={() => handleStatusClick(o, k)} disabled={active}
+                                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all shadow-sm ${
+                                  active
+                                    ? `${cfg.badge} border-current cursor-default ring-2 ring-offset-1 ring-current/30`
+                                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:bg-gray-50 hover:text-gray-800'
+                                }`}>
+                                <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot} shrink-0`} />
+                                {cfg.label}
+                                {active && <span className="text-xs opacity-60">✓</span>}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      {/* Action buttons */}
+                      <div className="flex gap-2 flex-wrap items-center">
                         <button onClick={() => setSerialOnlyModal(o)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-violet-200 text-violet-600 hover:bg-violet-50 hover:border-violet-400">
-                          📝 Nhập mã
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-violet-200 text-violet-600 hover:bg-violet-50 hover:border-violet-400 transition-all">
+                          📝 Nhập mã thiết bị
                         </button>
-                      </>
-                    )}
-                    {o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0) && (
-                      <button
-                        onClick={() => checkCRM(o)}
-                        disabled={crmChecking.has(o.id)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-400 disabled:opacity-50">
-                        {crmChecking.has(o.id) ? '⏳ Đang check…' : '📡 Kiểm tra CRM'}
+                        {o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0) && (
+                          <button onClick={() => checkCRM(o)} disabled={crmChecking.has(o.id)}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-400 disabled:opacity-50 transition-all">
+                            {crmChecking.has(o.id) ? '⏳ Đang check…' : '📡 Kiểm tra CRM'}
+                          </button>
+                        )}
+                        <button onClick={() => printLabel(o)}
+                          className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-all">
+                          🖨️ In đơn
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2 pt-2 border-t border-gray-100">
+                      {o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0) && (
+                        <button onClick={() => checkCRM(o)} disabled={crmChecking.has(o.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-blue-200 text-blue-600 hover:bg-blue-50 disabled:opacity-50">
+                          {crmChecking.has(o.id) ? '⏳ Đang check…' : '📡 Kiểm tra CRM'}
+                        </button>
+                      )}
+                      <button onClick={() => printLabel(o)}
+                        className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50">
+                        🖨️ In đơn
                       </button>
-                    )}
-                    <button onClick={() => printLabel(o)}
-                      className={`${isKho ? 'ml-auto' : ''} inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400`}>
-                      🖨️ In đơn
-                    </button>
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
