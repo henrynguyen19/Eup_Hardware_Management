@@ -796,82 +796,79 @@ function TabMyOrders({ userEmail, isKho }: { userEmail: string; isKho: boolean }
 // ══════════════════════════════════════════════════════════════════════════════
 // ─── Helper: hiển thị thiết bị + IMEI trong expanded order ───
 function DeviceIMEIList({ items }: { items: DonItem[] }) {
-  // Chỉ hiện thiết bị có serial (GPS Tracker...) — ẩn SIM, MDVR, accessories
-  const serialItems = items.filter(i => (i.device_serials ?? []).some(Boolean))
-  const allItems    = items // dùng để hiện tên combo/đơn hàng đầy đủ
+  // Hiện TẤT CẢ thiết bị — serial đã nhập thì hiện mã, chưa nhập thì hiện "chưa nhập"
   const comboMap = new Map<string, DonItem[]>()
   const standalone: DonItem[] = []
-  for (const item of allItems) {
+  for (const item of items) {
     if (item.combo_name) {
       if (!comboMap.has(item.combo_name)) comboMap.set(item.combo_name, [])
       comboMap.get(item.combo_name)!.push(item)
     } else { standalone.push(item) }
   }
+
+  function renderItemSerials(item: DonItem) {
+    const serials = item.device_serials ?? []
+    const hasAny  = serials.some(Boolean)
+    if (item.quantity === 1) {
+      return hasAny
+        ? <div className="ml-3 mt-0.5"><span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px]">{serials[0]}</span></div>
+        : <div className="ml-3 mt-0.5"><span className="text-[10px] text-gray-300 italic">chưa nhập mã</span></div>
+    }
+    return (
+      <div className="ml-3 mt-0.5 space-y-0.5">
+        {Array.from({ length: item.quantity }, (_, si) => {
+          const sn = serials[si]
+          return (
+            <div key={si} className="flex items-center gap-1 text-[10px]">
+              <span className="text-gray-400 w-6 shrink-0">#{si+1}</span>
+              {sn
+                ? <span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5">{sn}</span>
+                : <span className="text-gray-300 italic">chưa nhập</span>
+              }
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-1.5">
       {Array.from(comboMap.entries()).map(([cname, citems]) => (
         <div key={cname} className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
           <div className="text-xs font-semibold text-amber-700 mb-1.5">🎁 {cname}</div>
-          <div className="space-y-1">
-            {citems.filter(ci => (ci.device_serials ?? []).some(Boolean)).map(ci => (
+          <div className="space-y-1.5">
+            {citems.map(ci => (
               <div key={ci.id}>
                 <div className="flex items-center gap-1.5 text-xs text-gray-700">
                   <span className="font-medium">{ci.device_name}</span>
                   <span className="text-gray-400">×{ci.quantity}</span>
+                  {(ci.device_serials ?? []).filter(Boolean).length > 0 && (
+                    <span className="text-[10px] text-green-600 font-medium">
+                      ✓ {(ci.device_serials ?? []).filter(Boolean).length}/{ci.quantity}
+                    </span>
+                  )}
                 </div>
-                {ci.quantity > 1 ? (
-                  <div className="ml-3 mt-0.5 space-y-0.5">
-                    {Array.from({ length: ci.quantity }, (_, si) => {
-                      const sn = (ci.device_serials ?? [])[si]
-                      return (
-                        <div key={si} className="flex items-center gap-1 text-[10px]">
-                          <span className="text-gray-400 w-6 shrink-0">#{si+1}</span>
-                          {sn
-                            ? <span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5">{sn}</span>
-                            : <span className="text-gray-300 italic">chưa nhập</span>
-                          }
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (ci.device_serials ?? []).length > 0 && (
-                  <div className="ml-3 mt-0.5">
-                    <span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px]">{ci.device_serials![0]}</span>
-                  </div>
-                )}
+                {renderItemSerials(ci)}
               </div>
             ))}
           </div>
         </div>
       ))}
-      {standalone.filter(i => (i.device_serials ?? []).some(Boolean)).length > 0 && (
-        <div className="space-y-1">
-          {standalone.filter(item => (item.device_serials ?? []).some(Boolean)).map(item => (
+      {standalone.length > 0 && (
+        <div className="space-y-1.5">
+          {standalone.map(item => (
             <div key={item.id} className="bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-1.5">
               <div className="flex items-center gap-1.5 text-xs text-gray-700">
                 <span className="font-medium">{item.device_name}</span>
                 <span className="text-gray-400">×{item.quantity}</span>
+                {(item.device_serials ?? []).filter(Boolean).length > 0 && (
+                  <span className="text-[10px] text-green-600 font-medium">
+                    ✓ {(item.device_serials ?? []).filter(Boolean).length}/{item.quantity}
+                  </span>
+                )}
               </div>
-              {item.quantity > 1 ? (
-                <div className="ml-3 mt-0.5 space-y-0.5">
-                  {Array.from({ length: item.quantity }, (_, si) => {
-                    const sn = (item.device_serials ?? [])[si]
-                    return (
-                      <div key={si} className="flex items-center gap-1 text-[10px]">
-                        <span className="text-gray-400 w-6 shrink-0">#{si+1}</span>
-                        {sn
-                          ? <span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5">{sn}</span>
-                          : <span className="text-gray-300 italic">chưa nhập</span>
-                        }
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (item.device_serials ?? []).length > 0 && (
-                <div className="ml-3 mt-0.5">
-                  <span className="font-mono bg-violet-50 text-violet-700 border border-violet-100 rounded px-1.5 py-0.5 text-[10px]">{item.device_serials![0]}</span>
-                </div>
-              )}
+              {renderItemSerials(item)}
             </div>
           ))}
         </div>
