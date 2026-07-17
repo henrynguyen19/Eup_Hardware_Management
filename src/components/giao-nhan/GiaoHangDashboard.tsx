@@ -879,7 +879,8 @@ function DeviceIMEIList({ items }: { items: DonItem[] }) {
 
 // SERIAL INPUT MODAL — GPS/MDVR: CRM check per item; others: manual serial
 // ══════════════════════════════════════════════════════════════════════════════
-const GPS_NEEDS_SERIAL = ['GPS Tracker'] // chỉ GPS Tracker mới cần CRM scan + IMEI
+const GPS_NEEDS_SERIAL    = ['GPS Tracker'] // chỉ GPS Tracker mới cần CRM scan + IMEI
+const COMBO_SIM_HIDE_TYPES = ['GPS Tracker', 'MDVR'] // nếu combo có loại này → ẩn SIM/Storage đi kèm
 
 interface CrmCheckResult {
   stock?: {
@@ -904,10 +905,10 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
     Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, i.device_serials ?? []]))
   )
   const [noSerial, setNoSerial] = useState<Record<string, boolean>>(
-    Object.fromEntries(order.giao_hang_don_items.map(i => [
-      i.id,
-      Array.isArray(i.device_serials) && i.device_serials.length === 0,
-    ]))
+    // Chỉ auto-tick "Không có mã" nếu đã từng lưu trạng thái "không có mã" rõ ràng
+    // (device_serials = [] mà không phải giá trị mặc định null)
+    // → Mặc định false, tránh auto-tick hết toàn bộ thiết bị
+    Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, false]))
   )
   const [drafts, setDrafts] = useState<Record<string, string>>(
     Object.fromEntries(order.giao_hang_don_items.map(i => [i.id, '']))
@@ -1017,7 +1018,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
           // Combo nào chứa GPS/MDVR để biết SIM/Storage trong combo đó có thể ẩn
           const comboHasGpsMdvr = new Map<string, boolean>()
           for (const it of items2) {
-            if (it.combo_name && GPS_NEEDS_SERIAL.includes(deviceTypes[it.device_name] ?? '')) {
+            if (it.combo_name && COMBO_SIM_HIDE_TYPES.includes(deviceTypes[it.device_name] ?? '')) {
               comboHasGpsMdvr.set(it.combo_name, true)
             }
           }
@@ -1028,12 +1029,15 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
           const thisComboHasGps = isInCombo ? (comboHasGpsMdvr.get(item.combo_name!) ?? false) : false
           const nameLower = item.device_name.toLowerCase()
 
-          // Luôn ẩn: accessory + SIM + thẻ nhớ + MDVR camera (không cần IMEI)
-          if (dtype === 'Power' || dtype === 'Cable' || dtype === 'Simcard'
-            || dtype === 'Storage' || dtype === 'MDVR'
+          // Luôn ẩn: accessory + MDVR camera (không cần IMEI)
+          if (dtype === 'Power' || dtype === 'Cable' || dtype === 'MDVR'
             || nameLower.includes('dây nguồn') || nameLower.includes('dây kết nối')
             || nameLower.includes('dây cáp') || nameLower.includes('bộ phụ kiện'))
             return null
+
+          // Ẩn SIM và thẻ nhớ CHỈ KHI nằm trong combo có GPS Tracker hoặc MDVR
+          // Thiết bị lẻ (standalone): giữ nguyên, người dùng tự tick "Không có mã"
+          if (isInCombo && thisComboHasGps && (dtype === 'Simcard' || dtype === 'Storage')) return null
 
           const effectiveNoSerial = isGpsMdvr ? false : (noSerial[item.id] ?? false)
           const qty = item.quantity
@@ -1042,7 +1046,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
             const inC = !!i.combo_name
             const cHasGps = inC ? (comboHasGpsMdvr.get(i.combo_name!) ?? false) : false
             const nl = i.device_name.toLowerCase()
-            if (dt === 'Power' || dt === 'Cable' || nl.includes('dây nguồn') || nl.includes('dây kết nối') || nl.includes('dây cáp') || nl.includes('bộ phụ kiện')) return false
+            if (dt === 'Power' || dt === 'Cable' || dt === 'MDVR' || nl.includes('dây nguồn') || nl.includes('dây kết nối') || nl.includes('dây cáp') || nl.includes('bộ phụ kiện')) return false
             if (inC && cHasGps && (dt === 'Simcard' || dt === 'Storage')) return false
             return true
           }) === item
