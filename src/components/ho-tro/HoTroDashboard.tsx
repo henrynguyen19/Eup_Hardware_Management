@@ -409,45 +409,62 @@ function SummaryView({
         </div>
       </div>
 
-      {/* Row 2 — 4 small charts */}
+      {/* Row 2 — Phân tích yêu cầu: pie thiết bị + bar văn phòng (full width, prominent) */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+        <h3 className="text-sm font-bold text-gray-700 mb-4">Phân tích yêu cầu hỗ trợ kỹ thuật</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Device pie */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tỷ lệ lỗi theo thiết bị</p>
+            <ResponsiveContainer width="100%" height={340}>
+              <PieChart>
+                <Pie
+                  data={devicePie}
+                  cx="50%" cy="42%"
+                  outerRadius={120}
+                  dataKey="value"
+                  label={({ name, percent }) => percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''}
+                  labelLine
+                >
+                  {devicePie.map((_, i) => <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]} />)}
+                </Pie>
+                <Tooltip formatter={(v: number, name: string) => {
+                  const total = devicePie.reduce((s, d) => s + d.value, 0)
+                  const pct = total > 0 ? Math.round(v / total * 100) : 0
+                  return [`${v} thiết bị (${pct}%)`, name]
+                }} />
+                <Legend
+                  wrapperStyle={{ fontSize: 12, paddingTop: 12 }}
+                  formatter={(value, entry: any) => {
+                    const total = devicePie.reduce((s, d) => s + d.value, 0)
+                    const pct = total > 0 ? Math.round((entry.payload?.value ?? 0) / total * 100) : 0
+                    return `${value} (${pct}%)`
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Location bar */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Yêu cầu theo văn phòng</p>
+            <ResponsiveContainer width="100%" height={340}>
+              <BarChart data={locationData} margin={{ top: 28, right: 20, bottom: 10, left: -10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 13 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Bar dataKey="value" name="Số yêu cầu" fill="#0891b2" radius={[5, 5, 0, 0]}>
+                  <LabelList dataKey="value" position="top" style={{ fontSize: 14, fill: '#1e293b', fontWeight: 700 }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 3 — 2 small charts: kênh + loại lỗi */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        {/* 5. Device pie */}
-        <div className={C}>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Tỷ lệ thiết bị lỗi trong tuần</h3>
-          <ResponsiveContainer width="100%" height={290}>
-            <PieChart>
-              <Pie
-                data={devicePie}
-                cx="50%" cy="45%"
-                outerRadius={105}
-                dataKey="value"
-                label={({ name, percent }) => percent > 0.04 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
-                labelLine
-              >
-                {devicePie.map((_, i) => <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]} />)}
-              </Pie>
-              <Tooltip formatter={(v: number) => [v, 'Số thiết bị lỗi']} />
-              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* 6. Location bar */}
-        <div className={C}>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Số yêu cầu theo văn phòng</h3>
-          <ResponsiveContainer width="100%" height={290}>
-            <BarChart data={locationData} margin={{ top: 24, right: 16, bottom: 0, left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="value" name="Yêu cầu" fill="#06b6d4" radius={[4, 4, 0, 0]}>
-                <LabelList dataKey="value" position="top" style={{ fontSize: 12, fill: '#374151', fontWeight: 600 }} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
         {/* 7. Channel % per day */}
         <div className={C}>
           <h3 className="text-xs font-semibold text-gray-600 mb-2">% Kênh tiếp nhận theo ngày</h3>
