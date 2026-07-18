@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { PieChart, Pie, Cell, Tooltip as ReTooltip, ResponsiveContainer } from 'recharts'
 
 type Lang = 'vi' | 'en'
 function useLang() {
@@ -1609,61 +1608,61 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
                     </div>
                   </div>
                 </div>
-                {/* Right: Donut chart */}
-                <div className="w-full lg:w-64 flex flex-col items-center">
-                  <p className="text-xs font-semibold text-gray-500 mb-1 self-start lg:self-center">
+                {/* Right: CSS Donut chart — no recharts dependency */}
+                <div className="w-full lg:w-72 flex flex-col items-center gap-3">
+                  <p className="text-xs font-semibold text-gray-500 self-start lg:self-center">
                     {t('Biểu đồ kết quả','Result Chart')}
                   </p>
-                  <div className="relative w-full" style={{height: 230}}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={[
-                            { name: t('Đã sửa','Repaired'),       value: stats.repaired,  fill: '#10b981' },
-                            { name: t('Gửi bảo hành','Warranty'), value: stats.supplier,  fill: '#f59e0b' },
-                            { name: t('Không lỗi','No Fault'),    value: stats.noFault,   fill: '#3b82f6' },
-                            { name: t('Báo phế','Written Off'),   value: stats.scrap,     fill: '#f87171' },
-                          ].filter(d => d.value > 0)}
-                          cx="50%" cy="50%"
-                          innerRadius={62} outerRadius={90}
-                          dataKey="value"
-                          paddingAngle={2}
-                        >
-                          {[
-                            { fill: '#10b981' }, { fill: '#f59e0b' },
-                            { fill: '#3b82f6' }, { fill: '#f87171' },
-                          ].map((c, i) => <Cell key={i} fill={c.fill} />)}
-                        </Pie>
-                        <ReTooltip formatter={(v: number, name: string) => [`${v} ${t('thiết bị','devices')} (${stats.completed > 0 ? Math.round(v/stats.completed*100) : 0}%)`, name]} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    {/* Center label */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                      <span className="text-2xl font-bold text-gray-800">{stats.completed}</span>
-                      <span className="text-[10px] text-gray-400 text-center leading-tight">{t('thiết bị','devices')}<br/>{t('hoàn thành','completed')}</span>
-                    </div>
-                  </div>
+                  {(() => {
+                    const total = stats.repaired + stats.supplier + stats.noFault + stats.scrap
+                    const segs = [
+                      { val: stats.repaired, color: '#10b981' },
+                      { val: stats.supplier, color: '#f59e0b' },
+                      { val: stats.noFault,  color: '#3b82f6' },
+                      { val: stats.scrap,    color: '#f87171' },
+                    ]
+                    let acc = 0
+                    const stops = segs.map(s => {
+                      const start = acc
+                      acc += total > 0 ? s.val / total * 100 : 0
+                      return `${s.color} ${start.toFixed(1)}% ${acc.toFixed(1)}%`
+                    })
+                    const gradient = total > 0 ? `conic-gradient(${stops.join(', ')})` : '#e5e7eb'
+                    return (
+                      <div className="relative w-44 h-44 flex-shrink-0">
+                        <div className="w-full h-full rounded-full" style={{ background: gradient }} />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-24 h-24 bg-white rounded-full flex flex-col items-center justify-center shadow-sm">
+                            <span className="text-2xl font-bold text-gray-800">{stats.completed}</span>
+                            <span className="text-[10px] text-gray-500 text-center leading-tight">{t('thiết bị','devices')}<br/>{t('h.thành','done')}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
                   {/* Legend */}
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mt-1 w-full px-2">
+                  <div className="grid grid-cols-1 gap-1.5 text-xs text-gray-600 w-full">
                     {[
-                      { label:t('Đã sửa','Repaired'),   count:stats.repaired,  rate:stats.repairedRate,  dot:'bg-emerald-500' },
-                      { label:t('Bảo hành','Warranty'), count:stats.supplier,  rate:stats.supplierRate,  dot:'bg-amber-400'   },
-                      { label:t('Không lỗi','No Fault'),count:stats.noFault,   rate:stats.noFaultRate,   dot:'bg-blue-500'    },
-                      { label:t('Báo phế','Written Off'),count:stats.scrap,    rate:stats.scrapRate,     dot:'bg-red-400'     },
+                      { label:t('Đã sửa','Repaired'),       count:stats.repaired,  rate:stats.repairedRate,  dot:'#10b981' },
+                      { label:t('Gửi bảo hành','Warranty'), count:stats.supplier,  rate:stats.supplierRate,  dot:'#f59e0b' },
+                      { label:t('Không lỗi','No Fault'),    count:stats.noFault,   rate:stats.noFaultRate,   dot:'#3b82f6' },
+                      { label:t('Báo phế','Written Off'),   count:stats.scrap,     rate:stats.scrapRate,     dot:'#f87171' },
                     ].map(l=>(
-                      <div key={l.label} className="flex items-center gap-1.5">
-                        <span className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${l.dot}`}/>
-                        <span className="truncate">{l.label}</span>
-                        <span className="font-semibold ml-auto">{l.count} ({l.rate}%)</span>
+                      <div key={l.label} className="flex items-center gap-2 bg-gray-50 rounded-lg px-2 py-1">
+                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: l.dot }}/>
+                        <span className="flex-1">{l.label}</span>
+                        <span className="font-bold text-gray-700">{l.count}</span>
+                        <span className="text-gray-400 w-8 text-right">{l.rate}%</span>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
             </div>
-            {/* ── Phân tích chi tiết ── */}
-            <DetailedAnalysisPanel stats={stats} t={t} />
+            {/* ── Chi tiết theo loại thiết bị ── */}
             <FourPanelByDeviceChart stats={stats} t={t} />
+            {/* ── Phân tích chi tiết (fault types) ── */}
+            <DetailedAnalysisPanel stats={stats} t={t} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             </div>
             <RepeatDevicesPanel devices={stats.allRepeatedDevices??[]} t={t} />
