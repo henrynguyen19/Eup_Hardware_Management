@@ -18,6 +18,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  LabelList,
 } from 'recharts'
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser'
 import { SUMMARY_SHEET_ID, getAvailableMonths } from '@/lib/staff-sheets'
@@ -412,35 +413,37 @@ function SummaryView({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         {/* 5. Device pie */}
         <div className={C}>
-          <h3 className="text-xs font-semibold text-gray-600 mb-2">Tỷ lệ thiết bị lỗi trong tuần</h3>
-          <ResponsiveContainer width="100%" height={180}>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Tỷ lệ thiết bị lỗi trong tuần</h3>
+          <ResponsiveContainer width="100%" height={290}>
             <PieChart>
               <Pie
                 data={devicePie}
-                cx="50%" cy="50%"
-                outerRadius={72}
+                cx="50%" cy="45%"
+                outerRadius={105}
                 dataKey="value"
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                labelLine={false}
-                fontSize={8}
+                label={({ name, percent }) => percent > 0.04 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
+                labelLine
               >
                 {devicePie.map((_, i) => <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]} />)}
               </Pie>
-              <Tooltip />
+              <Tooltip formatter={(v: number) => [v, 'Số thiết bị lỗi']} />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
 
         {/* 6. Location bar */}
         <div className={C}>
-          <h3 className="text-xs font-semibold text-gray-600 mb-2">Số yêu cầu theo văn phòng</h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={locationData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">Số yêu cầu theo văn phòng</h3>
+          <ResponsiveContainer width="100%" height={290}>
+            <BarChart data={locationData} margin={{ top: 24, right: 16, bottom: 0, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis {...yProps} />
+              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="value" name="Yêu cầu" fill="#06b6d4" />
+              <Bar dataKey="value" name="Yêu cầu" fill="#06b6d4" radius={[4, 4, 0, 0]}>
+                <LabelList dataKey="value" position="top" style={{ fontSize: 12, fill: '#374151', fontWeight: 600 }} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
