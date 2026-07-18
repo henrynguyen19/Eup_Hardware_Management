@@ -169,6 +169,34 @@ export async function GET(req: NextRequest) {
     .map(([warehouse, s]) => ({ warehouse, ...s }))
     .sort((a, b) => b.total - a.total)
 
+
+  // ── 5. Fault type (hashtag) breakdown per result category ────────────────
+  type FaultEntry = { tag: string; count: number }
+  const faultMap: Record<string, Map<string, number>> = {
+    repaired: new Map(), warranty: new Map(), noFault: new Map(), broken: new Map(),
+  }
+  for (const it of items) {
+    if (!it.notes || it.status !== 'da_sua_xong') continue
+    const tags = (it.notes.match(/#[^\s#,\.!?]+/g) ?? []).map(t => t.slice(1).toUpperCase())
+    let cat = ''
+    if (it.finish_reason === 'sua_xong')                                             cat = 'repaired'
+    else if (it.finish_reason === 'send_supplier' || it.destination === 'supplier')  cat = 'warranty'
+    else if (it.finish_reason === 'khong_loi_bt')                                    cat = 'noFault'
+    else if (it.destination === 'scrap')                                             cat = 'broken'
+    if (!cat) continue
+    const m = faultMap[cat]
+    for (const tag of tags) m.set(tag, (m.get(tag) ?? 0) + 1)
+  }
+  function toFaultList(m: Map<string, number>): FaultEntry[] {
+    return Array.from(m.entries()).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([tag,count])=>({tag,count}))
+  }
+  const faultTypeByCategory = {
+    repaired: toFaultList(faultMap.repaired),
+    warranty: toFaultList(faultMap.warranty),
+    noFault:  toFaultList(faultMap.noFault),
+    broken:   toFaultList(faultMap.broken),
+  }
+
   return NextResponse.json({
     total, completed, inRepair, waiting,
     oldDevice, scrap, supplier, repaired, noFault,
@@ -184,5 +212,6 @@ export async function GET(req: NextRequest) {
     allRepeatedDevices: repeatedDevices,
     byProduct,
     byWarehouse,
+    faultTypeByCategory,
   })
 }

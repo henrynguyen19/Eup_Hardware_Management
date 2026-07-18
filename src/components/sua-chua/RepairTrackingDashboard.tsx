@@ -48,6 +48,7 @@ interface StatsData {
   allRepeatedDevices: DupDevice[]
   byProduct: { product_name: string; total: number; completed: number; oldDevice: number; scrap: number; supplier: number; repaired: number; noFault: number; inRepair: number; waiting: number; successRate: number; scrapRate: number; supplierRate: number; repairedRate: number; noFaultRate: number }[]
   byWarehouse: { warehouse: string; total: number; completed: number; scrap: number; supplier: number }[]
+  faultTypeByCategory?: { repaired: {tag:string;count:number}[]; warranty: {tag:string;count:number}[]; noFault: {tag:string;count:number}[]; broken: {tag:string;count:number}[] }
 }
 interface InventoryStats {
   totalImported: number; totalUniqImei: number; totalRepaired: number; overallRepairRate: number
@@ -1311,58 +1312,125 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
 
 
 
-// ─── Phân tích chi tiết 4 loại theo thiết bị ─────────────────────────────────
-function DetailedRepairPanel({ stats, t }: { stats: StatsData; t:(vi:string,en:string)=>string }) {
-  type CatKey = 'repaired'|'supplier'|'noFault'|'scrap'
-  const [active, setActive] = useState<CatKey>('repaired')
-  const cats: { key: CatKey; label: string; color: string; dot: string; border: string }[] = [
-    { key:'repaired', label:t('Đã sửa','Repaired'),       color:'text-emerald-700', dot:'bg-emerald-500', border:'border-emerald-400' },
-    { key:'supplier', label:t('Gửi bảo hành','Warranty'), color:'text-amber-700',   dot:'bg-amber-400',   border:'border-amber-400'   },
-    { key:'noFault',  label:t('Không lỗi','No Fault'),    color:'text-blue-700',    dot:'bg-blue-500',    border:'border-blue-400'    },
-    { key:'scrap',    label:t('Báo phế','Written Off'),   color:'text-red-700',     dot:'bg-red-400',     border:'border-red-400'     },
+// ─── Detailed Analysis Panel — 2 cột: theo thiết bị + theo loại lỗi ──────────
+type CatKey2 = 'repaired'|'warranty'|'noFault'|'broken'
+
+function DetailedAnalysisPanel({ stats, t }: { stats: StatsData; t:(vi:string,en:string)=>string }) {
+  const [active, setActive] = useState<CatKey2>('repaired')
+
+  const cats: { key: CatKey2; label: string; count: number; emerald?: boolean; amber?: boolean; blue?: boolean; red?: boolean; dotCls: string; tabActive: string; tabInactive: string }[] = [
+    { key:'repaired', label:t('Đã sửa','Repaired'),         count:stats.repaired,  dotCls:'bg-emerald-500', tabActive:'border-b-2 border-emerald-500 text-emerald-700 font-bold', tabInactive:'text-gray-500 hover:text-gray-700' },
+    { key:'warranty', label:t('Gửi bảo hành','Warranty'),   count:stats.supplier,  dotCls:'bg-amber-400',   tabActive:'border-b-2 border-amber-400   text-amber-700   font-bold', tabInactive:'text-gray-500 hover:text-gray-700' },
+    { key:'noFault',  label:t('Không lỗi','No Fault'),      count:stats.noFault,   dotCls:'bg-blue-500',    tabActive:'border-b-2 border-blue-500    text-blue-700    font-bold', tabInactive:'text-gray-500 hover:text-gray-700' },
+    { key:'broken',   label:t('Báo phế','Written Off'),     count:stats.scrap,     dotCls:'bg-red-400',     tabActive:'border-b-2 border-red-400     text-red-700     font-bold', tabInactive:'text-gray-500 hover:text-gray-700' },
   ]
-  const cat = cats.find(c=>c.key===active)!
-  const rows = stats.byProduct
-    .map(p => ({ name: p.product_name, val: p[active] as number, total: p.total }))
+
+  const completedTotal = stats.repaired + stats.supplier + stats.noFault + stats.scrap
+
+  // Device rows for active category
+  const fieldMap: Record<CatKey2, 'repaired'|'supplier'|'noFault'|'scrap'> = {
+    repaired:'repaired', warranty:'supplier', noFault:'noFault', broken:'scrap',
+  }
+  const devField = fieldMap[active]
+  const devRows = stats.byProduct
+    .map(p => ({ name: p.product_name, val: p[devField] as number }))
     .filter(r => r.val > 0)
-    .sort((a,b) => b.val - a.val)
-  const catTotal = rows.reduce((s,r) => s+r.val, 0)
-  const maxVal   = rows[0]?.val ?? 1
+    .sort((a,b) => b.val-a.val)
+  const devTotal = devRows.reduce((s,r) => s+r.val, 0)
+  const maxDev   = devRows[0]?.val ?? 1
+
+  // Fault rows for active category
+  const faultRows = (stats.faultTypeByCategory?.[active] ?? [])
+  const faultTotal = faultRows.reduce((s,r) => s+r.count, 0)
+  const maxFault   = faultRows[0]?.count ?? 1
+
+  const activeCat = cats.find(c=>c.key===active)!
+
+  // bar color per category
+  const barColor: Record<CatKey2, string> = {
+    repaired:'bg-emerald-500', warranty:'bg-amber-400', noFault:'bg-blue-500', broken:'bg-red-400'
+  }
+
+  function HBar({ val, max, total, color, label }: { val:number; max:number; total:number; color:string; label:string }) {
+    const pct = total>0 ? Math.round(val/total*100) : 0
+    const w   = max>0   ? val/max*100               : 0
+    return (
+      <div className="flex items-center gap-3 group">
+        <span className="text-xs text-gray-600 w-28 shrink-0 text-right truncate" title={label}>{label}</span>
+        <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden relative">
+          <div className={`absolute inset-y-0 left-0 ${color} rounded-full transition-all duration-300 flex items-center justify-end`}
+               style={{width:`${Math.max(w,4)}%`}}>
+            {pct >= 8 && <span className="text-white text-[10px] font-bold pr-1.5">{pct}%</span>}
+          </div>
+        </div>
+        {pct < 8 && <span className="text-[10px] font-semibold text-gray-500 w-6">{pct}%</span>}
+        <span className="text-xs font-bold text-gray-700 w-5 text-right">{val}</span>
+      </div>
+    )
+  }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5">
-      <h3 className="text-sm font-semibold text-gray-700 mb-3">{t('Phân tích chi tiết theo loại thiết bị','Detailed Analysis by Device Type')}</h3>
-      {/* tab chips */}
-      <div className="flex gap-2 flex-wrap mb-4">
-        {cats.map(c=>{
-          const cnt = stats.byProduct.reduce((s,p)=>s+(p[c.key] as number),0)
-          return (
-            <button key={c.key} onClick={()=>setActive(c.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${active===c.key?`${c.border} border-2 ${c.color} bg-white shadow-sm`:'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'}`}>
-              <span className={`w-2 h-2 rounded-full ${c.dot}`}/>
-              {c.label} <span className="font-bold">({cnt})</span>
-            </button>
-          )
-        })}
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="px-5 pt-4 pb-0">
+        <h3 className="text-sm font-bold text-gray-800 mb-3">{t('Phân tích chi tiết','Detailed Analysis')}</h3>
+        {/* Tab row */}
+        <div className="flex gap-1 border-b border-gray-100 overflow-x-auto">
+          {cats.map(c=>{
+            const pct = completedTotal>0 ? Math.round(c.count/completedTotal*100) : 0
+            return (
+              <button key={c.key} onClick={()=>setActive(c.key)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors -mb-px ${active===c.key ? c.tabActive : c.tabInactive}`}>
+                <span className={`w-2.5 h-2.5 rounded-full ${c.dotCls} shrink-0`}/>
+                {c.label}
+                <span className="font-bold">{c.count}</span>
+                <span className="text-xs opacity-60">· {pct}%</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
-      {rows.length === 0
-        ? <p className="text-xs text-gray-400 py-4 text-center">{t('Chưa có dữ liệu','No data')}</p>
-        : <div className="space-y-2">
-            {rows.map(r=>(
-              <div key={r.name} className="flex items-center gap-3">
-                <span className="text-xs font-medium text-gray-700 w-28 shrink-0 truncate" title={r.name}>{r.name}</span>
-                <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                  <div className={`h-2.5 rounded-full ${cat.dot} transition-all`} style={{width:`${r.val/maxVal*100}%`}} />
-                </div>
-                <span className={`text-xs font-bold ${cat.color} w-6 text-right`}>{r.val}</span>
-                <span className="text-[10px] text-gray-400 w-10 text-right">{Math.round(r.val/catTotal*100)}%</span>
+
+      {/* Body — 2 columns */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100 p-5 gap-6">
+        {/* Left: BY DEVICE TYPE */}
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+            {t('Theo loại thiết bị','By Device Type')} ({devTotal} {t('thiết bị','devices')})
+          </p>
+          {devRows.length === 0
+            ? <p className="text-xs text-gray-400 py-6 text-center">{t('Chưa có dữ liệu','No data')}</p>
+            : <div className="space-y-2">
+                {devRows.map(r=>(
+                  <HBar key={r.name} val={r.val} max={maxDev} total={devTotal}
+                        color={barColor[active]} label={r.name} />
+                ))}
               </div>
-            ))}
-          </div>
-      }
+          }
+        </div>
+
+        {/* Right: BY FAULT TYPE */}
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+            {t('Theo loại lỗi','By Fault Type')} ({faultTotal} {t('trường hợp','cases')})
+          </p>
+          {faultRows.length === 0
+            ? <p className="text-xs text-gray-400 py-6 text-center">
+                {t('Chưa có dữ liệu — lỗi được ghi qua hashtag (#GSM, #RFID...) trong phần ghi chú','No data — log faults via hashtag (#GSM, #RFID...) in notes')}
+              </p>
+            : <div className="space-y-2">
+                {faultRows.map(r=>(
+                  <HBar key={r.tag} val={r.count} max={maxFault} total={faultTotal}
+                        color="bg-emerald-500" label={r.tag} />
+                ))}
+              </div>
+          }
+        </div>
+      </div>
     </div>
   )
 }
+
 
 function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void; active: boolean }) {
   const [section, setSection] = useState<'repair'|'failure'|'hashtag'>('repair')
@@ -1484,8 +1552,8 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
                 <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1"/>Báo phế</span>
               </div>
             </div>
-            {/* ── Phân tích chi tiết theo thiết bị ── */}
-            <DetailedRepairPanel stats={stats} t={t} />
+            {/* ── Phân tích chi tiết ── */}
+            <DetailedAnalysisPanel stats={stats} t={t} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             </div>
             <RepeatDevicesPanel devices={stats.allRepeatedDevices??[]} t={t} />
