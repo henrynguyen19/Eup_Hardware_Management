@@ -15,17 +15,13 @@ async function getUser() {
 }
 
 // GET: lấy danh sách thiết bị
-// ?minimal=1 → chỉ trả về các field cần cho picker (nhẹ hơn nhiều)
-export async function GET(req: NextRequest) {
+export async function GET() {
   const user = await getUser()
   if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
 
-  const minimal = req.nextUrl.searchParams.has('minimal')
-  const fields  = minimal ? 'equipment_id,name,device_type,category' : '*'
-
   const { data, error } = await supabaseAdmin()
     .from('equipment_cards')
-    .select(fields)
+    .select('*')
     .order('device_type')
     .order('name')
 

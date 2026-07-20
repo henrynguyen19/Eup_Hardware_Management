@@ -14,7 +14,7 @@ const FOLDER_HUONG_DAN    = ''   // ← điền Google Drive folder ID
 
 type SubTab = 'certificates' | 'technical' | 'installation'
 
-export default function TaiLieuKyThuatPage({ isAdmin = false, canWriteCerts = false, canTaiLieu = true, canHuongDan = true }: { isAdmin?: boolean; canWriteCerts?: boolean; canTaiLieu?: boolean; canHuongDan?: boolean }) {
+export default function TaiLieuKyThuatPage({ isAdmin = false, canTaiLieu = true, canHuongDan = true }: { isAdmin?: boolean; canTaiLieu?: boolean; canHuongDan?: boolean }) {
   const { lang } = useLanguage()
   const [activeTab, setActiveTab] = useState<SubTab>('installation')
 
@@ -33,7 +33,6 @@ export default function TaiLieuKyThuatPage({ isAdmin = false, canWriteCerts = fa
         <CertificatesPage
           rootFolderId={FOLDER_CHUNG_NHAN}
           title={vi ? 'Giấy chứng nhận' : 'Certificates'}
-          isAdmin={canWriteCerts}
         />
       )
     }
@@ -67,7 +66,7 @@ export default function TaiLieuKyThuatPage({ isAdmin = false, canWriteCerts = fa
       )
     }
 
-    return <CertificatesPage rootFolderId={folderId} title={title} isAdmin={canWriteCerts} />
+    return <CertificatesPage rootFolderId={folderId} title={title} />
   }
 
   return (
