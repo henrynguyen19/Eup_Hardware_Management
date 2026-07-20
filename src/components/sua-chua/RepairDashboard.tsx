@@ -476,6 +476,79 @@ function AnalyticsSection({
                 )}
               </div>
             )}
+            {/* Heatmap ma tran: thiet bi x loai loi */}
+            {tabTotal > 0 && selectedDevice === 'all' && (() => {
+              const hDevices = DEVICE_TYPES.filter(dt => tabStats.some(s => s.device_type === dt && s.quantity > 0))
+              const hFaults  = [...new Set(tabStats.filter(s => s.quantity > 0).map(s => s.fault_type))]
+                .sort((a, b) => {
+                  const ta = tabStats.filter(s => s.fault_type === a).reduce((x,s)=>x+s.quantity,0)
+                  const tb = tabStats.filter(s => s.fault_type === b).reduce((x,s)=>x+s.quantity,0)
+                  return tb - ta
+                })
+              const cellVal = (dt: string, ft: string) =>
+                tabStats.filter(s => s.device_type === dt && s.fault_type === ft).reduce((a,s)=>a+s.quantity,0)
+              const maxVal = Math.max(1, ...hDevices.flatMap(dt => hFaults.map(ft => cellVal(dt, ft))))
+              const cellBg = (v: number) => {
+                if (v === 0) return '#f9fafb'
+                const opacity = 0.15 + (v / maxVal) * 0.75
+                return stInfo.color + Math.round(opacity * 255).toString(16).padStart(2,'0')
+              }
+              const cellText = (v: number) => v > 0 ? '#111827' : '#d1d5db'
+              return hDevices.length > 0 && hFaults.length > 0 ? (
+                <div className="mt-5">
+                  <p className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">
+                    Ma tran loi theo thiet bi
+                    <span className="font-normal normal-case text-gray-400 ml-2">({tabTotal} truong hop)</span>
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="text-xs border-collapse w-full">
+                      <thead>
+                        <tr>
+                          <th className="px-3 py-2 text-left text-gray-500 font-semibold bg-gray-50 sticky left-0 z-10 border border-gray-100 min-w-[80px]">Thiet bi</th>
+                          {hFaults.map(ft => (
+                            <th key={ft} className="px-2 py-2 text-center text-gray-500 font-medium bg-gray-50 border border-gray-100 min-w-[56px] whitespace-nowrap">{ft}</th>
+                          ))}
+                          <th className="px-3 py-2 text-right text-gray-600 font-bold bg-gray-50 border border-gray-100">Tong</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {hDevices.map(dt => {
+                          const rowTotal = hFaults.reduce((a, ft) => a + cellVal(dt, ft), 0)
+                          return (
+                            <tr key={dt}>
+                              <td className="px-3 py-2 font-semibold sticky left-0 bg-white z-10 border border-gray-100" style={{ color: DEVICE_COLORS[dt] ?? '#374151' }}>{dt}</td>
+                              {hFaults.map(ft => {
+                                const v = cellVal(dt, ft)
+                                const pctRow = rowTotal > 0 ? Math.round(v / rowTotal * 100) : 0
+                                return (
+                                  <td key={ft} className="px-2 py-2 text-center border border-gray-100" style={{ background: cellBg(v), color: cellText(v) }}>
+                                    {v > 0 ? (
+                                      <div>
+                                        <div className="font-bold">{v}</div>
+                                        <div className="text-[10px] opacity-60">{pctRow}%</div>
+                                      </div>
+                                    ) : <span>—</span>}
+                                  </td>
+                                )
+                              })}
+                              <td className="px-3 py-2 text-right font-bold border border-gray-100 text-gray-700">{rowTotal}</td>
+                            </tr>
+                          )
+                        })}
+                        <tr className="bg-gray-50">
+                          <td className="px-3 py-2 font-bold sticky left-0 bg-gray-50 z-10 border border-gray-100 text-gray-600">Tong</td>
+                          {hFaults.map(ft => {
+                            const colTotal = hDevices.reduce((a, dt) => a + cellVal(dt, ft), 0)
+                            return <td key={ft} className="px-2 py-2 text-center font-bold border border-gray-100 text-gray-700">{colTotal}</td>
+                          })}
+                          <td className="px-3 py-2 text-right font-bold border border-gray-100 text-gray-800">{tabTotal}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null
+            })()}
           </>
         )}
         {/* Hỏng hẳn → fault × device matrix */}
