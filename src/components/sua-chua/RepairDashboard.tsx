@@ -353,9 +353,15 @@ function AnalyticsSection({
     .map(dt => ({ name: dt, qty: tabStats.filter(s => s.device_type === dt).reduce((a, s) => a + s.quantity, 0), color: DEVICE_COLORS[dt] }))
     .filter(d => d.qty > 0)
     .sort((a, b) => b.qty - a.qty)
-  // By fault type — derived from actual data so all real fault types appear
+  const [drillDevice, setDrillDevice] = useState<string|null>(null)
+  // Reset drill khi doi tab hoac device filter
+  // By fault type — filter by drillDevice neu co
+  const faultSource = drillDevice
+    ? tabStats.filter(s => s.device_type === drillDevice)
+    : tabStats
+  const faultTotal = faultSource.reduce((a, s) => a + s.quantity, 0)
   const byFault = Object.entries(
-    tabStats.reduce((acc, s) => {
+    faultSource.reduce((acc, s) => {
       acc[s.fault_type] = (acc[s.fault_type] || 0) + s.quantity
       return acc
     }, {} as Record<string, number>)
@@ -421,8 +427,15 @@ function AnalyticsSection({
                             return [`${n} (${pctOf(n, tabTotal)})`, stInfo.label]
                           }}
                         />
-                        <Bar dataKey="qty" radius={3} label={{ position: 'right', fontSize: 12, fill: '#6b7280', formatter: (v: number) => pctOf(v, tabTotal) }}>
-                          {byDevice.map((d, i) => <Cell key={i} fill={d.color} />)}
+                        <Bar dataKey="qty" radius={3} cursor="pointer"
+                          label={{ position: 'right', fontSize: 12, fill: '#6b7280', formatter: (v: number) => pctOf(v, tabTotal) }}
+                          onClick={(data: { name: string }) => setDrillDevice(prev => prev === data.name ? null : data.name)}
+                        >
+                          {byDevice.map((d, i) => (
+                            <Cell key={i} fill={d.color}
+                              fillOpacity={drillDevice && drillDevice !== d.name ? 0.3 : 1}
+                            />
+                          ))}
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
@@ -431,9 +444,19 @@ function AnalyticsSection({
                 {/* By fault type */}
                 {byFault.length > 0 && (
                   <div>
-                    <p className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">
-                      {t.suaChua.byFaultType} <span className="font-normal normal-case text-gray-400">({tabTotal} {t.suaChua.cases})</span>
-                    </p>
+                    <div className="flex items-center gap-2 mb-3">
+                      <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                        {t.suaChua.byFaultType} <span className="font-normal normal-case text-gray-400">({faultTotal} {t.suaChua.cases})</span>
+                      </p>
+                      {drillDevice && (
+                        <button onClick={() => setDrillDevice(null)}
+                          className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full text-white font-medium"
+                          style={{ background: DEVICE_COLORS[drillDevice] ?? '#6b7280' }}
+                        >
+                          {drillDevice} <span className="ml-1 opacity-75">x</span>
+                        </button>
+                      )}
+                    </div>
                     <ResponsiveContainer width="100%" height={Math.max(280, byFault.length * 44)}>
                       <BarChart data={byFault} layout="vertical" margin={{ top: 0, right: 60, bottom: 0, left: 80 }}>
                         <XAxis type="number" tick={{ fontSize: 13 }} axisLine={false} tickLine={false} />
@@ -441,11 +464,11 @@ function AnalyticsSection({
                         <Tooltip
                           formatter={(v: unknown) => {
                             const n = Number(v)
-                            return [`${n} (${pctOf(n, tabTotal)})`, 'Số lượng']
+                            return [`${n} (${pctOf(n, faultTotal)})`, 'So luong']
                           }}
                         />
                         <Bar dataKey="qty" fill={stInfo.color} radius={3}
-                          label={{ position: 'right', fontSize: 12, fill: '#6b7280', formatter: (v: number) => pctOf(v, tabTotal) }}
+                          label={{ position: 'right', fontSize: 12, fill: '#6b7280', formatter: (v: number) => pctOf(v, faultTotal) }}
                         />
                       </BarChart>
                     </ResponsiveContainer>
