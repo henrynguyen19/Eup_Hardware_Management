@@ -978,9 +978,10 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
 function FailureProductTable({ products, t }: { products: InventoryStats['byProduct']; t:(vi:string,en:string)=>string }) {
   const [search, setSearch]       = useState('')
   const [minImport, setMinImport] = useState(0)
-  const [hidden, setHidden]       = useState<Set<string>>(() => {
-    try { const s=localStorage.getItem(HIDDEN_KEY); return s?new Set(JSON.parse(s)):new Set() } catch { return new Set() }
-  })
+  const [hidden, setHidden]       = useState<Set<string>>(new Set())
+  useEffect(() => {
+    try { const s=localStorage.getItem(HIDDEN_KEY); if (s) setHidden(new Set(JSON.parse(s))) } catch {/**/}
+  }, [])
   const [showHidden, setShowHidden] = useState(false)
 
   function toggleHide(name: string) {
