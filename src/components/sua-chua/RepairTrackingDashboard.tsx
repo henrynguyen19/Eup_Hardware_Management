@@ -3,9 +3,14 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 
 type Lang = 'vi' | 'en'
 function useLang() {
-  const [lang, setLang] = useState<Lang>(() => {
-    try { return (localStorage.getItem('repair_lang') as Lang) || 'vi' } catch { return 'vi' }
-  })
+  // Always start with 'vi' so SSR and client first-render match (no hydration error)
+  const [lang, setLang] = useState<Lang>('vi')
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('repair_lang') as Lang
+      if (stored === 'en' || stored === 'vi') setLang(stored)
+    } catch { /**/ }
+  }, [])
   function toggle() {
     setLang(l => {
       const next = l === 'vi' ? 'en' : 'vi'
@@ -1960,8 +1965,4 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
         <StatsTab t={t} onFilterByTag={handleFilterByTag} active={activeTab==='stats'} />
       )}
 
-      {modal?.type==='send'     && <SendModal    item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
-      {modal?.type==='complete' && <CompleteModal item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
-    </div>
-  )
-}
+      {modal?.type==='send'     && <SendModal    item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t
