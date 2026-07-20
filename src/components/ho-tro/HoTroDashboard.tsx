@@ -764,24 +764,22 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     return null
   }
 
-  // Derive sorted list of ISO week keys from current records
-  // Always include current week so user can navigate to it even if no data yet
+  // Generate week keys: past 24 weeks + current (navigation khong phu thuoc vao data)
   const allWeekKeys = useMemo(() => {
-    const source = (activeTab === 'stats' && isAdmin)
-      ? Object.values(staffDataMap).flat()
-      : records
-    const keys = new Set(source.filter(r => r.total_requests > 0).map(r => getISOWeekKey(r.sortKey)))
-    // Always add current week
+    const keys = new Set<string>()
     const now = new Date()
-    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
-    const day = d.getUTCDay() || 7
-    d.setUTCDate(d.getUTCDate() + 4 - day)
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
-    const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
-    keys.add(`${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`)
+    for (let i = 24; i >= 0; i--) {
+      const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+      d.setUTCDate(d.getUTCDate() - i * 7)
+      const day = d.getUTCDay() || 7
+      d.setUTCDate(d.getUTCDate() + 4 - day)
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+      const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+      keys.add(`${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`)
+    }
     return Array.from(keys).sort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records, staffDataMap, activeTab, isAdmin])
+  }, [])
 
   // Auto-select latest week when entering week mode or data changes
   useEffect(() => {
