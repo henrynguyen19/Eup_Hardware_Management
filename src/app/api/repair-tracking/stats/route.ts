@@ -58,6 +58,8 @@ export async function GET(req: NextRequest) {
   const oldDevice = items.filter(i => i.destination === 'old_device').length
   const scrap     = items.filter(i => i.destination === 'scrap').length
   const supplier  = items.filter(i => i.destination === 'supplier').length
+  const repaired  = items.filter(i => i.finish_reason === 'sua_xong').length
+  const noFault   = items.filter(i => i.finish_reason === 'khong_loi_bt').length
 
   // ── 2. Thống kê theo IMEI (thiết bị lặp) — gom theo loại ────
   const imeiMap = new Map<string, { product_name: string; rows: typeof items }>()
@@ -118,13 +120,14 @@ export async function GET(req: NextRequest) {
   // ── 3. Thống kê theo loại thiết bị (product_name) ────────────
   const productMap = new Map<string, {
     total: number; completed: number; oldDevice: number
+    repaired: number; noFault: number
     scrap: number; supplier: number; inRepair: number; waiting: number
   }>()
 
   for (const it of items) {
     const key = (it.product_name || 'Unknown').trim()
     if (!productMap.has(key)) {
-      productMap.set(key, { total: 0, completed: 0, oldDevice: 0, scrap: 0, supplier: 0, inRepair: 0, waiting: 0 })
+      productMap.set(key, { total: 0, completed: 0, oldDevice: 0, repaired: 0, noFault: 0, scrap: 0, supplier: 0, inRepair: 0, waiting: 0 })
     }
     const s = productMap.get(key)!
     s.total++
@@ -134,6 +137,8 @@ export async function GET(req: NextRequest) {
     if (it.destination === 'old_device') s.oldDevice++
     if (it.destination === 'scrap')      s.scrap++
     if (it.destination === 'supplier')   s.supplier++
+    if (it.finish_reason === 'sua_xong')     s.repaired++
+    if (it.finish_reason === 'khong_loi_bt') s.noFault++
   }
 
   const byProduct = Array.from(productMap.entries())
@@ -143,6 +148,8 @@ export async function GET(req: NextRequest) {
       successRate:   s.total > 0 ? Math.round(s.oldDevice / s.total * 100) : 0,
       scrapRate:     s.total > 0 ? Math.round(s.scrap     / s.total * 100) : 0,
       supplierRate:  s.total > 0 ? Math.round(s.supplier  / s.total * 100) : 0,
+      repairedRate:  s.total > 0 ? Math.round(s.repaired  / s.total * 100) : 0,
+      noFaultRate:   s.total > 0 ? Math.round(s.noFault   / s.total * 100) : 0,
     }))
     .sort((a, b) => b.total - a.total)
 
@@ -162,18 +169,49 @@ export async function GET(req: NextRequest) {
     .map(([warehouse, s]) => ({ warehouse, ...s }))
     .sort((a, b) => b.total - a.total)
 
+
+  // ── 5. Fault type (hashtag) breakdown per result category ────────────────
+  type FaultEntry = { tag: string; count: number }
+  const faultMap: Record<string, Map<string, number>> = {
+    repaired: new Map(), warranty: new Map(), noFault: new Map(), broken: new Map(),
+  }
+  for (const it of items) {
+    if (!it.notes || it.status !== 'da_sua_xong') continue
+    const tags = (it.notes.match(/#[^\s#,\.!?]+/g) ?? []).map(t => t.slice(1).toUpperCase())
+    let cat = ''
+    if (it.finish_reason === 'sua_xong')                                             cat = 'repaired'
+    else if (it.finish_reason === 'send_supplier' || it.destination === 'supplier')  cat = 'warranty'
+    else if (it.finish_reason === 'khong_loi_bt')                                    cat = 'noFault'
+    else if (it.destination === 'scrap')                                             cat = 'broken'
+    if (!cat) continue
+    const m = faultMap[cat]
+    for (const tag of tags) m.set(tag, (m.get(tag) ?? 0) + 1)
+  }
+  function toFaultList(m: Map<string, number>): FaultEntry[] {
+    return Array.from(m.entries()).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([tag,count])=>({tag,count}))
+  }
+  const faultTypeByCategory = {
+    repaired: toFaultList(faultMap.repaired),
+    warranty: toFaultList(faultMap.warranty),
+    noFault:  toFaultList(faultMap.noFault),
+    broken:   toFaultList(faultMap.broken),
+  }
+
   return NextResponse.json({
     total, completed, inRepair, waiting,
-    oldDevice, scrap, supplier,
+    oldDevice, scrap, supplier, repaired, noFault,
     uniqueDevices:       duplicateDeviceCount,
     repeatedDeviceCount,
     completionRate:  total > 0 ? Math.round(completed / total * 100) : 0,
     successRate:     completed > 0 ? Math.round(oldDevice / completed * 100) : 0,
     scrapRate:       completed > 0 ? Math.round(scrap    / completed * 100) : 0,
     supplierRate:    completed > 0 ? Math.round(supplier / completed * 100) : 0,
+    repairedRate:    completed > 0 ? Math.round(repaired / completed * 100) : 0,
+    noFaultRate:     completed > 0 ? Math.round(noFault  / completed * 100) : 0,
     duplicatesByProduct,
     allRepeatedDevices: repeatedDevices,
     byProduct,
     byWarehouse,
+    faultTypeByCategory,
   })
 }

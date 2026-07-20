@@ -89,3 +89,7 @@
 *:focus:not(:focus-visible) {
   outline: none !important;
 }
+
+/* Ẩn scrollbar khi dùng overflow-x: auto trên mobile tabs */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
