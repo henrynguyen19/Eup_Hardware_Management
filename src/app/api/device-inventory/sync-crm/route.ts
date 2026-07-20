@@ -275,6 +275,3 @@ export async function GET() {
     log: syncedRows ?? [],
   })
 }
- ?? [],
-  })
-}
