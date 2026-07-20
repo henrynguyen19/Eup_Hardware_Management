@@ -1314,120 +1314,6 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
 
 
 
-// ─── Repair Donut Chart ─────────────────────────────────────────────────────
-function RepairDonut(props: {
-  repaired: number
-  supplier: number
-  noFault: number
-  scrap: number
-  completed: number
-  t: (vi: string, en: string) => string
-}) {
-  const { repaired, supplier, noFault, scrap, completed, t } = props
-  const total = repaired + supplier + noFault + scrap
-  const segs: Array<{ v: number; c: string }> = [
-    { v: repaired, c: '#10b981' },
-    { v: supplier, c: '#f59e0b' },
-    { v: noFault,  c: '#3b82f6' },
-    { v: scrap,    c: '#f87171' },
-  ]
-  let acc = 0
-  let gradient = 'conic-gradient('
-  segs.forEach((s, i) => {
-    const start = acc
-    acc = acc + (total > 0 ? (s.v / total) * 100 : 0)
-    gradient = gradient + (i > 0 ? ', ' : '') + s.c + ' ' + start.toFixed(1) + '% ' + acc.toFixed(1) + '%'
-  })
-  gradient = gradient + ')'
-  const bg = total > 0 ? gradient : '#e5e7eb'
-  const legends = [
-    { label: t('Da sua', 'Repaired'),   count: repaired, rate: total > 0 ? Math.round(repaired / total * 100) : 0, dot: '#10b981' },
-    { label: t('Bao hanh', 'Warranty'), count: supplier, rate: total > 0 ? Math.round(supplier / total * 100) : 0, dot: '#f59e0b' },
-    { label: t('Khong loi', 'No Fault'),count: noFault,  rate: total > 0 ? Math.round(noFault  / total * 100) : 0, dot: '#3b82f6' },
-    { label: t('Bao phe', 'Scrap'),     count: scrap,    rate: total > 0 ? Math.round(scrap    / total * 100) : 0, dot: '#f87171' },
-  ]
-  return (
-    <div className="w-full lg:w-64 flex flex-col items-center gap-3">
-      <p className="text-xs font-semibold text-gray-500 self-start">{t('Bieu do ket qua', 'Result Chart')}</p>
-      <div className="relative w-40 h-40">
-        <div className="w-full h-full rounded-full" style={{ background: bg }} />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-20 h-20 bg-white rounded-full flex flex-col items-center justify-center">
-            <span className="text-xl font-bold text-gray-800">{completed}</span>
-            <span className="text-xs text-gray-400">{t('thiet bi', 'devices')}</span>
-          </div>
-        </div>
-      </div>
-      <div className="w-full space-y-1">
-        {legends.map(l => (
-          <div key={l.label} className="flex items-center gap-2 text-xs">
-            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: l.dot }} />
-            <span className="flex-1 text-gray-600">{l.label}</span>
-            <span className="font-bold text-gray-700">{l.count}</span>
-            <span className="text-gray-400 w-8 text-right">{l.rate}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── 4-Panel Chart: Chi tiet theo thiet bi x 4 ket qua ──────────────────────
-function RepairFourPanel(props: { stats: StatsData; t: (vi: string, en: string) => string }) {
-  const { stats, t } = props
-  const panels = [
-    { label: t('Da sua', 'Repaired'),   field: 'repaired' as keyof typeof stats.byProduct[0], color: '#10b981', hcls: 'text-emerald-600', bcls: 'bg-emerald-500', count: stats.repaired  },
-    { label: t('Bao hanh', 'Warranty'),field: 'supplier' as keyof typeof stats.byProduct[0], color: '#f59e0b', hcls: 'text-amber-600',   bcls: 'bg-amber-400',   count: stats.supplier  },
-    { label: t('Khong loi', 'No Fault'),field:'noFault'  as keyof typeof stats.byProduct[0], color: '#3b82f6', hcls: 'text-blue-600',    bcls: 'bg-blue-500',    count: stats.noFault   },
-    { label: t('Bao phe', 'Scrap'),     field: 'scrap'   as keyof typeof stats.byProduct[0], color: '#f87171', hcls: 'text-red-500',     bcls: 'bg-red-400',     count: stats.scrap     },
-  ]
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-      <div className="px-5 pt-4 pb-3 border-b border-gray-100">
-        <h3 className="text-sm font-bold text-gray-800">{t('Chi tiet theo thiet bi', 'By Device Type')}</h3>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
-        {panels.map(panel => {
-          const rows = stats.byProduct
-            .filter(p => (p[panel.field] as number) > 0)
-            .map(p => ({ name: p.product_name, val: p[panel.field] as number }))
-            .sort((a, b) => b.val - a.val)
-          const tot = rows.reduce((s, r) => s + r.val, 0)
-          const mx  = rows[0]?.val ?? 1
-          return (
-            <div key={panel.label} className="p-4">
-              <p className={'text-sm font-bold mb-3 ' + panel.hcls}>
-                {panel.label}
-                <span className="font-normal text-xs ml-1">({panel.count})</span>
-              </p>
-              {rows.length === 0
-                ? <p className="text-xs text-gray-300 py-4 text-center">{t('Khong co', 'None')}</p>
-                : <div className="space-y-1.5">
-                    {rows.map(r => {
-                      const pct = tot > 0 ? Math.round(r.val / tot * 100) : 0
-                      const w   = mx  > 0 ? r.val / mx * 100 : 0
-                      return (
-                        <div key={r.name} className="flex items-center gap-2">
-                          <span className="text-xs text-gray-600 w-16 shrink-0 text-right truncate">{r.name}</span>
-                          <div className="flex-1 bg-gray-100 rounded-full h-4 relative overflow-hidden">
-                            <div className={'absolute inset-y-0 left-0 rounded-full ' + panel.bcls} style={{ width: Math.max(w, 4) + '%' }} />
-                          </div>
-                          <span className="text-xs font-semibold text-gray-700 w-12 shrink-0">
-                            {r.val} ({pct}%)
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-              }
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 // ─── Detailed Analysis Panel — 2 cột: theo thiết bị + theo loại lỗi ──────────
 type CatKey2 = 'repaired'|'warranty'|'noFault'|'broken'
 
@@ -1640,45 +1526,35 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
             <div className="bg-white border border-gray-200 rounded-2xl p-5">
               <h3 className="text-sm font-semibold text-gray-700 mb-1">{t(`Kết quả sửa chữa (${stats.completed} hoàn thành)`,`Repair results (${stats.completed} completed)`)}</h3>
               <p className="text-xs text-gray-400 mb-4">{t('Tính trên tổng số lượt tiếp nhận','As % of total received')}: {stats.total}</p>
-              {/* 4 KPI cards + donut side by side */}
-              <div className="flex flex-col lg:flex-row gap-5 items-start">
-                {/* Left: cards */}
-                <div className="flex-1 grid grid-cols-2 gap-3">
-                  {[
-                    { label:t('Da sua','Repaired'),       count:stats.repaired,  rate:stats.repairedRate,  color:'bg-emerald-500', tc:'text-emerald-600', bg:'bg-emerald-50 border-emerald-200' },
-                    { label:t('Bao hanh','Warranty'),     count:stats.supplier,  rate:stats.supplierRate,  color:'bg-amber-400',   tc:'text-amber-700',   bg:'bg-amber-50 border-amber-200'   },
-                    { label:t('Khong loi','No Fault'),    count:stats.noFault,   rate:stats.noFaultRate,   color:'bg-blue-500',    tc:'text-blue-700',    bg:'bg-blue-50 border-blue-200'     },
-                    { label:t('Bao phe','Written Off'),   count:stats.scrap,     rate:stats.scrapRate,     color:'bg-red-400',     tc:'text-red-600',     bg:'bg-red-50 border-red-200'       },
-                  ].map(r=>(
-                    <div key={r.label} className={'rounded-xl border p-4 ' + r.bg}>
-                      <p className={'text-2xl font-bold ' + r.tc}>{r.count}</p>
-                      <p className="text-xs font-semibold text-gray-600 mt-0.5">{r.label}</p>
-                      <p className={'text-sm font-medium mt-1 ' + r.tc}>{r.rate}%</p>
-                      <div className="mt-2"><RateBar rate={r.rate} color={r.color} /></div>
-                    </div>
-                  ))}
-                  <div className="col-span-2">
-                    <div className="h-3 rounded-full overflow-hidden flex gap-px bg-gray-100">
-                      <div className="bg-emerald-500 h-full" style={{width:stats.repairedRate+'%'}} />
-                      <div className="bg-amber-400 h-full"   style={{width:stats.supplierRate+'%'}} />
-                      <div className="bg-blue-500 h-full"    style={{width:stats.noFaultRate+'%'}} />
-                      <div className="bg-red-400 h-full"     style={{width:stats.scrapRate+'%'}} />
-                    </div>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 mb-5">
+                {[
+                  { label:t('Đã sửa','Repaired'),       count:stats.repaired,  rate:stats.repairedRate,  color:'bg-emerald-500', tc:'text-emerald-600', bg:'bg-emerald-50 border-emerald-200' },
+                  { label:t('Gửi bảo hành','Warranty'), count:stats.supplier,  rate:stats.supplierRate,  color:'bg-amber-400',   tc:'text-amber-700',   bg:'bg-amber-50 border-amber-200'   },
+                  { label:t('Không lỗi','No Fault'),    count:stats.noFault,   rate:stats.noFaultRate,   color:'bg-blue-500',    tc:'text-blue-700',    bg:'bg-blue-50 border-blue-200'     },
+                  { label:t('Báo phế','Written Off'),   count:stats.scrap,     rate:stats.scrapRate,     color:'bg-red-400',     tc:'text-red-600',     bg:'bg-red-50 border-red-200'       },
+                ].map(r=>(
+                  <div key={r.label} className={`rounded-xl border p-3 ${r.bg}`}>
+                    <p className={`text-xl font-bold ${r.tc}`}>{r.count}</p>
+                    <p className="text-xs font-semibold text-gray-600 mt-0.5">{r.label}</p>
+                    <div className="mt-2"><RateBar rate={r.rate} color={r.color} /></div>
                   </div>
-                </div>
-                {/* Right: CSS donut (conic-gradient, no recharts) */}
-                <RepairDonut
-                  repaired={stats.repaired}
-                  supplier={stats.supplier}
-                  noFault={stats.noFault}
-                  scrap={stats.scrap}
-                  completed={stats.completed}
-                  t={t}
-                />
+                ))}
+              </div>
+              {/* mini stacked bar */}
+              <div className="h-3 rounded-full overflow-hidden flex gap-px bg-gray-100">
+                <div className="bg-emerald-500 h-full transition-all" style={{width:`${stats.repairedRate}%`}} title={t('Đã sửa','Repaired')} />
+                <div className="bg-amber-400 h-full transition-all"   style={{width:`${stats.supplierRate}%`}} title={t('Bảo hành','Warranty')} />
+                <div className="bg-blue-500 h-full transition-all"    style={{width:`${stats.noFaultRate}%`}} title={t('Không lỗi','No Fault')} />
+                <div className="bg-red-400 h-full transition-all"     style={{width:`${stats.scrapRate}%`}} title={t('Báo phế','Written Off')} />
+              </div>
+              <div className="flex flex-wrap gap-3 mt-2 text-[10px] text-gray-500">
+                <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"/>Đã sửa</span>
+                <span><span className="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"/>Bảo hành</span>
+                <span><span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1"/>Không lỗi</span>
+                <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1"/>Báo phế</span>
               </div>
             </div>
             {/* ── Phân tích chi tiết ── */}
-            <RepairFourPanel stats={stats} t={t} />
             <DetailedAnalysisPanel stats={stats} t={t} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             </div>

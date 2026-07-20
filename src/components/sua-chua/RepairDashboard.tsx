@@ -142,6 +142,54 @@ function fmtDateStr(s: string | null | undefined): string {
   const [y, m, d] = s.split('-')
   return `${d}/${m}/${y}`
 }
+// -- DashboardDonut: bieu do tron cho Tong quan
+function DashboardDonut(props: {
+  daSua: number; guiBH: number; khongLoi: number; hongHan: number; banGiao: number
+}) {
+  const { daSua, guiBH, khongLoi, hongHan, banGiao } = props
+  const segs: Array<{ v: number; c: string; label: string }> = [
+    { v: daSua,    c: '#00AF50', label: 'Da sua' },
+    { v: guiBH,    c: '#f59e0b', label: 'Gui BH' },
+    { v: khongLoi, c: '#3b82f6', label: 'Khong loi' },
+    { v: hongHan,  c: '#ef4444', label: 'Hong han' },
+  ]
+  const total = segs.reduce((s, x) => s + x.v, 0)
+  let acc = 0
+  let gradient = 'conic-gradient('
+  segs.forEach((s, i) => {
+    const start = acc
+    acc = acc + (total > 0 ? (s.v / total) * 100 : 0)
+    gradient = gradient + (i > 0 ? ', ' : '') + s.c + ' ' + start.toFixed(1) + '% ' + acc.toFixed(1) + '%'
+  })
+  gradient = gradient + ')'
+  const bg = total > 0 ? gradient : '#e5e7eb'
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col sm:flex-row items-center gap-5">
+      <div className="relative w-36 h-36 flex-shrink-0">
+        <div className="w-full h-full rounded-full" style={{ background: bg }} />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-20 h-20 bg-white rounded-full flex flex-col items-center justify-center">
+            <span className="text-xl font-bold text-gray-800">{banGiao}</span>
+            <span className="text-[10px] text-gray-400">ban giao</span>
+          </div>
+        </div>
+      </div>
+      <div className="flex-1 grid grid-cols-2 gap-y-2 gap-x-4">
+        {segs.map(l => (
+          <div key={l.label} className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: l.c }} />
+            <span className="text-xs text-gray-600 flex-1">{l.label}</span>
+            <span className="text-sm font-bold text-gray-800">{l.v > 0 ? l.v : '—'}</span>
+            <span className="text-[10px] text-gray-400 w-8 text-right">
+              {banGiao > 0 && l.v > 0 ? Math.round(l.v / banGiao * 100) + '%' : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Single-week breakdown view ─────────────────────────────────
 function SingleWeekView({
   week, stats, deviceFilter = 'all'
@@ -175,6 +223,14 @@ function SingleWeekView({
           )
         })}
       </div>
+      {/* Donut bieu do ket qua */}
+      <DashboardDonut
+        daSua={devStats.filter(s => s.week_id === week.id && s.status_type === 'da_sua').reduce((a, s) => a + s.quantity, 0)}
+        guiBH={devStats.filter(s => s.week_id === week.id && s.status_type === 'gui_bao_hanh').reduce((a, s) => a + s.quantity, 0)}
+        khongLoi={devStats.filter(s => s.week_id === week.id && s.status_type === 'khong_loi').reduce((a, s) => a + s.quantity, 0)}
+        hongHan={devStats.filter(s => s.week_id === week.id && s.status_type === 'hong_han').reduce((a, s) => a + s.quantity, 0)}
+        banGiao={banGiao}
+      />
       {/* Status × Device table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
