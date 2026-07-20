@@ -1318,6 +1318,44 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
 
 
 
+
+// ─── CSS Donut Chart (no recharts) ───────────────────────────────────────────
+interface DonutProps {
+  repaired: number; supplier: number; noFault: number; scrap: number
+  completed: number; t: (vi:string, en:string) => string
+}
+function DonutChart({ repaired, supplier, noFault, scrap, completed, t }: DonutProps) {
+  const segs = [
+    { val: repaired, color: '#10b981' },
+    { val: supplier, color: '#f59e0b' },
+    { val: noFault,  color: '#3b82f6' },
+    { val: scrap,    color: '#f87171' },
+  ]
+  const total = segs.reduce((s, x) => s + x.val, 0)
+  let acc = 0
+  const stops = segs.map(s => {
+    const start = acc
+    acc += total > 0 ? (s.val / total) * 100 : 0
+    return s.color + ' ' + start.toFixed(1) + '% ' + acc.toFixed(1) + '%'
+  })
+  const bg = total > 0 ? 'conic-gradient(' + stops.join(', ') + ')' : '#e5e7eb'
+  return (
+    <div className="relative w-44 h-44 flex-shrink-0">
+      <div className="w-full h-full rounded-full" style={{ background: bg }} />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-24 h-24 bg-white rounded-full flex flex-col items-center justify-center shadow-sm">
+          <span className="text-2xl font-bold text-gray-800">{completed}</span>
+          <span className="text-xs text-gray-500 text-center leading-tight">
+            {t('thiết bị', 'devices')}
+            <br />
+            {t('hoàn thành', 'done')}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── 4-Panel Chart: Chi tiết theo loại thiết bị × 4 kết quả ─────────────────
 function FourPanelByDeviceChart({ stats, t }: { stats: StatsData; t:(vi:string,en:string)=>string }) {
   const panels = [
@@ -1618,33 +1656,14 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
                   <p className="text-xs font-semibold text-gray-500 self-start lg:self-center">
                     {t('Biểu đồ kết quả','Result Chart')}
                   </p>
-                  {(() => {
-                    const total = stats.repaired + stats.supplier + stats.noFault + stats.scrap
-                    const segs = [
-                      { val: stats.repaired, color: '#10b981' },
-                      { val: stats.supplier, color: '#f59e0b' },
-                      { val: stats.noFault,  color: '#3b82f6' },
-                      { val: stats.scrap,    color: '#f87171' },
-                    ]
-                    let acc = 0
-                    const stops = segs.map(s => {
-                      const start = acc
-                      acc += total > 0 ? s.val / total * 100 : 0
-                      return `${s.color} ${start.toFixed(1)}% ${acc.toFixed(1)}%`
-                    })
-                    const gradient = total > 0 ? `conic-gradient(${stops.join(', ')})` : '#e5e7eb'
-                    return (
-                      <div className="relative w-44 h-44 flex-shrink-0">
-                        <div className="w-full h-full rounded-full" style={{ background: gradient }} />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="w-24 h-24 bg-white rounded-full flex flex-col items-center justify-center shadow-sm">
-                            <span className="text-2xl font-bold text-gray-800">{stats.completed}</span>
-                            <span className="text-[10px] text-gray-500 text-center leading-tight">{t('thiết bị','devices')}<br/>{t('h.thành','done')}</span>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })()}
+                  <DonutChart
+                    repaired={stats.repaired}
+                    supplier={stats.supplier}
+                    noFault={stats.noFault}
+                    scrap={stats.scrap}
+                    completed={stats.completed}
+                    t={t}
+                  />
                   {/* Legend */}
                   <div className="grid grid-cols-1 gap-1.5 text-xs text-gray-600 w-full">
                     {[
