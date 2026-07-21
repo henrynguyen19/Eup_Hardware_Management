@@ -7,12 +7,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { getCRMSessionForUser, crmLoginRaw, getCRMCredentials } from '@/lib/crm-session'
-import { isAdminUser, hasSubPagePerm, requirePermOrAdmin } from '@/lib/auth-helpers'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
+import { callCrmSoap } from '@/lib/crm-utils'
 
 export const runtime     = 'nodejs'
 export const maxDuration = 60
-
-const CRM_URL = 'https://slt.ctms.vn/Eup_Java_CRM_SOAP/CRMEup_Servlet_SOAP'
 
 const sb = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -117,35 +116,19 @@ async function callGetDeviceRepair(
   endTime:    string,
   deviceCode?: string,
   repairId?: number,
-): Promise<{ records: RepairRecord[]; rawJson: unknown }> {
-  const form = new URLSearchParams()
-  form.append('MethodName', 'GetDeviceRepair')
-  const param: Record<string, string> = {
+): Promise<{ records: RepairRecord[] }> {
+  const param: Record<string, unknown> = {
     StartTime:  startTime,
     EndTime:    endTime,
     searchType: '0',
   }
   if (deviceCode) param['Device_Code'] = deviceCode
   if (repairId)   param['Repair_ID']   = String(repairId)
-  form.append('Param', JSON.stringify(param))
-  form.append('SESSION_ID', sessionId)
-  form.append('IDENTITY',   identity)
 
   console.log('[repair/sync-crm] Calling GetDeviceRepair:', { sessionId: sessionId.substring(0,16), identity, startTime, endTime })
-
-  const resp = await fetch(CRM_URL, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:    form.toString(),
-    signal:  AbortSignal.timeout(55_000),
-  })
-  if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
-  const raw = await resp.text()
-  if (!raw?.trim()) throw new Error('CRM trả về body rỗng')
-  const json = JSON.parse(raw)
-  console.log('[repair/sync-crm] CRM response status:', json.status, 'result count:', Array.isArray(json.result) ? json.result.length : 'N/A', 'error:', json.error)
-  if (!json.status) throw new Error(json.error || 'CRM status=0')
-  return { records: json.result ?? [], rawJson: { status: json.status, error: json.error, resultCount: Array.isArray(json.result) ? json.result.length : 0 } }
+  const records = await callCrmSoap<RepairRecord>('GetDeviceRepair', param, sessionId, identity)
+  console.log('[repair/sync-crm] result count:', records.length)
+  return { records }
 }
 
 // ── POST handler ──────────────────────────────────────────────
@@ -464,11 +447,9 @@ export async function POST(req: NextRequest) {
 
   // Gọi CRM
   let records: RepairRecord[]
-  let rawDebug: unknown
   try {
     const res = await callGetDeviceRepair(sessionId, identity, startTime, endTime)
     records  = res.records
-    rawDebug = res.rawJson
   } catch (e) {
     return NextResponse.json({ error: `Lỗi CRM: ${String(e)}` }, { status: 500 })
   }
@@ -478,7 +459,6 @@ export async function POST(req: NextRequest) {
       ok: true, total: 0, upserted: 0,
       startTime, endTime,
       message: 'Không có dữ liệu trong khoảng thời gian này',
-      debug: rawDebug,
     })
   }
 

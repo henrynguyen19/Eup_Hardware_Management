@@ -6,12 +6,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { getCRMSessionForUser, crmLoginRaw, getCRMCredentials } from '@/lib/crm-session'
 import { createClient } from '@supabase/supabase-js'
-import { isAdminUser, hasSubPagePerm, requirePermOrAdmin } from '@/lib/auth-helpers'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
+import { callCrmSoap } from '@/lib/crm-utils'
 
 export const runtime     = 'nodejs'
 export const maxDuration = 60
-
-const CRM_URL = 'https://slt.ctms.vn/Eup_Java_CRM_SOAP/CRMEup_Servlet_SOAP'
 
 const adminClient = () =>
   createClient(
@@ -37,45 +36,20 @@ export interface RepairRecord {
   WareHouseName:        string
 }
 
-interface CRMRepairResponse {
-  status: number
-  error:  string
-  result: RepairRecord[]
-}
-
 async function callGetDeviceRepair(
-  staffId: number,
+  _staffId: number,
   sessionId: string,
   identity: string,
   startTime: string,
   endTime: string,
   deviceCode: string | null = null
 ): Promise<RepairRecord[]> {
-  const form = new URLSearchParams()
-  form.append('MethodName', 'GetDeviceRepair')
-  form.append('Param', JSON.stringify({
-    StartTime:  startTime,
-    EndTime:    endTime,
-    searchType: '0',
-    Device_Code: deviceCode,
-  }))
-  form.append('SESSION_ID', sessionId)
-  form.append('IDENTITY',   identity)
-
-  const resp = await fetch(CRM_URL, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:    form.toString(),
-    signal:  AbortSignal.timeout(50_000),
-  })
-  if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
-  const raw = await resp.text()
-  if (!raw?.trim()) throw new Error('CRM trả về body rỗng')
-  let json: CRMRepairResponse
-  try { json = JSON.parse(raw) }
-  catch { throw new Error(`Không parse được response: ${raw.substring(0, 200)}`) }
-  if (!json.status) throw new Error(json.error || 'CRM status=0')
-  return json.result ?? []
+  return callCrmSoap<RepairRecord>(
+    'GetDeviceRepair',
+    { StartTime: startTime, EndTime: endTime, searchType: '0', Device_Code: deviceCode },
+    sessionId, identity,
+    50_000
+  )
 }
 
 // ── Phân tích dữ liệu ─────────────────────────────────────────────────────────

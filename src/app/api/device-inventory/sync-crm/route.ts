@@ -11,12 +11,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { getCRMSessionForUser } from '@/lib/crm-session'
-import { isAdminUser, hasSubPagePerm, requirePermOrAdmin } from '@/lib/auth-helpers'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
+import { callCrmSoap } from '@/lib/crm-utils'
 
 export const runtime     = 'nodejs'
 export const maxDuration = 60
 
-const CRM_URL       = 'https://slt.ctms.vn/Eup_Java_CRM_SOAP/CRMEup_Servlet_SOAP'
 const HISTORY_START = '2023-01'   // YYYY-MM
 
 const sb = () => createClient(
@@ -91,29 +91,15 @@ async function callGetDeviceMaintenance(
   sessionId: string, identity: string,
   startDate: string, endDate: string,
 ): Promise<CRMDevice[]> {
-  const form = new URLSearchParams()
-  form.append('MethodName', 'GetDeviceMaintenance')
-  form.append('Param', JSON.stringify({
-    StartDate: startDate, EndDate: endDate,
-    WH_ID: null, Usable: null, Device_Code: null, QP_ProductKind: null,
-  }))
-  form.append('SESSION_ID', sessionId)
-  form.append('IDENTITY',   identity)
-
   console.log('[device-inventory/sync] GetDeviceMaintenance:', startDate, '→', endDate)
-  const resp = await fetch(CRM_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: form.toString(),
-    signal: AbortSignal.timeout(50_000),
-  })
-  if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
-  const raw = await resp.text()
-  if (!raw?.trim()) throw new Error('CRM trả về body rỗng')
-  const json = JSON.parse(raw)
-  console.log('[device-inventory/sync] status:', json.status, 'count:', Array.isArray(json.result) ? json.result.length : 'N/A')
-  if (!json.status) throw new Error(json.error || 'CRM status=0')
-  return json.result ?? []
+  const records = await callCrmSoap<CRMDevice>(
+    'GetDeviceMaintenance',
+    { StartDate: startDate, EndDate: endDate, WH_ID: null, Usable: null, Device_Code: null, QP_ProductKind: null },
+    sessionId, identity,
+    50_000
+  )
+  console.log('[device-inventory/sync] count:', records.length)
+  return records
 }
 
 export async function POST(req: NextRequest) {
@@ -125,8 +111,7 @@ export async function POST(req: NextRequest) {
     const db = sb()
 
     // Kiểm tra quyền
-    const { data: permData } = await db
-      const [_adm_di, _hp_di] = await Promise.all([
+    const [_adm_di, _hp_di] = await Promise.all([
       isAdminUser(user.id),
       hasSubPagePerm(user.id, 'sua_chua_main', 'can_create'),
     ])

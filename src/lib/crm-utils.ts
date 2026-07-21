@@ -2,6 +2,49 @@
  * Shared CRM utilities — dùng chung cho sync, sync-all, debug routes.
  */
 
+/**
+ * Generic CRM SOAP call — dùng process.env.CRM_SOAP_URL.
+ * Tất cả CRM routes nên gọi qua hàm này thay vì tự build form.
+ *
+ * @param methodName  Tên method CRM (VD: 'GetCustServiceByStaff', 'GetDeviceRepair')
+ * @param param       Object params gửi vào Param JSON
+ * @param sessionId   SESSION_ID lấy từ getCRMSessionForUser()
+ * @param identity    IDENTITY lấy từ getCRMSessionForUser()
+ * @param timeoutMs   Timeout mặc định 55 giây
+ * @returns           Mảng kết quả json.result (typed theo T)
+ */
+export async function callCrmSoap<T = Record<string, unknown>>(
+  methodName: string,
+  param: Record<string, unknown>,
+  sessionId: string,
+  identity: string,
+  timeoutMs = 55_000
+): Promise<T[]> {
+  const url = process.env.CRM_SOAP_URL
+  if (!url) throw new Error('Thiếu CRM_SOAP_URL trong .env')
+
+  const form = new URLSearchParams()
+  form.append('MethodName', methodName)
+  form.append('Param', JSON.stringify(param))
+  form.append('SESSION_ID', sessionId)
+  form.append('IDENTITY',   identity)
+
+  const resp = await fetch(url, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    form.toString(),
+    signal:  AbortSignal.timeout(timeoutMs),
+  })
+  if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
+
+  const raw = await resp.text()
+  if (!raw?.trim()) throw new Error('CRM trả về body rỗng')
+
+  const json = JSON.parse(raw) as { status: number; error: string; result?: T[] }
+  if (!json.status) throw new Error(json.error || 'CRM status=0')
+  return json.result ?? []
+}
+
 export const KNOWN_STAFF       = ['Kane', 'Stefan', 'Shiro', 'Irene', 'Blue'] as const
 export const KNOWN_STAFF_LOWER = KNOWN_STAFF.map(n => n.toLowerCase())
 
