@@ -16,10 +16,11 @@ interface Props {
 }
 
 // ─── Cấu trúc phân quyền chuẩn ────────────────────────────────────────────
-// Mỗi module có tối đa 3 cấp: Xem (read) → Thêm/Sửa (write) → Quản lý (admin)
-// Cấp cao hơn bao gồm cấp thấp hơn (logic ở UI, không ép ở DB)
+// 4 cấp: read → write → delete → admin
+// delete = toàn quyền thao tác dữ liệu (chỉ phòng phần cứng)
+// admin  = quản lý nhóm / cấu hình hệ thống
 
-type Level = 'read' | 'write' | 'admin'
+type Level = 'read' | 'write' | 'delete' | 'admin'
 interface PermLevel { key: string; label: string; level: Level }
 interface Module { id: string; label: string; desc: string; levels: PermLevel[] }
 interface ModuleGroup { group: string; items: Module[] }
@@ -33,8 +34,9 @@ const MODULE_GROUPS: ModuleGroup[] = [
         label: 'Kho thiết bị',
         desc: 'Danh sách, tính năng, loại xe',
         levels: [
-          { key: 'kho:read',  label: 'Xem',        level: 'read' },
-          { key: 'kho:write', label: 'Thêm / Sửa', level: 'write' },
+          { key: 'kho:read',   label: 'Xem',             level: 'read' },
+          { key: 'kho:write',  label: 'Thêm / Sửa',      level: 'write' },
+          { key: 'kho:delete', label: 'Xóa (PH)',         level: 'delete' },
         ],
       },
       {
@@ -56,9 +58,10 @@ const MODULE_GROUPS: ModuleGroup[] = [
         label: 'Hỗ trợ kỹ thuật',
         desc: 'Yêu cầu hỗ trợ từ CRM',
         levels: [
-          { key: 'ho_tro:read',  label: 'Xem (của mình)',          level: 'read' },
-          { key: 'ho_tro:write', label: 'Đồng bộ CRM',             level: 'write' },
-          { key: 'ho_tro:admin', label: 'Trưởng nhóm (toàn bộ)',   level: 'admin' },
+          { key: 'ho_tro:read',   label: 'Xem (của mình)',         level: 'read' },
+          { key: 'ho_tro:write',  label: 'Đồng bộ CRM',            level: 'write' },
+          { key: 'ho_tro:admin',  label: 'Trưởng nhóm (toàn bộ)',  level: 'admin' },
+          { key: 'ho_tro:delete', label: 'Xóa yêu cầu (PH)',       level: 'delete' },
         ],
       },
       {
@@ -66,8 +69,9 @@ const MODULE_GROUPS: ModuleGroup[] = [
         label: 'Sửa chữa',
         desc: 'Thống kê và tracking sửa chữa',
         levels: [
-          { key: 'sua_chua:read',  label: 'Xem',       level: 'read' },
-          { key: 'sua_chua:write', label: 'Nhập liệu', level: 'write' },
+          { key: 'sua_chua:read',   label: 'Xem',       level: 'read' },
+          { key: 'sua_chua:write',  label: 'Nhập liệu', level: 'write' },
+          { key: 'sua_chua:delete', label: 'Xóa (PH)',  level: 'delete' },
         ],
       },
       {
@@ -75,8 +79,9 @@ const MODULE_GROUPS: ModuleGroup[] = [
         label: 'Giao nhận',
         desc: 'Đơn hàng và thông tin giao nhận',
         levels: [
-          { key: 'gui_hang:read',  label: 'Xem',            level: 'read' },
-          { key: 'gui_hang:write', label: 'Tạo / Cập nhật', level: 'write' },
+          { key: 'gui_hang:read',   label: 'Xem',            level: 'read' },
+          { key: 'gui_hang:write',  label: 'Tạo / Cập nhật', level: 'write' },
+          { key: 'gui_hang:delete', label: 'Xóa (PH)',        level: 'delete' },
         ],
       },
     ],
@@ -143,9 +148,10 @@ const MODULE_GROUPS: ModuleGroup[] = [
 const ALL_PERM_KEYS = MODULE_GROUPS.flatMap(g => g.items.flatMap(m => m.levels.map(l => l.key)))
 
 const LEVEL_STYLE: Record<Level, { badge: string; check: string; dot: string }> = {
-  read:  { badge: 'bg-blue-50 text-blue-700 border-blue-200',   check: 'bg-blue-500 border-blue-500',   dot: 'bg-blue-400' },
-  write: { badge: 'bg-amber-50 text-amber-700 border-amber-200', check: 'bg-amber-500 border-amber-500', dot: 'bg-amber-400' },
-  admin: { badge: 'bg-red-50 text-red-700 border-red-200',       check: 'bg-red-500 border-red-500',     dot: 'bg-red-400' },
+  read:   { badge: 'bg-blue-50 text-blue-700 border-blue-200',     check: 'bg-blue-500 border-blue-500',     dot: 'bg-blue-400' },
+  write:  { badge: 'bg-amber-50 text-amber-700 border-amber-200',  check: 'bg-amber-500 border-amber-500',   dot: 'bg-amber-400' },
+  delete: { badge: 'bg-purple-50 text-purple-700 border-purple-200', check: 'bg-purple-500 border-purple-500', dot: 'bg-purple-400' },
+  admin:  { badge: 'bg-red-50 text-red-700 border-red-200',        check: 'bg-red-500 border-red-500',       dot: 'bg-red-400' },
 }
 
 // ─── Checkbox component ────────────────────────────────────────────────────
@@ -329,10 +335,13 @@ export default function RoleManagement({ roles: initialRoles, currentUserEmail }
               <span className="w-2.5 h-2.5 rounded-full bg-blue-400 inline-block" /> Xem — chỉ đọc
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> Thêm / Sửa — thao tác dữ liệu
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> Thêm / Sửa — tạo & cập nhật
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block" /> Quản lý — quyền cao nhất của module
+              <span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block" /> Xóa (PH) — toàn quyền, chỉ phòng phần cứng
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block" /> Quản lý — trưởng nhóm / admin
             </span>
           </div>
 
