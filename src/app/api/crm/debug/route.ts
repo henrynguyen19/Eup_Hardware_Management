@@ -17,6 +17,7 @@ import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { crmLoginRaw } from '@/lib/crm-session'
 import { extractHandlerFromMemo } from '@/lib/crm-utils'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 export const runtime     = 'nodejs'
 export const maxDuration = 60
@@ -49,12 +50,10 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = adminClient()
-  const { data: permData } = await db
-    .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = permData?.permissions ?? []
-  if (!perms.includes('admin:users'))
+  if (!(await isAdminUser(user.id)))
     return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+
+  const db = adminClient()
 
   const sp     = req.nextUrl.searchParams
   const filter = sp.get('staff')

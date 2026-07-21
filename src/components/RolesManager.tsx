@@ -194,7 +194,7 @@ export default function RolesManager({ initialRoles, currentUserRoleName }: Prop
     }
     setSavingNameId(role.id)
     try {
-      const res = await fetch(`/api/roles/${role.id}`, {
+      const res = await fetch(`/api/admin/roles/${role.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
@@ -215,7 +215,7 @@ export default function RolesManager({ initialRoles, currentUserRoleName }: Prop
 
   async function saveAssignableOnly(role: RoleData) {
     const draft = draftAssignable[role.id]
-    const res = await fetch(`/api/roles/${role.id}/assignable`, {
+    const res = await fetch(`/api/admin/roles/${role.id}/assignable`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ assignable_role_names: draft ?? [] }),
@@ -246,7 +246,7 @@ export default function RolesManager({ initialRoles, currentUserRoleName }: Prop
               if (!safePerms.includes(p)) safePerms = [...safePerms, p]
             }
           }
-          const res = await fetch(`/api/roles/${role.id}/permissions`, {
+          const res = await fetch(`/api/admin/roles/${role.id}/permissions`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ permissions: safePerms }),
@@ -323,7 +323,7 @@ export default function RolesManager({ initialRoles, currentUserRoleName }: Prop
     setCreating(true)
     setCreateError(null)
     try {
-      const res = await fetch('/api/roles', {
+      const res = await fetch('/api/admin/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed, permissions: newRolePerms }),
@@ -360,7 +360,7 @@ export default function RolesManager({ initialRoles, currentUserRoleName }: Prop
 
   async function doDelete(role: RoleData) {
     try {
-      const res = await fetch(`/api/roles/${role.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/admin/roles/${role.id}`, { method: 'DELETE' })
       if (res.status === 409) {
         const d = await res.json()
         setDeleteError(d.error ?? '此vai trò仍有người dùng，無法Xóa')

@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { crmLoginRaw } from '@/lib/crm-session'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 const adminClient = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -16,10 +17,7 @@ async function checkAdmin() {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const db = adminClient()
-  const { data } = await db.from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = data?.permissions ?? []
-  return perms.includes('admin:users') ? user : null
+  return (await isAdminUser(user.id)) ? user : null
 }
 
 function maskAccount(account: string): string {

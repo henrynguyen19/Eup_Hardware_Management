@@ -3,6 +3,7 @@ import { google, sheets_v4 } from 'googleapis'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { STAFF_SHEETS } from '@/lib/staff-sheets'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
 
 type Sheets = sheets_v4.Sheets
 
@@ -253,16 +254,11 @@ export async function POST(req: NextRequest) {
 
   const db = adminClient()
   const { data: permData } = await db
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-  const perms: string[] = permData?.permissions ?? []
-  const hasAccess =
-    perms.includes('ho_tro:write') ||
-    perms.includes('ho_tro:read') ||
-    perms.includes('admin:users')
-  if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const [_isAdmin_at, _hp_at] = await Promise.all([
+    isAdminUser(user.id),
+    hasSubPagePerm(user.id, 'hotro_bang_thong_ke', 'can_read'),
+  ])
+  if (!_isAdmin_at && !_hp_at) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json() as { rows: ParsedRow[] }
   const rows = body.rows ?? []

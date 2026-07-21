@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 function db() {
   return createClient(
@@ -25,11 +26,7 @@ export async function GET(req: NextRequest) {
   const offset = (page - 1) * limit
 
   const { data: permData } = await db()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-  const isAdmin = (permData?.permissions ?? []).includes('admin:users')
+    const isAdmin = await isAdminUser(user.id)
 
   // All authenticated users can view all orders; mine=0 shows everyone's
   const filterMine = mine
@@ -75,11 +72,7 @@ export async function PATCH(req: NextRequest) {
 
   const admin = db()
   const { data: permData } = await admin
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-  const isAdmin = (permData?.permissions ?? []).includes('admin:users')
+    const isAdmin = await isAdminUser(user.id)
 
   const { data: existing } = await admin
     .from('giao_hang_don_hang')

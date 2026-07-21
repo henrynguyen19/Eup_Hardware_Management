@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
 
 const SPREADSHEET_ID = '1q3rgjEmoYDPjAu8m-jTaathrl4fsrzHvwqUWKtkZWvo'
 
@@ -164,10 +165,8 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
-    const { data: permData } = await adminSb
-      .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-    const perms: string[] = permData?.permissions ?? []
-    if (!perms.includes('kho_daily:write') && !perms.includes('admin:users')) {
+    const _isAdmin_kd = await isAdminUser(user.id)
+    if (!_isAdmin_kd) {
       return NextResponse.json({ error: 'Không có quyền ghi' }, { status: 403 })
     }
 

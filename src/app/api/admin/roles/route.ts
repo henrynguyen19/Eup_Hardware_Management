@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 const supabaseAdmin = () =>
   createClient(
@@ -8,23 +9,15 @@ const supabaseAdmin = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
 
-async function requireAdmin(): Promise<{ ok: boolean; error?: NextResponse; perms?: string[] }> {
+async function requireAdmin(): Promise<{ ok: boolean; error?: NextResponse }> {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: NextResponse.json({ error: 'Chua dang nhap' }, { status: 401 }) }
 
-  const { data } = await supabaseAdmin()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-
-  const perms: string[] = data?.permissions ?? []
-  const canManage = perms.includes('admin:roles') || perms.includes('admin:users')
-  if (!canManage) {
+  if (!(await isAdminUser(user.id))) {
     return { ok: false, error: NextResponse.json({ error: 'Khong co quyen' }, { status: 403 }) }
   }
-  return { ok: true, perms }
+  return { ok: true }
 }
 
 // GET: danh sach tat ca roles kem permissions
@@ -35,17 +28,17 @@ export async function GET() {
 
   const { data: roles } = await supabaseAdmin()
     .from('roles')
-    .select('id, name, is_system, role_permissions(permission)')
+    .select('id, name, is_system, role_permissions(permission_key)')
     .order('name')
 
   const result = (roles ?? []).map((r: {
     id: string; name: string; is_system: boolean;
-    role_permissions: { permission: string }[]
+    role_permissions: { permission_key: string }[]
   }) => ({
     id: r.id,
     name: r.name,
     is_system: r.is_system,
-    permissions: (r.role_permissions ?? []).map(p => p.permission).filter(Boolean),
+    permissions: (r.role_permissions ?? []).map(p => p.permission_key).filter(Boolean),
   }))
 
   return NextResponse.json({ roles: result })
@@ -78,7 +71,7 @@ export async function POST(req: NextRequest) {
 
   const permList: string[] = Array.isArray(permissions) ? permissions : []
   if (permList.length > 0) {
-    const rows = permList.map(p => ({ role_id: newRole.id, permission: p }))
+    const rows = permList.map(p => ({ role_id: newRole.id, permission_key: p }))
     const { error: permErr } = await sb.from('role_permissions').insert(rows)
     if (permErr) return NextResponse.json({ error: permErr.message }, { status: 500 })
   }
@@ -99,7 +92,7 @@ export async function PUT(req: NextRequest) {
   const sb = supabaseAdmin()
   await sb.from('role_permissions').delete().eq('role_id', roleId)
   if (permissions.length > 0) {
-    const rows = permissions.map(p => ({ role_id: roleId, permission: p }))
+    const rows = permissions.map(p => ({ role_id: roleId, permission_key: p }))
     const { error } = await sb.from('role_permissions').insert(rows)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }

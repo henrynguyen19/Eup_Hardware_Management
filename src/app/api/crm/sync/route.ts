@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { getCRMSessionForUser, getCRMCredentials, invalidateCRMSession, crmLoginRaw } from '@/lib/crm-session'
 import { extractHandlerFromMemo, parseSpeedTag, parseCRMTime } from '@/lib/crm-utils'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
 import { google } from 'googleapis'
 
 const adminClient = () =>
@@ -238,13 +239,13 @@ export async function POST(req: NextRequest) {
     if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     user = authUser
 
-    const db2 = adminClient()
-    const { data: permData } = await db2
-      .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-    const perms: string[] = permData?.permissions ?? []
-    if (!perms.includes('admin:users') && !perms.includes('ho_tro:write'))
+    const [_syncAdmin, _syncPerm] = await Promise.all([
+      isAdminUser(user.id),
+      hasSubPagePerm(user.id, 'hotro_bang_thong_ke', 'can_create'),
+    ])
+    if (!_syncAdmin && !_syncPerm)
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    isAdmin = perms.includes('admin:users') || perms.includes('ho_tro:admin')
+    isAdmin = _syncAdmin
   } else {
     isAdmin = true
   }

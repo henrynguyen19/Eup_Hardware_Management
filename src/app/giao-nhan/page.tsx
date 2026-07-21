@@ -1,26 +1,16 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { buildAppShellPerms, isAdminUser } from '@/lib/auth-helpers'
 import AppShell from '@/components/AppShell'
 import GiaoHangDashboard from '@/components/giao-nhan/GiaoHangDashboard'
-
-const adminClient = () =>
-  createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
 
 export default async function GiaoNhanPage() {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data } = await adminClient()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-  const permissions: string[] = data?.permissions ?? []
+  const permissions = await buildAppShellPerms(user.id)
 
   return (
     <AppShell userEmail={user.email ?? ''} permissions={permissions}>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
 
 const adminClient = () =>
   createClient(
@@ -15,12 +16,11 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const db = adminClient()
-  const { data: permData } = await db
-    .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = permData?.permissions ?? []
-  const isAdmin = perms.includes('admin:users') || perms.includes('ho_tro:admin')
-  const hasAccess = isAdmin || perms.includes('ho_tro:read') || perms.includes('ho_tro:write')
-  if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const [isAdmin, hasPerm_ht] = await Promise.all([
+    isAdminUser(user.id),
+    hasSubPagePerm(user.id, 'hotro_bang_thong_ke', 'can_read'),
+  ])
+  if (!isAdmin && !hasPerm_ht) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const sp          = new URL(req.url).searchParams
   const staffName   = sp.get('staffName')
@@ -101,11 +101,9 @@ export async function PATCH(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const db = adminClient()
-  const { data: permData } = await db
-    .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = permData?.permissions ?? []
-  const hasAccess = perms.includes('admin:users') || perms.includes('ho_tro:write')
-  if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const hasPerm_patch = await hasSubPagePerm(user.id, 'hotro_bang_thong_ke', 'can_create')
+  const isAdmin_patch = !hasPerm_patch ? await isAdminUser(user.id) : false
+  if (!hasPerm_patch && !isAdmin_patch) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json() as {
     id: string
@@ -118,7 +116,7 @@ export async function PATCH(req: NextRequest) {
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   // Non-admin can only edit their own tickets
-  const isAdmin = perms.includes('admin:users') || perms.includes('ho_tro:admin')
+  const isAdmin = isAdmin_patch || await isAdminUser(user.id)
   if (!isAdmin) {
     const { data: ticket } = await db.from('ho_tro_tickets').select('staff_name').eq('id', id).single()
     const myName = user.email?.split('@')[0] ?? ''

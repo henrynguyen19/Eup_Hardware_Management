@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 const adminClient = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -10,8 +11,7 @@ async function checkAdmin() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   const db = adminClient()
-  const { data } = await db.from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  return ((data?.permissions ?? []) as string[]).includes('admin:users') ? user : null
+  return isAdminUser(user.id) ? user : null
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {

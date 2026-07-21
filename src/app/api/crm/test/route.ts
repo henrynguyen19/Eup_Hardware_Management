@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { crmLoginRaw, getCRMCredentials, getCRMSessionForUser } from '@/lib/crm-session'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 const adminClient = () =>
   createClient(
@@ -15,11 +16,9 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  if (!(await isAdminUser(user.id))) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+
   const db = adminClient()
-  const { data: permData } = await db
-    .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = permData?.permissions ?? []
-  if (!perms.includes('admin:users')) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
   const sp       = new URL(req.url).searchParams
   const staffId  = sp.get('staffId') ?? ''
@@ -126,10 +125,7 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-  const { data: permData } = await db.from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = permData?.permissions ?? []
-  if (!perms.includes('admin:users')) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+  if (!(await isAdminUser(user.id))) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
   // ── Debug info ──
   const debug: Record<string, unknown> = {

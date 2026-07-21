@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 const sb = () =>
   createClient(
@@ -13,13 +14,7 @@ async function requireAdmin(): Promise<{ ok: boolean; error?: NextResponse }> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 }) }
 
-  const { data } = await sb()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!(data?.permissions ?? []).includes('admin:users')) {
+  if (!(await isAdminUser(user.id))) {
     return { ok: false, error: NextResponse.json({ error: 'Không có quyền' }, { status: 403 }) }
   }
   return { ok: true }

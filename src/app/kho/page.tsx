@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { buildAppShellPerms, isAdminUser } from '@/lib/auth-helpers'
 import KhoPageTabs from '@/components/kho/KhoPageTabs'
 import AppShell from '@/components/AppShell'
 import type { EquipmentCard } from '@/types/equipment'
@@ -36,15 +37,6 @@ async function getLatestFirmware(): Promise<Record<string, FirmwareVersion>> {
   return result
 }
 
-async function getUserPermissions(userId: string): Promise<string[]> {
-  const { data } = await adminClient()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', userId)
-    .single()
-  return data?.permissions ?? []
-}
-
 export default async function KhoPage() {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -53,10 +45,10 @@ export default async function KhoPage() {
   const [cards, latestFirmware, permissions] = await Promise.all([
     getEquipmentCards(),
     getLatestFirmware(),
-    getUserPermissions(user.id),
+    buildAppShellPerms(user.id),
   ])
 
-  const isAdmin = permissions.includes('admin:users')
+  const isAdmin = await isAdminUser(user.id)
   const canWrite = permissions.includes('kho:write') || isAdmin
   const canHoTro = permissions.includes('ho_tro:read') || isAdmin
 

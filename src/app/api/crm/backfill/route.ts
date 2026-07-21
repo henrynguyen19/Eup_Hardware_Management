@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { parseSpeedTag } from '@/lib/crm-utils'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 export const runtime     = 'nodejs'
 export const maxDuration = 60
@@ -21,10 +22,8 @@ export async function POST() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const db = adminClient()
-  const { data: permData } = await db
-    .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = permData?.permissions ?? []
-  if (!perms.includes('admin:users'))
+  const _isAdmin_bf = await isAdminUser(user.id)
+  if (!_isAdmin_bf)
     return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
   let scanned = 0

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import { QUALITY_SHEET_ID, THONGKE_SHEET_TAB, getTinhTrangKey } from '@/lib/chat-luong-config'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
 
 const adminClient = () =>
   createClient(
@@ -160,13 +161,11 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: permData } = await adminClient()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-  const perms: string[] = permData?.permissions ?? []
-  const hasAccess = perms.includes('chat_luong:read') || perms.includes('admin:users')
-  if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const [_isAdmin_cl2, _hp_cl2] = await Promise.all([
+    isAdminUser(user.id),
+    hasSubPagePerm(user.id, 'chat_luong_main', 'can_read'),
+  ])
+  if (!_isAdmin_cl2 && !_hp_cl2) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const sp = new URL(req.url).searchParams
   const month = parseInt(sp.get('month') ?? '0')

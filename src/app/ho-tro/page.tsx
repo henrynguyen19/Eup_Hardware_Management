@@ -1,33 +1,18 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { buildAppShellPerms, isAdminUser } from '@/lib/auth-helpers'
 import { STAFF_SHEETS, getStaffByEmail } from '@/lib/staff-sheets'
 import HoTroDashboard from '@/components/ho-tro/HoTroDashboard'
 import AppShell from '@/components/AppShell'
-
-const adminClient = () =>
-  createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-
-async function getUserPermissions(userId: string): Promise<string[]> {
-  const { data } = await adminClient()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', userId)
-    .single()
-  return data?.permissions ?? []
-}
 
 export default async function HoTroPage() {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const permissions = await getUserPermissions(user.id)
+  const permissions = await buildAppShellPerms(user.id)
   // admin:users = full system admin; ho_tro:admin = trưởng nhóm hỗ trợ (xem thống kê tổng)
-  const isAdmin = permissions.includes('admin:users') || permissions.includes('ho_tro:admin')
+  const isAdmin = await isAdminUser(user.id)
   const canRead = permissions.includes('ho_tro:read') || isAdmin
 
   if (!canRead) redirect('/kho')

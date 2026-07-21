@@ -1,29 +1,21 @@
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { buildAppShellPerms, isAdminUser } from '@/lib/auth-helpers'
 import { redirect } from 'next/navigation'
 import AppShell from '@/components/AppShell'
 import JiraBugsDashboard from '@/components/jira/JiraBugsDashboard'
-import { createClient } from '@supabase/supabase-js'
-
-const adminClient = () => createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export default async function JiraBugsPage() {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: permData } = await adminClient()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-  const perms: string[] = permData?.permissions ?? []
-  const isAdmin = perms.includes('admin:users')
+  const [permissions, isAdmin] = await Promise.all([
+    buildAppShellPerms(user.id),
+    isAdminUser(user.id),
+  ])
 
   return (
-    <AppShell userEmail={user.email ?? ''} permissions={perms}>
+    <AppShell userEmail={user.email ?? ''} permissions={permissions}>
       <JiraBugsDashboard userEmail={user.email ?? ''} isAdmin={isAdmin} />
     </AppShell>
   )

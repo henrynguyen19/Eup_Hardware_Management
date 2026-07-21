@@ -3,6 +3,7 @@ import { google } from 'googleapis'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
 import type { DailyRecord } from '@/types/ho-tro'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
 
 const adminClient = () =>
   createClient(
@@ -435,13 +436,11 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: permData } = await adminClient()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-  const perms: string[] = permData?.permissions ?? []
-  const hasAccess = perms.includes('ho_tro:read') || perms.includes('admin:users')
-  if (!hasAccess) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const [_isAdmin_sh, _hp_sh] = await Promise.all([
+    isAdminUser(user.id),
+    hasSubPagePerm(user.id, 'hotro_bang_thong_ke', 'can_read'),
+  ])
+  if (!_isAdmin_sh && !_hp_sh) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const sp = new URL(req.url).searchParams
   const sheetId   = sp.get('sheetId')

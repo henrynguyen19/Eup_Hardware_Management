@@ -105,7 +105,7 @@ export default function DepartmentsManager({ initialRoles }: Props) {
     setSaving(roleId)
     setError(null)
     try {
-      const res = await fetch(`/api/roles/${roleId}`, {
+      const res = await fetch(`/api/admin/roles/${roleId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dept_group: deptGroup }),

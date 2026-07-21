@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 const sb = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,13 +18,8 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Check admin
-  const { data: permData } = await sb()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', user.id)
-    .single()
-  const isAdmin = (permData?.permissions ?? []).includes('admin:users')
+  // Check admin (hardware dept = admin)
+  const isAdmin = await isAdminUser(user.id)
 
   // Get departments
   const { data: deptRows } = await sb()

@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { getCRMSessionForUser, crmLoginRaw, getCRMCredentials } from '@/lib/crm-session'
 import { createClient } from '@supabase/supabase-js'
+import { isAdminUser, hasSubPagePerm, requirePermOrAdmin } from '@/lib/auth-helpers'
 
 export const runtime     = 'nodejs'
 export const maxDuration = 60
@@ -143,10 +144,11 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
 
   const db = adminClient()
-  const { data: permData } = await db
-    .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = permData?.permissions ?? []
-  if (!perms.includes('admin:users') && !perms.includes('sua_chua:write')) {
+  const [isAdmin, hasPerm_crm] = await Promise.all([
+    isAdminUser(user.id),
+    hasSubPagePerm(user.id, 'sua_chua_main', 'can_create'),
+  ])
+  if (!isAdmin && !hasPerm_crm) {
     return NextResponse.json({ error: 'Không có quyền' }, { status: 403 })
   }
 
@@ -174,7 +176,7 @@ export async function POST(req: NextRequest) {
   let identity:  string
 
   try {
-    if (body.staffName && perms.includes('admin:users')) {
+    if (body.staffName && isAdmin) {
       // Admin: login fresh theo staff
       const { data: mapping } = await db
         .from('user_crm_mapping')

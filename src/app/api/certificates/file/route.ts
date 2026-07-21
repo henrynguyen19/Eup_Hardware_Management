@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { google } from 'googleapis'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
 
 function getDriveClient(write = false) {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
@@ -24,13 +25,11 @@ function adminDB() {
 }
 
 async function canWrite(userId: string): Promise<boolean> {
-  const { data } = await adminDB()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', userId)
-    .single()
-  const perms: string[] = data?.permissions ?? []
-  return perms.includes('admin:users') || perms.includes('chung_nhan:write')
+  const [admin, hasPerm] = await Promise.all([
+    isAdminUser(userId),
+    hasSubPagePerm(userId, 'giay_chung_nhan_main', 'can_create'),
+  ])
+  return admin || hasPerm
 }
 
 // GET /api/certificates/file?id=DRIVE_FILE_ID

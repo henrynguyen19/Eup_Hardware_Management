@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 const adminClient = () =>
   createClient(
@@ -13,10 +14,8 @@ async function requireAdmin() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { user: null, db: null, error: 'Unauthorized' }
   const db = adminClient()
-  const { data: permData } = await db
-    .from('user_permissions_view').select('permissions').eq('user_id', user.id).single()
-  const perms: string[] = permData?.permissions ?? []
-  if (!perms.includes('admin:users')) return { user, db, error: 'Forbidden' }
+  const _isAdmin_cm = await isAdminUser(user.id)
+  if (!_isAdmin_cm) return { user, db, error: 'Forbidden' }
   return { user, db, error: null }
 }
 

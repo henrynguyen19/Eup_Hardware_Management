@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { isAdminUser } from '@/lib/auth-helpers'
 import RoleManagement from '@/components/admin/RoleManagement'
 
 async function getRolesWithPermissions() {
@@ -10,34 +11,19 @@ async function getRolesWithPermissions() {
   )
   const { data } = await supabase
     .from('roles')
-    .select('*, role_permissions(permission)')
+    .select('*, role_permissions(permission_key)')
     .order('name')
-  return (data ?? []).map((r: { id: string; name: string; is_system: boolean; role_permissions: { permission: string }[] }) => ({
+  return (data ?? []).map((r: { id: string; name: string; is_system: boolean; role_permissions: { permission_key: string }[] }) => ({
     ...r,
-    permissions: r.role_permissions.map((p) => p.permission).filter(Boolean),
+    permissions: r.role_permissions.map((p) => p.permission_key).filter(Boolean),
   }))
-}
-
-async function getCurrentUserPermissions(userId: string): Promise<string[]> {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  )
-  const { data } = await supabase
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', userId)
-    .single()
-  return data?.permissions ?? []
 }
 
 export default async function RolesPage() {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-
-  const permissions = await getCurrentUserPermissions(user.id)
-  if (!permissions.includes('admin:roles') && !permissions.includes('admin:users')) redirect('/')
+  if (!(await isAdminUser(user.id))) redirect('/')
 
   const roles = await getRolesWithPermissions()
 

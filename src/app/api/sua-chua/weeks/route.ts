@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { isAdminUser, hasSubPagePerm, requireAdmin as requireAdminHelper, requirePermOrAdmin } from '@/lib/auth-helpers'
 
 const sb = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,13 +15,11 @@ async function getAuthUser() {
 }
 
 async function checkWritePermission(userId: string): Promise<boolean> {
-  const { data } = await sb()
-    .from('user_permissions_view')
-    .select('permissions')
-    .eq('user_id', userId)
-    .single()
-  const perms: string[] = data?.permissions ?? []
-  return perms.includes('sua_chua:write') || perms.includes('admin:users')
+  const [admin, hasPerm] = await Promise.all([
+    isAdminUser(userId),
+    hasSubPagePerm(userId, 'sua_chua_main', 'can_create'),
+  ])
+  return admin || hasPerm
 }
 
 // GET — danh sách tuần (có thể kèm tổng)
