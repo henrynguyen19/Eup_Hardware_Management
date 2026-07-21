@@ -12,7 +12,7 @@ async function requireAdmin() {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  const { data } = await sb()if (!(await isAdminUser(user.id)))
+  if (!(await isAdminUser(user.id)))
     return { ok: false, error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   return { ok: true }
 }
