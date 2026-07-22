@@ -920,6 +920,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
   const [crmResult,  setCrmResult]  = useState<Record<string, CrmCheckResult | null>>({})
   const [crmLoading, setCrmLoading] = useState<Record<string, boolean>>({})
   const [crmError,   setCrmError]   = useState<Record<string, string>>({})
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/kho/equipment').then(r => r.json()).then(d => {
@@ -997,6 +998,24 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
   }
 
   function confirm() {
+    if (!serialsOnly) {
+      // Thiết bị cần mã (GPS Tracker) phải nhập đủ serial trước khi gửi
+      const missing: string[] = []
+      for (const item of order.giao_hang_don_items) {
+        const dtype = deviceTypes[item.device_name] ?? ''
+        if (GPS_NEEDS_SERIAL.includes(dtype)) {
+          const filled = (itemSerials[item.id] ?? []).filter(Boolean).length
+          if (filled < item.quantity) {
+            missing.push(`${item.device_name} (${filled}/${item.quantity} mã)`)
+          }
+        }
+      }
+      if (missing.length > 0) {
+        setValidationError(`Chưa nhập đủ mã IMEI cho: ${missing.join(' · ')}`)
+        return
+      }
+    }
+    setValidationError(null)
     onConfirm(order.giao_hang_don_items.map(item => ({
       item_id: item.id,
       serials: noSerial[item.id] ? [] : (itemSerials[item.id] ?? []).filter(Boolean),
@@ -1171,6 +1190,16 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
         })
       })()}
 
+        {validationError && (
+          <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
+            <span className="shrink-0 mt-0.5">⚠️</span>
+            <div>
+              <div className="font-semibold">Chưa đủ mã thiết bị</div>
+              <div className="text-xs mt-0.5">{validationError}</div>
+              <div className="text-xs text-red-500 mt-1">GPS Tracker bắt buộc nhập mã IMEI trước khi xác nhận gửi hàng.</div>
+            </div>
+          </div>
+        )}
         <div className="flex gap-2 pt-1">
           <button onClick={confirm}
             className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold">
@@ -1277,8 +1306,6 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
   const [serialOnlyModal, setSerialOnlyModal] = useState<DonHang | null>(null)
   const [crmResults, setCrmResults] = useState<Record<string, SerialCRMResult[]>>({})
   const [crmChecking, setCrmChecking] = useState<Set<string>>(new Set())
-  const [trackingInputs, setTrackingInputs] = useState<Record<string, string>>({})
-  const [trackingError, setTrackingError] = useState<string | null>(null)
   const [daRightWarning, setDaRightWarning] = useState<DonHang | null>(null)
   const [crmWarningResults, setCrmWarningResults] = useState<SerialCRMResult[]>([])
 
@@ -1360,12 +1387,6 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
 
   function handleStatusClick(order: DonHang, status: string) {
     if (status === 'da_gui') {
-      const tc = trackingInputs[order.id]?.trim() || order.tracking_code?.trim()
-      if (!tc) {
-        setTrackingError(order.id)
-        return
-      }
-      setTrackingError(null)
       setSerialModal(order)
     } else if (status === 'da_nhan') {
       checkCRMAndWarn(order)
@@ -1489,28 +1510,6 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
 
                   {isKho ? (
                     <div className="pt-3 border-t border-gray-100 space-y-3">
-                      {/* Mã vận đơn */}
-                      <div>
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">🚚 Mã vận đơn</label>
-                        <div className="flex gap-2 mt-1 items-center">
-                          <input
-                            className={`flex-1 border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 ${trackingError === o.id ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-                            placeholder="Nhập mã tracking / mã vận đơn…"
-                            value={trackingInputs[o.id] ?? o.tracking_code ?? ''}
-                            onChange={e => {
-                              setTrackingInputs(t => ({ ...t, [o.id]: e.target.value }))
-                              if (trackingError === o.id) setTrackingError(null)
-                            }}
-                          />
-                          {(trackingInputs[o.id]?.trim() || o.tracking_code) && (
-                            <span className="text-green-600 text-xs font-medium whitespace-nowrap">✓ Có mã</span>
-                          )}
-                        </div>
-                        {trackingError === o.id && (
-                          <div className="text-xs text-red-500 mt-1">⚠️ Vui lòng nhập mã vận đơn trước khi chuyển sang Đã gửi</div>
-                        )}
-                      </div>
-
                       {/* Status buttons — large & clear */}
                       <div>
                         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Cập nhật trạng thái</div>
@@ -1577,8 +1576,7 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
         <SerialInputModal
           order={serialModal}
           onConfirm={serials => {
-            const tc = trackingInputs[serialModal.id]?.trim() || serialModal.tracking_code
-            updateStatus(serialModal.id, 'da_gui', serials, tc || undefined)
+            updateStatus(serialModal.id, 'da_gui', serials)
             setSerialModal(null)
           }}
           onCancel={() => setSerialModal(null)}
