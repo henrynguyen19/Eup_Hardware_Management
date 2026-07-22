@@ -259,7 +259,9 @@ export default function UserManagement({ currentUserEmail }: Props) {
     const res = await fetch(
       `/api/admin/departments/${selectedDept}/user-dept-permissions?userId=${member.user_id}`
     ).then(r => r.json())
-    setUserPerms(res.permissions ?? [])
+    const saved: string[] = res.permissions ?? []
+    // Chưa có setting → mặc định full quyền của phòng
+    setUserPerms(saved.length > 0 ? saved : ceiling)
     setLoadingPerms(false)
   }
 
