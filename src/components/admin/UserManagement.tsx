@@ -3,10 +3,61 @@
 import { useState, useEffect, useCallback } from 'react'
 
 interface UserRecord { user_id: string; user_email: string }
-interface Department  { id: string; name: string; code: string; color: string }
-interface Role        { id: string; name: string }
+interface Department  { id: string; name: string; code: string; color: string; role_id?: string | null }
+interface Role        { id: string; name: string; permissions?: string[] }
 interface UserRole    { user_id: string; role_id: string | null; role_name: string | null }
 interface Props        { currentUserEmail: string }
+
+// ─── Permission modules (ceiling display) ────────────────────────────────────
+const PERM_MODULES: { id: string; label: string; levels: { key: string; label: string; color: string }[] }[] = [
+  { id: 'kho', label: 'Kho thiết bị', levels: [
+    { key: 'kho:read', label: 'Xem', color: 'blue' },
+    { key: 'kho:write', label: 'Thêm/Sửa', color: 'amber' },
+    { key: 'kho:delete', label: 'Xóa', color: 'purple' },
+  ]},
+  { id: 'kho_daily', label: 'Kho Daily', levels: [
+    { key: 'kho_daily:read', label: 'Xem', color: 'blue' },
+    { key: 'kho_daily:write', label: 'Nhập liệu', color: 'amber' },
+  ]},
+  { id: 'gui_hang', label: 'Giao nhận', levels: [
+    { key: 'gui_hang:read', label: 'Xem', color: 'blue' },
+    { key: 'gui_hang:write', label: 'Tạo đơn', color: 'amber' },
+    { key: 'gui_hang:delete', label: 'Xóa', color: 'purple' },
+  ]},
+  { id: 'ho_tro', label: 'Hỗ trợ kỹ thuật', levels: [
+    { key: 'ho_tro:read', label: 'Xem', color: 'blue' },
+    { key: 'ho_tro:write', label: 'Đồng bộ', color: 'amber' },
+    { key: 'ho_tro:admin', label: 'Trưởng nhóm', color: 'red' },
+    { key: 'ho_tro:delete', label: 'Xóa', color: 'purple' },
+  ]},
+  { id: 'sua_chua', label: 'Sửa chữa', levels: [
+    { key: 'sua_chua:read', label: 'Xem', color: 'blue' },
+    { key: 'sua_chua:write', label: 'Nhập liệu', color: 'amber' },
+    { key: 'sua_chua:delete', label: 'Xóa', color: 'purple' },
+  ]},
+  { id: 'chat_luong', label: 'Chất lượng', levels: [
+    { key: 'chat_luong:read', label: 'Xem', color: 'blue' },
+    { key: 'chat_luong:write', label: 'Cập nhật', color: 'amber' },
+  ]},
+  { id: 'tai_lieu_group', label: 'Tài liệu / Chứng nhận / Hướng dẫn', levels: [
+    { key: 'tai_lieu:read', label: 'TL: Xem', color: 'blue' },
+    { key: 'tai_lieu:write', label: 'TL: Sửa', color: 'amber' },
+    { key: 'chung_nhan:read', label: 'CN: Xem', color: 'blue' },
+    { key: 'chung_nhan:write', label: 'CN: Sửa', color: 'amber' },
+    { key: 'huong_dan:read', label: 'HD: Xem', color: 'blue' },
+    { key: 'huong_dan:write', label: 'HD: Sửa', color: 'amber' },
+  ]},
+  { id: 'admin', label: 'Quản trị', levels: [
+    { key: 'admin:users', label: 'Quản lý tài khoản', color: 'red' },
+  ]},
+]
+
+const COLOR_MAP: Record<string, { badge: string; check: string }> = {
+  blue:   { badge: 'bg-blue-50 text-blue-700 border-blue-200',     check: 'bg-blue-500 border-blue-500' },
+  amber:  { badge: 'bg-amber-50 text-amber-700 border-amber-200',  check: 'bg-amber-500 border-amber-500' },
+  purple: { badge: 'bg-purple-50 text-purple-700 border-purple-200', check: 'bg-purple-500 border-purple-500' },
+  red:    { badge: 'bg-red-50 text-red-700 border-red-200',        check: 'bg-red-500 border-red-500' },
+}
 
 const ROLE_LABELS: Record<string, string> = {
   admin:        '🔴 Admin',
@@ -47,6 +98,14 @@ export default function UserManagement({ currentUserEmail }: Props) {
   const [movingUser, setMovingUser] = useState<UserRecord | null>(null)
   const [moveToDept, setMoveToDept] = useState('')
 
+  // Permission modal (2-level system)
+  const [permModal, setPermModal] = useState<{
+    deptId: string; userId: string; email: string; ceilingPerms: string[]
+  } | null>(null)
+  const [userPerms, setUserPerms]     = useState<string[]>([])
+  const [loadingPerms, setLoadingPerms] = useState(false)
+  const [savingPerms, setSavingPerms]  = useState(false)
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     const [deptsRes, usersRes, rolesRes] = await Promise.all([
@@ -56,7 +115,9 @@ export default function UserManagement({ currentUserEmail }: Props) {
     ])
     const deptList: Department[] = deptsRes.departments ?? []
     const userList: UserRecord[] = usersRes.users ?? []
-    const roleList: Role[]       = rolesRes.roles ?? []
+    const roleList: Role[]       = (rolesRes.roles ?? []).map((r: { id: string; name: string; permissions?: string[] }) => ({
+      id: r.id, name: r.name, permissions: r.permissions ?? [],
+    }))
     setDepts(deptList)
     setAllUsers(userList)
     setRoles(roleList)
@@ -187,6 +248,33 @@ export default function UserManagement({ currentUserEmail }: Props) {
     fetchAll()
   }
 
+  // ── Permission modal helpers ──
+  async function openPermModal(member: UserRecord) {
+    if (!selectedDept || selectedDept === '__none__') return
+    const dept = depts.find(d => d.id === selectedDept)
+    const role = roles.find(r => r.id === dept?.role_id)
+    const ceiling = role?.permissions ?? []
+    setPermModal({ deptId: selectedDept, userId: member.user_id, email: member.user_email, ceilingPerms: ceiling })
+    setLoadingPerms(true)
+    const res = await fetch(
+      `/api/admin/departments/${selectedDept}/user-dept-permissions?userId=${member.user_id}`
+    ).then(r => r.json())
+    setUserPerms(res.permissions ?? [])
+    setLoadingPerms(false)
+  }
+
+  async function savePerms() {
+    if (!permModal) return
+    setSavingPerms(true)
+    const res = await fetch(
+      `/api/admin/departments/${permModal.deptId}/user-dept-permissions`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: permModal.userId, permissions: userPerms }) }
+    )
+    setSavingPerms(false)
+    if (res.ok) setPermModal(null)
+  }
+
   // ── Sidebar dept button ──
   function DeptButton({ d, indent = false }: { d: Department; indent?: boolean }) {
     const count = memberMap[d.id]?.length ?? 0
@@ -266,12 +354,25 @@ export default function UserManagement({ currentUserEmail }: Props) {
           ) : (
             <div>
               <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   {currentDept && <div className="w-3 h-3 rounded-full" style={{ background: currentDept.color }} />}
                   <h2 className="font-bold text-gray-800">
                     {selectedDept === '__none__' ? 'Chưa phân phòng ban' : (currentDept?.name ?? '')}
                   </h2>
                   <span className="text-sm text-gray-400 bg-gray-100 px-2 py-0.5 rounded">{filtered.length} người</span>
+                  {/* Dept role badge */}
+                  {currentDept && (() => {
+                    const deptRole = roles.find(r => r.id === currentDept.role_id)
+                    return deptRole ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                        🔐 Vai trò: {deptRole.name}
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 border border-gray-200 italic">
+                        Chưa gán vai trò
+                      </span>
+                    )
+                  })()}
                 </div>
                 <div className="flex items-center gap-2">
                   {selectedDept && selectedDept !== '__none__' && (
@@ -342,7 +443,20 @@ export default function UserManagement({ currentUserEmail }: Props) {
                             </select>
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex gap-1 justify-end">
+                            <div className="flex gap-1 justify-end flex-wrap">
+                              {/* Phân quyền button (2-level system) */}
+                              {selectedDept && selectedDept !== '__none__' && (() => {
+                                const dept = depts.find(d => d.id === selectedDept)
+                                const hasRole = roles.some(r => r.id === dept?.role_id)
+                                return hasRole ? (
+                                  <button
+                                    onClick={() => openPermModal(m)}
+                                    className="text-xs px-2 py-1 border border-blue-200 text-blue-600 rounded hover:bg-blue-50 transition font-medium"
+                                  >
+                                    🔐 Phân quyền
+                                  </button>
+                                ) : null
+                              })()}
                               {selectedDept !== '__none__' && (
                                 <button onClick={() => { setMovingUser(m); setMoveToDept('') }}
                                   className="text-xs px-2 py-1 border border-gray-200 text-gray-600 rounded hover:bg-gray-100 transition">
@@ -432,6 +546,89 @@ export default function UserManagement({ currentUserEmail }: Props) {
                 className="flex-1 py-2 border border-gray-200 text-gray-500 text-sm rounded-lg hover:bg-gray-50 transition">
                 Hủy
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Phân quyền nhân viên trong phòng (2-level) ── */}
+      {permModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-bold text-gray-900">🔐 Phân quyền nhân viên</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{permModal.email}</p>
+              </div>
+              <button onClick={() => setPermModal(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+            </div>
+            <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">
+              Quyền bị giới hạn bởi vai trò phòng ban. Mục mờ = phòng chưa được phân quyền đó.
+            </div>
+            <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
+              {loadingPerms ? (
+                <div className="py-10 flex justify-center text-gray-400 text-sm">Đang tải...</div>
+              ) : (
+                PERM_MODULES.map(mod => {
+                  const hasAny = mod.levels.some(l => permModal.ceilingPerms.includes(l.key))
+                  return (
+                    <div key={mod.id} className={hasAny ? '' : 'opacity-35'}>
+                      <div className="px-6 py-2 bg-gray-50">
+                        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{mod.label}</p>
+                      </div>
+                      <div className="px-6 py-2.5 flex flex-wrap gap-2">
+                        {mod.levels.map(({ key, label, color }) => {
+                          const inCeiling = permModal.ceilingPerms.includes(key)
+                          const checked = userPerms.includes(key)
+                          const cls = COLOR_MAP[color] ?? COLOR_MAP.blue
+                          return (
+                            <label
+                              key={key}
+                              className={[
+                                'flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition select-none',
+                                inCeiling ? 'cursor-pointer' : 'cursor-not-allowed opacity-40',
+                                checked && inCeiling ? cls.badge + ' border-' + cls.badge.split('border-')[1] : 'bg-white border-gray-200 hover:border-gray-300',
+                              ].join(' ')}
+                              onClick={() => {
+                                if (!inCeiling) return
+                                setUserPerms(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
+                              }}
+                            >
+                              <span className={[
+                                'w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all',
+                                checked && inCeiling ? cls.check + ' text-white' : 'border-gray-300 bg-white',
+                              ].join(' ')}>
+                                {checked && inCeiling && (
+                                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </span>
+                              {label}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
+              <div className="flex gap-2">
+                <button onClick={() => setUserPerms([])} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg hover:bg-gray-50 transition">
+                  Bỏ tất cả
+                </button>
+                <button onClick={() => setUserPerms(permModal.ceilingPerms)} className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg hover:bg-gray-50 transition">
+                  Chọn tất cả (theo phòng)
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setPermModal(null)} className="px-4 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-sm hover:bg-gray-50 transition">Hủy</button>
+                <button onClick={savePerms} disabled={savingPerms} className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition">
+                  {savingPerms ? 'Đang lưu...' : 'Lưu quyền'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

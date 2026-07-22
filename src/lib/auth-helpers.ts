@@ -1,8 +1,10 @@
 /**
- * auth-helpers.ts — Hệ thống phân quyền mới (department-based)
+ * auth-helpers.ts — Hệ thống phân quyền 2 cấp
  *
- * Thay thế legacy user_permissions_view checks.
- * Admin = user thuộc phòng 'hardware' (full access tất cả sub-pages).
+ * Cấp 1: Phòng ban (department) → được gán 1 role → role xác định ceiling
+ * Cấp 2: Nhân viên trong phòng → user_dept_permissions (subset của role phòng)
+ *
+ * Admin = user thuộc phòng 'hardware' HOẶC được gán role 'Admin' qua user_roles
  *
  * Sub-page codes:
  *   'sua_chua_main'        → Sửa chữa / Repair tracking
@@ -34,42 +36,110 @@ export async function getAuthUser() {
 }
 
 /**
- * Kiểm tra user có thuộc phòng 'hardware' không (admin equivalent).
- * Hardware dept có full CRUD trên tất cả sub-pages.
+ * Kiểm tra admin:
+ * 1. User thuộc phòng 'hardware' (hardware dept = admin phòng phần cứng)
+ * 2. HOẶC user được gán role 'Admin' qua user_roles (admin gán từ UI)
  */
 export async function isAdminUser(userId: string): Promise<boolean> {
-  const { data } = await adminDb()
-    .from('user_departments')
-    .select('departments(code)')
-    .eq('user_id', userId)
-  return (data ?? []).some((r: { departments: { code: string } | null }) => r.departments?.code === 'hardware')
+  const db = adminDb()
+
+  const [deptResult, roleResult] = await Promise.all([
+    db.from('user_departments').select('departments(code)').eq('user_id', userId),
+    db.from('user_roles').select('roles(name)').eq('user_id', userId),
+  ])
+
+  if ((deptResult.data ?? []).some(
+    (r: { departments: { code: string } | null }) => r.departments?.code === 'hardware'
+  )) return true
+
+  return (roleResult.data ?? []).some(
+    (r: { roles: { name: string } | null }) => r.roles?.name === 'Admin'
+  )
 }
 
 /**
- * Kiểm tra user có quyền CRUD cụ thể trên một sub-page (hệ thống mới).
- * action mặc định là 'can_read'.
+ * Lấy tất cả permission_key của user từ bảng user_dept_permissions
+ * (hệ thống mới — employee permissions within departments)
+ */
+export async function getUserPermKeys(userId: string): Promise<Set<string>> {
+  const { data } = await adminDb()
+    .from('user_dept_permissions')
+    .select('permission_key')
+    .eq('user_id', userId)
+  return new Set((data ?? []).map((r: { permission_key: string }) => r.permission_key))
+}
+
+/**
+ * Map permission_key → sub_page_codes + actions được phép
+ * Dùng để check hasSubPagePerm từ hệ thống mới
+ */
+const PERM_TO_SUB_ACCESS: Record<string, Array<{ code: string; actions: string[] }>> = {
+  'kho:read': [
+    { code: 'thiet_bi_danh_sach', actions: ['can_read'] },
+    { code: 'thiet_bi_tinh_nang', actions: ['can_read'] },
+    { code: 'thiet_bi_xe',        actions: ['can_read'] },
+  ],
+  'kho:write': [
+    { code: 'thiet_bi_danh_sach', actions: ['can_create', 'can_update'] },
+    { code: 'thiet_bi_tinh_nang', actions: ['can_create', 'can_update'] },
+    { code: 'thiet_bi_xe',        actions: ['can_create', 'can_update'] },
+  ],
+  'kho:delete': [
+    { code: 'thiet_bi_danh_sach', actions: ['can_delete'] },
+    { code: 'thiet_bi_tinh_nang', actions: ['can_delete'] },
+    { code: 'thiet_bi_xe',        actions: ['can_delete'] },
+  ],
+  'ho_tro:read':   [{ code: 'hotro_bang_thong_ke', actions: ['can_read'] }, { code: 'hotro_jira_bugs', actions: ['can_read'] }],
+  'ho_tro:write':  [{ code: 'hotro_bang_thong_ke', actions: ['can_create', 'can_update'] }],
+  'ho_tro:admin':  [
+    { code: 'hotro_bang_thong_ke', actions: ['can_create', 'can_update', 'can_delete'] },
+    { code: 'hotro_jira_bugs',     actions: ['can_read', 'can_create', 'can_update', 'can_delete'] },
+  ],
+  'ho_tro:delete': [{ code: 'hotro_bang_thong_ke', actions: ['can_delete'] }],
+  'sua_chua:read':   [{ code: 'sua_chua_main', actions: ['can_read'] }],
+  'sua_chua:write':  [{ code: 'sua_chua_main', actions: ['can_create', 'can_update'] }],
+  'sua_chua:delete': [{ code: 'sua_chua_main', actions: ['can_delete'] }],
+  'gui_hang:read':   [{ code: 'giao_hang_main', actions: ['can_read'] }],
+  'gui_hang:write':  [{ code: 'giao_hang_main', actions: ['can_create', 'can_update'] }],
+  'gui_hang:delete': [{ code: 'giao_hang_main', actions: ['can_delete'] }],
+  'chat_luong:read':  [{ code: 'chat_luong_main', actions: ['can_read'] }],
+  'chat_luong:write': [{ code: 'chat_luong_main', actions: ['can_create', 'can_update'] }],
+  'chung_nhan:read':  [{ code: 'giay_chung_nhan_main', actions: ['can_read'] }],
+  'chung_nhan:write': [{ code: 'giay_chung_nhan_main', actions: ['can_create', 'can_update'] }],
+}
+
+/**
+ * Kiểm tra user có quyền CRUD cụ thể trên một sub-page.
+ * Kiểm tra cả 2 hệ thống (cũ + mới).
  */
 export async function hasSubPagePerm(
   userId: string,
   subPageCode: string,
   action: 'can_read' | 'can_create' | 'can_update' | 'can_delete' = 'can_read'
 ): Promise<boolean> {
+  // Check hệ thống cũ
   const { data } = await adminDb()
     .from('user_effective_permissions')
     .select(action)
     .eq('user_id', userId)
     .eq('sub_page_code', subPageCode)
     .maybeSingle()
-  return (data as Record<string, boolean> | null)?.[action] ?? false
+
+  if ((data as Record<string, boolean> | null)?.[action]) return true
+
+  // Check hệ thống mới (user_dept_permissions)
+  const permKeys = await getUserPermKeys(userId)
+  for (const [key, accesses] of Object.entries(PERM_TO_SUB_ACCESS)) {
+    if (!permKeys.has(key)) continue
+    for (const access of accesses) {
+      if (access.code === subPageCode && access.actions.includes(action)) return true
+    }
+  }
+  return false
 }
 
 /**
- * Yêu cầu user là admin (hardware dept). Trả về user hoặc error response.
- *
- * Usage:
- *   const auth = await requireAdmin()
- *   if (!auth.ok) return auth.response
- *   const { user } = auth
+ * Yêu cầu user là admin. Trả về user hoặc error response.
  */
 export async function requireAdmin(): Promise<
   { ok: true; user: NonNullable<Awaited<ReturnType<typeof getAuthUser>>> } |
@@ -85,67 +155,7 @@ export async function requireAdmin(): Promise<
 
 /**
  * Yêu cầu admin HOẶC có quyền cụ thể trên sub-page.
- * Trả về { ok, user, isAdmin } — giữ isAdmin flag cho behavioral checks.
- *
- * Usage:
- *   const auth = await requirePermOrAdmin('sua_chua_main', 'can_create')
- *   if (!auth.ok) return auth.response
- *   const { user, isAdmin } = auth
  */
-/**
- * Xây dựng mảng permission dạng cũ cho AppShell (sidebar visibility).
- * Dùng hệ thống mới (user_effective_permissions) để suy ra các chuỗi cũ.
- *
- * Admin → full access tất cả module.
- * Non-admin → map sub_page_code có can_read → legacy permission string.
- */
-const SUB_TO_LEGACY: Record<string, string> = {
-  thiet_bi_danh_sach:  'kho:read',
-  thiet_bi_tinh_nang:  'kho:read',
-  thiet_bi_xe:         'kho:read',
-  sua_chua_main:       'sua_chua:read',
-  hotro_bang_thong_ke: 'ho_tro:read',
-  hotro_jira_bugs:     'ho_tro:read',
-  chat_luong_main:     'chat_luong:read',
-  giay_chung_nhan_main:'chung_nhan:read',
-  giao_hang_main:      'gui_hang:read',
-}
-
-const ADMIN_LEGACY = [
-  'admin:users',
-  'kho:read', 'kho:write',
-  'sua_chua:read', 'sua_chua:write',
-  'ho_tro:read', 'ho_tro:write', 'ho_tro:admin',
-  'chat_luong:read', 'chat_luong:write',
-  'chung_nhan:read', 'chung_nhan:write',
-  'gui_hang:read', 'gui_hang:write',
-  'kho_daily:read', 'kho_daily:write',
-  'tai_lieu:read', 'huong_dan:read',
-]
-
-export async function buildAppShellPerms(userId: string): Promise<string[]> {
-  const admin = await isAdminUser(userId)
-  if (admin) return ADMIN_LEGACY
-
-  const { data } = await adminDb()
-    .from('user_effective_permissions')
-    .select('sub_page_code, can_read, can_create, can_update, can_delete')
-    .eq('user_id', userId)
-
-  const result = new Set<string>()
-  for (const row of data ?? []) {
-    if (!row.can_read) continue
-    const legacy = SUB_TO_LEGACY[row.sub_page_code]
-    if (legacy) result.add(legacy)
-    // can_create → write variant
-    if (row.can_create) {
-      const writeVariant = legacy?.replace(':read', ':write')
-      if (writeVariant) result.add(writeVariant)
-    }
-  }
-  return Array.from(result)
-}
-
 export async function requirePermOrAdmin(
   subPageCode: string,
   action: 'can_read' | 'can_create' | 'can_update' | 'can_delete' = 'can_read'
@@ -163,4 +173,63 @@ export async function requirePermOrAdmin(
     return { ok: false, response: NextResponse.json({ error: 'Không có quyền' }, { status: 403 }) }
   }
   return { ok: true, user, isAdmin: admin }
+}
+
+/**
+ * Xây dựng mảng permission strings cho AppShell (sidebar visibility).
+ * Admin → full access.
+ * Non-admin → đọc từ user_dept_permissions + user_effective_permissions (backward compat)
+ */
+const ADMIN_LEGACY = [
+  'admin:users',
+  'kho:read', 'kho:write', 'kho:delete',
+  'sua_chua:read', 'sua_chua:write', 'sua_chua:delete',
+  'ho_tro:read', 'ho_tro:write', 'ho_tro:admin', 'ho_tro:delete',
+  'chat_luong:read', 'chat_luong:write',
+  'chung_nhan:read', 'chung_nhan:write',
+  'gui_hang:read', 'gui_hang:write', 'gui_hang:delete',
+  'kho_daily:read', 'kho_daily:write',
+  'tai_lieu:read', 'tai_lieu:write',
+  'huong_dan:read', 'huong_dan:write',
+]
+
+const SUB_TO_LEGACY: Record<string, string> = {
+  thiet_bi_danh_sach:  'kho:read',
+  thiet_bi_tinh_nang:  'kho:read',
+  thiet_bi_xe:         'kho:read',
+  sua_chua_main:       'sua_chua:read',
+  hotro_bang_thong_ke: 'ho_tro:read',
+  hotro_jira_bugs:     'ho_tro:read',
+  chat_luong_main:     'chat_luong:read',
+  giay_chung_nhan_main:'chung_nhan:read',
+  giao_hang_main:      'gui_hang:read',
+}
+
+export async function buildAppShellPerms(userId: string): Promise<string[]> {
+  const admin = await isAdminUser(userId)
+  if (admin) return ADMIN_LEGACY
+
+  const result = new Set<string>()
+
+  // Hệ thống mới: user_dept_permissions
+  const permKeys = await getUserPermKeys(userId)
+  for (const key of permKeys) result.add(key)
+
+  // Hệ thống cũ: user_effective_permissions (backward compat)
+  const { data } = await adminDb()
+    .from('user_effective_permissions')
+    .select('sub_page_code, can_read, can_create, can_update, can_delete')
+    .eq('user_id', userId)
+
+  for (const row of data ?? []) {
+    if (!row.can_read) continue
+    const legacy = SUB_TO_LEGACY[row.sub_page_code]
+    if (legacy) result.add(legacy)
+    if (row.can_create) {
+      const writeVariant = legacy?.replace(':read', ':write')
+      if (writeVariant) result.add(writeVariant)
+    }
+  }
+
+  return Array.from(result)
 }

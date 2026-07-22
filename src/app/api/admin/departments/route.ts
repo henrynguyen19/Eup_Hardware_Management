@@ -17,23 +17,38 @@ async function requireAdmin() {
   return { ok: true }
 }
 
-// GET /api/admin/departments — list all departments with member count
+// GET /api/admin/departments — list all departments with member count + role info
 export async function GET() {
   const auth = await requireAdmin()
   if (!auth.ok) return auth.error!
 
-  const { data: depts } = await sb().from('departments').select('*').order('name')
-  if (!depts) return NextResponse.json({ departments: [] })
+  const client = sb()
 
-  // Get member counts
-  const { data: memberships } = await sb().from('user_departments').select('department_id')
+  const [{ data: depts }, { data: memberships }, { data: roles }] = await Promise.all([
+    client.from('departments').select('*').order('name'),
+    client.from('user_departments').select('department_id'),
+    client.from('roles').select('id, name, role_permissions(permission_key)').order('name'),
+  ])
+
+  if (!depts) return NextResponse.json({ departments: [], roles: [] })
+
   const countMap: Record<string, number> = {}
   for (const m of memberships ?? []) {
     countMap[m.department_id] = (countMap[m.department_id] ?? 0) + 1
   }
 
+  const rolesFormatted = (roles ?? []).map((r: {
+    id: string; name: string;
+    role_permissions: { permission_key: string }[]
+  }) => ({
+    id: r.id,
+    name: r.name,
+    permissions: (r.role_permissions ?? []).map(p => p.permission_key).filter(Boolean),
+  }))
+
   return NextResponse.json({
-    departments: depts.map(d => ({ ...d, member_count: countMap[d.id] ?? 0 }))
+    departments: depts.map(d => ({ ...d, member_count: countMap[d.id] ?? 0 })),
+    roles: rolesFormatted,
   })
 }
 

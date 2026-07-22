@@ -87,37 +87,24 @@ const MODULE_GROUPS: ModuleGroup[] = [
     ],
   },
   {
-    group: 'Chất lượng & Chứng nhận',
-    items: [
-      {
-        id: 'chat_luong',
-        label: 'Chất lượng',
-        desc: 'Quản lý chất lượng thiết bị',
-        levels: [
-          { key: 'chat_luong:read',  label: 'Xem',      level: 'read' },
-          { key: 'chat_luong:write', label: 'Cập nhật', level: 'write' },
-        ],
-      },
-      {
-        id: 'chung_nhan',
-        label: 'Chứng nhận',
-        desc: 'Giấy chứng nhận & tài liệu kỹ thuật',
-        levels: [
-          { key: 'chung_nhan:read',  label: 'Xem',                  level: 'read' },
-          { key: 'chung_nhan:write', label: 'Upload / Tạo folder',   level: 'write' },
-        ],
-      },
-    ],
-  },
-  {
-    group: 'Tài liệu',
+    group: 'Tài liệu & Chứng nhận (1 tính năng)',
     items: [
       {
         id: 'tai_lieu',
         label: 'Tài liệu kỹ thuật',
         desc: 'Tài liệu nội bộ, thông số kỹ thuật',
         levels: [
-          { key: 'tai_lieu:read', label: 'Xem', level: 'read' },
+          { key: 'tai_lieu:read',  label: 'Xem',      level: 'read' },
+          { key: 'tai_lieu:write', label: 'Thêm / Sửa', level: 'write' },
+        ],
+      },
+      {
+        id: 'chung_nhan',
+        label: 'Chứng nhận',
+        desc: 'Giấy chứng nhận sản phẩm',
+        levels: [
+          { key: 'chung_nhan:read',  label: 'Xem',                level: 'read' },
+          { key: 'chung_nhan:write', label: 'Upload / Tạo folder', level: 'write' },
         ],
       },
       {
@@ -125,7 +112,17 @@ const MODULE_GROUPS: ModuleGroup[] = [
         label: 'Hướng dẫn lắp đặt',
         desc: 'Hướng dẫn sử dụng và lắp đặt',
         levels: [
-          { key: 'huong_dan:read', label: 'Xem', level: 'read' },
+          { key: 'huong_dan:read',  label: 'Xem',      level: 'read' },
+          { key: 'huong_dan:write', label: 'Thêm / Sửa', level: 'write' },
+        ],
+      },
+      {
+        id: 'chat_luong',
+        label: 'Chất lượng',
+        desc: 'Quản lý chất lượng thiết bị',
+        levels: [
+          { key: 'chat_luong:read',  label: 'Xem',      level: 'read' },
+          { key: 'chat_luong:write', label: 'Cập nhật', level: 'write' },
         ],
       },
     ],
