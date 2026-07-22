@@ -64,6 +64,7 @@ export async function PATCH(req: NextRequest) {
     id: string
     status?: string
     item_serials?: { item_id: string; serials: string[] }[]
+    tracking_code?: string
   }
 
   if (!body.id) return NextResponse.json({ error: 'Thiếu id' }, { status: 400 })
@@ -90,6 +91,9 @@ export async function PATCH(req: NextRequest) {
     updates.status             = body.status
     updates.status_updated_by  = user.email
     updates.status_updated_at  = now
+  }
+  if (body.tracking_code !== undefined) {
+    updates.tracking_code = body.tracking_code
   }
   const { error } = await admin
     .from('giao_hang_don_hang')

@@ -18,7 +18,7 @@ interface DonHang {
   id: string; order_code: string; orderer_email: string; orderer_name: string
   office: string; expected_date?: string; expected_ship_date?: string; recipient_info?: string; notes?: string
   status: string; created_at: string; giao_hang_don_items: DonItem[]
-  status_updated_by?: string; status_updated_at?: string
+  status_updated_by?: string; status_updated_at?: string; tracking_code?: string
 }
 interface SheetOrder {
   id: string; sheet_row: number; stt: string; order_time: string
@@ -1277,6 +1277,10 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
   const [serialOnlyModal, setSerialOnlyModal] = useState<DonHang | null>(null)
   const [crmResults, setCrmResults] = useState<Record<string, SerialCRMResult[]>>({})
   const [crmChecking, setCrmChecking] = useState<Set<string>>(new Set())
+  const [trackingInputs, setTrackingInputs] = useState<Record<string, string>>({})
+  const [trackingError, setTrackingError] = useState<string | null>(null)
+  const [daRightWarning, setDaRightWarning] = useState<DonHang | null>(null)
+  const [crmWarningResults, setCrmWarningResults] = useState<SerialCRMResult[]>([])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -1290,11 +1294,11 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
 
   useEffect(() => { load() }, [load])
 
-  async function updateStatus(id: string, status: string, itemSerials?: { item_id: string; serials: string[] }[]) {
+  async function updateStatus(id: string, status: string, itemSerials?: { item_id: string; serials: string[] }[], trackingCode?: string) {
     await fetch('/api/giao-hang/don-hang', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status, item_serials: itemSerials }),
+      body: JSON.stringify({ id, status, item_serials: itemSerials, tracking_code: trackingCode }),
     })
     load()
   }
@@ -1327,9 +1331,44 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
     }
   }
 
+  async function checkCRMAndWarn(order: DonHang) {
+    const serials = order.giao_hang_don_items.flatMap(i => i.device_serials ?? []).filter(Boolean)
+    if (serials.length === 0) { updateStatus(order.id, 'da_nhan'); return }
+    setCrmChecking(prev => new Set([...prev, order.id]))
+    try {
+      const res = await fetch('/api/giao-hang/batch-crm-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serials }),
+      })
+      const d = await res.json()
+      if (d.ok) {
+        const notTransferred = (d.results as SerialCRMResult[]).filter(r => r.ok && !r.transferred)
+        if (notTransferred.length > 0) {
+          setCrmWarningResults(notTransferred)
+          setDaRightWarning(order)
+          return
+        }
+      }
+      updateStatus(order.id, 'da_nhan')
+    } catch {
+      updateStatus(order.id, 'da_nhan')
+    } finally {
+      setCrmChecking(prev => { const n = new Set(prev); n.delete(order.id); return n })
+    }
+  }
+
   function handleStatusClick(order: DonHang, status: string) {
     if (status === 'da_gui') {
+      const tc = trackingInputs[order.id]?.trim() || order.tracking_code?.trim()
+      if (!tc) {
+        setTrackingError(order.id)
+        return
+      }
+      setTrackingError(null)
       setSerialModal(order)
+    } else if (status === 'da_nhan') {
+      checkCRMAndWarn(order)
     } else {
       updateStatus(order.id, status)
     }
@@ -1412,6 +1451,7 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                   })()}
                   {o.recipient_info && <div className="text-xs text-gray-500">👤 {o.recipient_info}</div>}
                   {o.expected_ship_date && <div className="text-xs text-amber-600">🚚 Gửi: {o.expected_ship_date}</div>}
+                  {o.tracking_code && <div className="text-xs text-violet-700 font-medium">📦 Mã vận đơn: <span className="font-mono">{o.tracking_code}</span></div>}
                   {o.notes && <div className="text-xs italic text-gray-500">📝 {o.notes}</div>}
                   {o.status_updated_by && (
                     <div className="text-xs text-gray-400 border-t border-gray-100 pt-1">
@@ -1449,6 +1489,28 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
 
                   {isKho ? (
                     <div className="pt-3 border-t border-gray-100 space-y-3">
+                      {/* Mã vận đơn */}
+                      <div>
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">🚚 Mã vận đơn</label>
+                        <div className="flex gap-2 mt-1 items-center">
+                          <input
+                            className={`flex-1 border rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 ${trackingError === o.id ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                            placeholder="Nhập mã tracking / mã vận đơn…"
+                            value={trackingInputs[o.id] ?? o.tracking_code ?? ''}
+                            onChange={e => {
+                              setTrackingInputs(t => ({ ...t, [o.id]: e.target.value }))
+                              if (trackingError === o.id) setTrackingError(null)
+                            }}
+                          />
+                          {(trackingInputs[o.id]?.trim() || o.tracking_code) && (
+                            <span className="text-green-600 text-xs font-medium whitespace-nowrap">✓ Có mã</span>
+                          )}
+                        </div>
+                        {trackingError === o.id && (
+                          <div className="text-xs text-red-500 mt-1">⚠️ Vui lòng nhập mã vận đơn trước khi chuyển sang Đã gửi</div>
+                        )}
+                      </div>
+
                       {/* Status buttons — large & clear */}
                       <div>
                         <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Cập nhật trạng thái</div>
@@ -1515,7 +1577,8 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
         <SerialInputModal
           order={serialModal}
           onConfirm={serials => {
-            updateStatus(serialModal.id, 'da_gui', serials)
+            const tc = trackingInputs[serialModal.id]?.trim() || serialModal.tracking_code
+            updateStatus(serialModal.id, 'da_gui', serials, tc || undefined)
             setSerialModal(null)
           }}
           onCancel={() => setSerialModal(null)}
@@ -1533,6 +1596,43 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
           }}
           onCancel={() => setSerialOnlyModal(null)}
         />
+      )}
+
+      {/* Cảnh báo chưa chuyển kho khi bấm Đã nhận */}
+      {daRightWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <span className="text-3xl leading-none mt-0.5">⚠️</span>
+              <div>
+                <div className="font-semibold text-gray-800 text-base">Chưa chuyển kho</div>
+                <div className="text-sm text-gray-500 mt-0.5">Các thiết bị sau vẫn đang ở kho công ty, chưa được chuyển đến kho người nhận:</div>
+              </div>
+            </div>
+            <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-1.5">
+              {crmWarningResults.map(r => (
+                <div key={r.serial} className="flex items-center gap-2 text-xs">
+                  <span className="font-mono bg-white border border-orange-200 rounded px-1.5 py-0.5 text-orange-800">{r.serial}</span>
+                  <span className="text-orange-600">⏳ {r.sourceStock || 'Kho công ty'}</span>
+                  {r.productName && <span className="text-gray-400 truncate">{r.productName}</span>}
+                </div>
+              ))}
+            </div>
+            <div className="text-sm text-gray-600">Bạn vẫn muốn chuyển sang <span className="font-semibold text-green-700">Đã nhận</span>?</div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { updateStatus(daRightWarning.id, 'da_nhan'); setDaRightWarning(null) }}
+                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-semibold transition-colors">
+                Vẫn chuyển Đã nhận
+              </button>
+              <button
+                onClick={() => setDaRightWarning(null)}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm hover:bg-gray-50 transition-colors">
+                Hủy
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
