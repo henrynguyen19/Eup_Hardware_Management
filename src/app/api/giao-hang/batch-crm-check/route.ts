@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       const chunkResults = await Promise.all(chunk.map(async (serial): Promise<SerialCheckResult> => {
         const res = await crmCall(
           'GetStockupDetail',
-          { Barcode: serial, StockupKind: '0' },
+          { Barcode: serial, StockupKind: '2' },
           sessionId, identity,
         )
         if (!res.ok || !Array.isArray(res.result) || res.result.length === 0) {

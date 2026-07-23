@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
     if (barcode) {
       const stockRes = await crmCall(
         'GetStockupDetail',
-        { Barcode: barcode, StockupKind: '0' },
+        { Barcode: barcode, StockupKind: '2' },
         sessionId, identity,
       )
       if (stockRes.ok && Array.isArray(stockRes.result) && stockRes.result.length > 0) {

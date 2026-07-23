@@ -1052,8 +1052,8 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
           const thisComboHasGps = isInCombo ? (comboHasGpsMdvr.get(item.combo_name!) ?? false) : false
           const nameLower = item.device_name.toLowerCase()
 
-          // Luôn ẩn: accessory + MDVR camera (không cần IMEI)
-          if (dtype === 'Power' || dtype === 'Cable' || dtype === 'MDVR'
+          // Luôn ẩn: accessory thuần (dây, nguồn, phụ kiện không cần serial)
+          if (dtype === 'Power' || dtype === 'Cable'
             || nameLower.includes('dây nguồn') || nameLower.includes('dây kết nối')
             || nameLower.includes('dây cáp') || nameLower.includes('bộ phụ kiện'))
             return null
@@ -1069,7 +1069,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
             const inC = !!i.combo_name
             const cHasGps = inC ? (comboHasGpsMdvr.get(i.combo_name!) ?? false) : false
             const nl = i.device_name.toLowerCase()
-            if (dt === 'Power' || dt === 'Cable' || dt === 'MDVR' || nl.includes('dây nguồn') || nl.includes('dây kết nối') || nl.includes('dây cáp') || nl.includes('bộ phụ kiện')) return false
+            if (dt === 'Power' || dt === 'Cable' || nl.includes('dây nguồn') || nl.includes('dây kết nối') || nl.includes('dây cáp') || nl.includes('bộ phụ kiện')) return false
             if (inC && cHasGps && (dt === 'Simcard' || dt === 'Storage')) return false
             return true
           }) === item
