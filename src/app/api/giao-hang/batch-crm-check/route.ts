@@ -73,6 +73,26 @@ export async function POST(req: NextRequest) {
 
     const { sessionId, identity } = await getCRMSessionForUser(user.id)
 
+    // StockupKind theo loại thiết bị:
+    //   2 = phụ kiện (camera, cảm biến, đầu đọc thẻ, ...) — thử trước
+    //   0 = GPS Tracker / MDVR (IMEI thiết bị chính)
+    //   3 = SIM card (IMEI sim)
+    const STOCKUP_KINDS = ['2', '0', '3']
+
+    async function getStockupDetail(serial: string) {
+      for (const kind of STOCKUP_KINDS) {
+        const res = await crmCall(
+          'GetStockupDetail',
+          { Barcode: serial, StockupKind: kind },
+          sessionId, identity,
+        )
+        if (res.ok && Array.isArray(res.result) && res.result.length > 0) {
+          return res
+        }
+      }
+      return { ok: false, result: null, error: 'Không tìm thấy' }
+    }
+
     // Check song song, mỗi batch 6 serial
     const BATCH = 6
     const results: SerialCheckResult[] = []
@@ -80,11 +100,7 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < serials.length; i += BATCH) {
       const chunk = serials.slice(i, i + BATCH)
       const chunkResults = await Promise.all(chunk.map(async (serial): Promise<SerialCheckResult> => {
-        const res = await crmCall(
-          'GetStockupDetail',
-          { Barcode: serial, StockupKind: '2' },
-          sessionId, identity,
-        )
+        const res = await getStockupDetail(serial)
         if (!res.ok || !Array.isArray(res.result) || res.result.length === 0) {
           return {
             serial, ok: false, productName: '', sourceStock: '', destStock: '',
