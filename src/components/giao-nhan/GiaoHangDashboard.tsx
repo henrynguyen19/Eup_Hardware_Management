@@ -470,7 +470,11 @@ function TabDatHang({ userEmail }: { userEmail: string }) {
   useEffect(() => {
     // Equipment + recipients load together → unblock UI fast (minimal=1 skips photos/docs)
     Promise.all([
-      fetch('/api/kho/equipment?minimal=1').then(r => r.json()).then(d => setDevices(d.data ?? [])),
+      fetch('/api/kho/equipment?minimal=1').then(r => r.json()).then(d => {
+        // GPS Tracker và MDVR chỉ đặt qua combo, không hiện trong thiết bị lẻ
+        const COMBO_ONLY_TYPES = ['GPS Tracker', 'MDVR']
+        setDevices((d.data ?? []).filter((dev: Equipment) => !COMBO_ONLY_TYPES.includes(dev.device_type ?? '')))
+      }),
       fetch('/api/giao-hang/recipients').then(r => r.json()).then(d => setRecipients(d.recipients ?? [])),
     ]).finally(() => setLoadingDevices(false))
     // Popular loads in background (calls Google Sheets — slow on cold start)
