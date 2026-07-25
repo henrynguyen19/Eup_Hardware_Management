@@ -148,10 +148,10 @@ function DashboardDonut(props: {
 }) {
   const { daSua, guiBH, khongLoi, hongHan, banGiao } = props
   const segs: Array<{ v: number; c: string; label: string }> = [
-    { v: daSua,    c: '#00AF50', label: 'Da sua' },
-    { v: guiBH,    c: '#f59e0b', label: 'Gui BH' },
-    { v: khongLoi, c: '#3b82f6', label: 'Khong loi' },
-    { v: hongHan,  c: '#ef4444', label: 'Hong han' },
+    { v: daSua,    c: '#00AF50', label: 'Đã sửa · Repaired' },
+    { v: guiBH,    c: '#f59e0b', label: 'Gửi BH · Warranty' },
+    { v: khongLoi, c: '#3b82f6', label: 'Không lỗi · No Fault' },
+    { v: hongHan,  c: '#ef4444', label: 'Hỏng hẳn · Broken' },
   ]
   const total = segs.reduce((s, x) => s + x.v, 0)
   let acc = 0
@@ -170,7 +170,7 @@ function DashboardDonut(props: {
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="w-20 h-20 bg-white rounded-full flex flex-col items-center justify-center">
             <span className="text-xl font-bold text-gray-800">{banGiao}</span>
-            <span className="text-[10px] text-gray-400">ban giao</span>
+            <span className="text-[10px] text-gray-400">bàn giao · delivered</span>
           </div>
         </div>
       </div>
@@ -497,18 +497,18 @@ function AnalyticsSection({
               return hDevices.length > 0 && hFaults.length > 0 ? (
                 <div className="mt-5">
                   <p className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">
-                    Ma tran loi theo thiet bi
-                    <span className="font-normal normal-case text-gray-400 ml-2">({tabTotal} truong hop)</span>
+                    Ma trận lỗi theo thiết bị <span className="font-normal text-gray-400">· Fault Matrix by Device</span>
+                    <span className="font-normal normal-case text-gray-400 ml-2">({tabTotal} trường hợp · cases)</span>
                   </p>
                   <div className="overflow-x-auto">
                     <table className="text-xs border-collapse w-full">
                       <thead>
                         <tr>
-                          <th className="px-3 py-2 text-left text-gray-500 font-semibold bg-gray-50 sticky left-0 z-10 border border-gray-100 min-w-[80px]">Thiet bi</th>
+                          <th className="px-3 py-2 text-left text-gray-500 font-semibold bg-gray-50 sticky left-0 z-10 border border-gray-100 min-w-[80px]">Thiết bị · Device</th>
                           {hFaults.map(ft => (
                             <th key={ft} className="px-2 py-2 text-center text-gray-500 font-medium bg-gray-50 border border-gray-100 min-w-[56px] whitespace-nowrap">{ft}</th>
                           ))}
-                          <th className="px-3 py-2 text-right text-gray-600 font-bold bg-gray-50 border border-gray-100">Tong</th>
+                          <th className="px-3 py-2 text-right text-gray-600 font-bold bg-gray-50 border border-gray-100">Tổng · Total</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -536,7 +536,7 @@ function AnalyticsSection({
                           )
                         })}
                         <tr className="bg-gray-50">
-                          <td className="px-3 py-2 font-bold sticky left-0 bg-gray-50 z-10 border border-gray-100 text-gray-600">Tong</td>
+                          <td className="px-3 py-2 font-bold sticky left-0 bg-gray-50 z-10 border border-gray-100 text-gray-600">Tổng · Total</td>
                           {hFaults.map(ft => {
                             const colTotal = hDevices.reduce((a, dt) => a + cellVal(dt, ft), 0)
                             return <td key={ft} className="px-2 py-2 text-center font-bold border border-gray-100 text-gray-700">{colTotal}</td>
