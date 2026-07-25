@@ -548,10 +548,10 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
 
   // ── Render ────────────────────────────────────────────────────────────────
   const tabs = [
-    { id: 'overview', label: 'Tổng quan' },
-    { id: 'stats',    label: 'Thống kê chi tiết' },
-    { id: 'entry',    label: 'Nhập liệu' },
-    { id: 'sync',     label: 'Đồng bộ GG Sheet' },
+    { id: 'overview', label: 'Tổng quan · Overview' },
+    { id: 'stats',    label: 'Chi tiết · Detailed Stats' },
+    { id: 'entry',    label: 'Nhập liệu · Entry' },
+    { id: 'sync',     label: 'Đồng bộ · Sync Sheet' },
   ] as const
 
   return (
@@ -579,34 +579,34 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
           {/* Filters */}
           <div className="bg-white rounded-lg shadow p-4 flex flex-wrap gap-3 items-end">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Khoảng thời gian</label>
+              <label className="block text-xs text-gray-500 mb-1">Khoảng thời gian · <span className="text-gray-400">Time Range</span></label>
               <select value={dateRange} onChange={e => setDateRange(e.target.value as DateRange)}
                 className="border border-gray-300 rounded px-2 py-1 text-sm">
-                <option value="7d">7 ngày qua</option>
-                <option value="30d">30 ngày qua</option>
-                <option value="month">Tháng này</option>
-                <option value="custom">Tùy chọn</option>
+                <option value="7d">7 ngày qua · Last 7 days</option>
+                <option value="30d">30 ngày qua · Last 30 days</option>
+                <option value="month">Tháng này · This month</option>
+                <option value="custom">Tùy chọn · Custom</option>
               </select>
             </div>
             {dateRange === 'custom' && (
               <>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Từ ngày</label>
+                  <label className="block text-xs text-gray-500 mb-1">Từ ngày · <span className="text-gray-400">From</span></label>
                   <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
                     className="border border-gray-300 rounded px-2 py-1 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Đến ngày</label>
+                  <label className="block text-xs text-gray-500 mb-1">Đến ngày · <span className="text-gray-400">To</span></label>
                   <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
                     className="border border-gray-300 rounded px-2 py-1 text-sm" />
                 </div>
               </>
             )}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Nhân viên</label>
+              <label className="block text-xs text-gray-500 mb-1">Nhân viên · <span className="text-gray-400">Staff</span></label>
               <select value={personFilter} onChange={e => setPersonFilter(e.target.value)}
                 className="border border-gray-300 rounded px-2 py-1 text-sm">
-                <option value="All">Tất cả</option>
+                <option value="All">Tất cả · All</option>
                 {PERSONS.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
@@ -624,8 +624,8 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
 
           {/* Chart */}
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="font-semibold text-gray-700 mb-3">Thống kê theo nhân viên</h3>
-            {loading ? <div className="text-center text-gray-400 py-8">Đang tải...</div> : (
+            <h3 className="font-semibold text-gray-700 mb-3">Thống kê theo nhân viên · <span className="font-normal text-gray-400">Stats by Staff</span></h3>
+            {loading ? <div className="text-center text-gray-400 py-8">Đang tải… · Loading…</div> : (
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -644,14 +644,18 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
           {/* Table */}
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-200">
-              <h3 className="font-semibold text-gray-700">Hoạt động gần đây</h3>
+              <h3 className="font-semibold text-gray-700">Hoạt động gần đây · <span className="font-normal text-gray-400">Recent Activity</span></h3>
             </div>
-            {loading ? <div className="text-center text-gray-400 py-8">Đang tải...</div> : (
+            {loading ? <div className="text-center text-gray-400 py-8">Đang tải… · Loading…</div> : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      {['Ngày', 'Tuần', 'Người', 'UP TP', 'Hàng Gửi', 'Thu Hồi', 'Other', 'Tổng'].map(h => (
+                      {[
+                        'Ngày · Date', 'Tuần · Week', 'Người · Staff',
+                        'UP TP', 'Hàng Gửi · Sent', 'Thu Hồi · Recovered',
+                        'Other', 'Tổng · Total',
+                      ].map(h => (
                         <th key={h} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
                       ))}
                     </tr>
@@ -678,7 +682,7 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
                       </React.Fragment>
                     ))}
                     {sortedRecords.length === 0 && (
-                      <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400">Không có dữ liệu</td></tr>
+                      <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400">Không có dữ liệu · No data</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -689,18 +693,18 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
           {deviceRows.length > 0 && (
             <div className="bg-white rounded-lg shadow overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="font-semibold text-gray-700">Thong ke theo loai thiet bi</h3>
-                <span className="text-xs text-gray-400">{deviceRows.length} loai thiet bi</span>
+                <h3 className="font-semibold text-gray-700">Thống kê theo loại thiết bị · <span className="font-normal text-gray-400">Stats by Device Type</span></h3>
+                <span className="text-xs text-gray-400">{deviceRows.length} loại · device types</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Thiet bi</th>
-                      <th className="px-4 py-2 text-right text-xs font-medium text-blue-600 uppercase">UP Thanh Pham</th>
-                      <th className="px-4 py-2 text-right text-xs font-medium text-emerald-600 uppercase">Hang Gui VP</th>
-                      <th className="px-4 py-2 text-right text-xs font-medium text-red-600 uppercase">Thu Hoi</th>
-                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 uppercase">Tong</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Thiết bị · Device</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-blue-600 uppercase">UP Thành Phẩm · Finished</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-emerald-600 uppercase">Hàng Gửi VP · Sent</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-red-600 uppercase">Thu Hồi · Recovered</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 uppercase">Tổng · Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -716,7 +720,7 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
                   </tbody>
                   <tfoot className="bg-gray-50 border-t-2 border-gray-200">
                     <tr>
-                      <td className="px-4 py-2 text-xs font-semibold text-gray-500">TONG CONG</td>
+                      <td className="px-4 py-2 text-xs font-semibold text-gray-500">TỔNG CỘNG · GRAND TOTAL</td>
                       <td className="px-4 py-2 text-right text-xs font-bold text-blue-700">{deviceRows.reduce((s,r)=>s+r.thanh_pham,0)}</td>
                       <td className="px-4 py-2 text-right text-xs font-bold text-emerald-700">{deviceRows.reduce((s,r)=>s+r.hang_gui,0)}</td>
                       <td className="px-4 py-2 text-right text-xs font-bold text-red-600">{deviceRows.reduce((s,r)=>s+r.thu_hoi,0)}</td>
@@ -736,10 +740,10 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
 
           {/* Xu hướng theo tuần */}
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="font-semibold text-gray-700 mb-1">Xu hướng theo tuần</h3>
-            <p className="text-xs text-gray-400 mb-3">Tổng công việc mỗi tuần theo loại</p>
-            {loading ? <div className="text-center text-gray-400 py-8">Đang tải...</div> :
-             weeklyTrend.length === 0 ? <div className="text-center text-gray-400 py-8">Không có dữ liệu</div> : (
+            <h3 className="font-semibold text-gray-700 mb-1">Xu hướng theo tuần · <span className="font-normal text-gray-400">Weekly Trend</span></h3>
+            <p className="text-xs text-gray-400 mb-3">Tổng công việc mỗi tuần theo loại · Total work per week by category</p>
+            {loading ? <div className="text-center text-gray-400 py-8">Đang tải… · Loading…</div> :
+             weeklyTrend.length === 0 ? <div className="text-center text-gray-400 py-8">Không có dữ liệu · No data</div> : (
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={weeklyTrend} margin={{ top: 5, right: 20, left: 0, bottom: 40 }}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -761,9 +765,9 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
 
             {/* UP Thành Phẩm theo thiết bị */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold text-gray-700 mb-1">UP Thành Phẩm theo thiết bị</h3>
-              <p className="text-xs text-gray-400 mb-3">Số lượng thiết bị đã lên thành phẩm</p>
-              {deviceThanhPhamChart.length === 0 ? <div className="text-center text-gray-400 py-8 text-sm">Không có dữ liệu</div> : (
+              <h3 className="font-semibold text-gray-700 mb-1">UP Thành Phẩm theo thiết bị · <span className="font-normal text-gray-400">Finished Products by Device</span></h3>
+              <p className="text-xs text-gray-400 mb-3">Số lượng thiết bị đã lên thành phẩm · Devices completed</p>
+              {deviceThanhPhamChart.length === 0 ? <div className="text-center text-gray-400 py-8 text-sm">Không có dữ liệu · No data</div> : (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={deviceThanhPhamChart} layout="vertical" margin={{ top: 0, right: 30, left: 60, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
@@ -800,9 +804,9 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
 
             {/* Hàng Gửi VP theo thiết bị */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold text-gray-700 mb-1">Hàng Gửi VP theo thiết bị</h3>
-              <p className="text-xs text-gray-400 mb-3">Số lượng thiết bị đã gửi văn phòng</p>
-              {deviceHangGuiChart.length === 0 ? <div className="text-center text-gray-400 py-8 text-sm">Không có dữ liệu</div> : (
+              <h3 className="font-semibold text-gray-700 mb-1">Hàng Gửi VP theo thiết bị · <span className="font-normal text-gray-400">Sent to Office by Device</span></h3>
+              <p className="text-xs text-gray-400 mb-3">Số lượng thiết bị đã gửi văn phòng · Devices sent to office</p>
+              {deviceHangGuiChart.length === 0 ? <div className="text-center text-gray-400 py-8 text-sm">Không có dữ liệu · No data</div> : (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={deviceHangGuiChart} layout="vertical" margin={{ top: 0, right: 30, left: 60, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
@@ -835,9 +839,9 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
 
           {/* Thu Hồi theo thiết bị & trạng thái */}
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="font-semibold text-gray-700 mb-1">Thu Hồi theo thiết bị & trạng thái</h3>
-            <p className="text-xs text-gray-400 mb-3">Phân loại thiết bị thu hồi: dùng được / không dùng được / đang kiểm tra</p>
-            {deviceThuHoiChart.length === 0 ? <div className="text-center text-gray-400 py-8 text-sm">Không có dữ liệu</div> : (
+            <h3 className="font-semibold text-gray-700 mb-1">Thu Hồi theo thiết bị & trạng thái · <span className="font-normal text-gray-400">Recovery by Device & Status</span></h3>
+            <p className="text-xs text-gray-400 mb-3">Dùng được · Usable / Không dùng được · Unusable / Đang kiểm tra · Under inspection</p>
+            {deviceThuHoiChart.length === 0 ? <div className="text-center text-gray-400 py-8 text-sm">Không có dữ liệu · No data</div> : (
               <ResponsiveContainer width="100%" height={Math.max(180, deviceThuHoiChart.length * 44)}>
                 <BarChart data={deviceThuHoiChart} layout="vertical" margin={{ top: 0, right: 30, left: 80, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} />
@@ -858,8 +862,8 @@ export default function KhoDailyDashboard(_props: KhoDailyProps = {}) {
 
             {/* Performance nhân viên */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold text-gray-700 mb-1">Performance nhân viên</h3>
-              <p className="text-xs text-gray-400 mb-3">Tổng đóng góp mỗi nhân viên theo khoảng thời gian đã chọn</p>
+              <h3 className="font-semibold text-gray-700 mb-1">Performance nhân viên · <span className="font-normal text-gray-400">Staff Performance</span></h3>
+              <p className="text-xs text-gray-400 mb-3">Tổng đóng góp mỗi nhân viên · Total contribution per staff member</p>
               {loading ? <div className="text-center text-gray-400 py-8">Đang tải...</div> : (
                 <>
                   <ResponsiveContainer width="100%" height={220}>
