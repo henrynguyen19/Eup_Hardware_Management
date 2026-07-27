@@ -11,6 +11,7 @@ interface CartItem    { device_name: string; quantity: number; customer_codes: s
 interface DonItem     { id: string; device_name: string; quantity: number; customer_codes?: string[]; expected_receipt?: string; sheet_row?: number; device_serials?: string[]; combo_name?: string }
 interface SerialCRMResult {
   serial: string; ok: boolean; transferred: boolean
+  crmStatus: string   // 'HAVE' | 'TRANS' | ''
   productName: string; sourceStock: string; destStock: string
   updateTime: string; updateMan: string; error?: string
 }
@@ -1607,18 +1608,29 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
             <div className="flex items-start gap-3">
               <span className="text-3xl leading-none mt-0.5">⚠️</span>
               <div>
-                <div className="font-semibold text-gray-800 text-base">Chưa chuyển kho</div>
-                <div className="text-sm text-gray-500 mt-0.5">Các thiết bị sau vẫn đang ở kho công ty, chưa được chuyển đến kho người nhận:</div>
+                <div className="font-semibold text-gray-800 text-base">Thiết bị chưa hoàn tất chuyển kho</div>
+                <div className="text-sm text-gray-500 mt-0.5">Các thiết bị sau chưa sẵn sàng để xác nhận đã nhận:</div>
               </div>
             </div>
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-1.5">
-              {crmWarningResults.map(r => (
-                <div key={r.serial} className="flex items-center gap-2 text-xs">
-                  <span className="font-mono bg-white border border-orange-200 rounded px-1.5 py-0.5 text-orange-800">{r.serial}</span>
-                  <span className="text-orange-600">⏳ {r.sourceStock || 'Kho công ty'}</span>
-                  {r.productName && <span className="text-gray-400 truncate">{r.productName}</span>}
-                </div>
-              ))}
+            <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2">
+              {crmWarningResults.map(r => {
+                const isInTransit = r.crmStatus === 'TRANS'
+                return (
+                  <div key={r.serial} className="text-xs space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono bg-white border border-orange-200 rounded px-1.5 py-0.5 text-orange-800">{r.serial}</span>
+                      {r.productName && <span className="text-gray-500 truncate">{r.productName}</span>}
+                    </div>
+                    <div className="pl-0.5">
+                      {isInTransit ? (
+                        <span className="text-blue-600">🔄 Đang chuyển kho — người nhận chưa nhận ({r.sourceStock} → {r.destStock || '?'})</span>
+                      ) : (
+                        <span className="text-orange-600">🏭 Vẫn ở kho công ty: {r.sourceStock}</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
             <div className="text-sm text-gray-600">Bạn vẫn muốn chuyển sang <span className="font-semibold text-green-700">Đã nhận</span>?</div>
             <div className="flex gap-2">

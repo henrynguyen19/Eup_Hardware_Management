@@ -47,11 +47,18 @@ export interface SerialCheckResult {
   serial:       string
   ok:           boolean
   productName:  string
+  crmStatus:    string    // 'HAVE' | 'TRANS' | ''
   sourceStock:  string
   destStock:    string
   updateTime:   string
   updateMan:    string
-  transferred:  boolean   // true = đã chuyển ra khỏi kho công ty
+  /**
+   * true  = đã chuyển cho người nhận (HAVE + kho ngoài công ty)
+   * false = chưa chuyển:
+   *   crmStatus=TRANS → đang chuyển, người nhận chưa nhận
+   *   crmStatus=HAVE  → vẫn ở kho công ty
+   */
+  transferred:  boolean
   error?:       string
 }
 
@@ -103,22 +110,27 @@ export async function POST(req: NextRequest) {
         const res = await getStockupDetail(serial)
         if (!res.ok || !Array.isArray(res.result) || res.result.length === 0) {
           return {
-            serial, ok: false, productName: '', sourceStock: '', destStock: '',
+            serial, ok: false, productName: '', crmStatus: '', sourceStock: '', destStock: '',
             updateTime: '', updateMan: '', transferred: false,
             error: (res as { error?: string }).error ?? 'Không tìm thấy',
           }
         }
         const s = res.result[0] as Record<string, unknown>
         const sourceStock = String(s.SourceStock ?? '')
+        const crmStatus   = String(s.Status      ?? '').toUpperCase()
+        // transferred = true chỉ khi HAVE + kho ngoài công ty
+        // TRANS = đang chuyển, người nhận chưa nhận → chưa hoàn tất
+        const transferred = crmStatus === 'HAVE' && !isCompanyWarehouse(sourceStock)
         return {
           serial,
           ok:          true,
           productName: String(s.ProductName    ?? ''),
+          crmStatus,
           sourceStock,
           destStock:   String(s.DestStock      ?? ''),
           updateTime:  String(s.UpdateTime     ?? ''),
           updateMan:   String(s.UpdateMan      ?? ''),
-          transferred: !isCompanyWarehouse(sourceStock),
+          transferred,
         }
       }))
       results.push(...chunkResults)
