@@ -1004,20 +1004,21 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
 
   function confirm() {
     if (!serialsOnly) {
-      // Thiết bị cần mã (GPS Tracker) phải nhập đủ serial trước khi gửi
-      const missing: string[] = []
+      // IMEI không còn bắt buộc nhập tay — có thể load từ CRM qua tab Kiểm tra kho
+      // Nếu có nhập thì kiểm tra cảnh báo (không chặn)
+      const partial: string[] = []
       for (const item of order.giao_hang_don_items) {
         const dtype = deviceTypes[item.device_name] ?? ''
         if (GPS_NEEDS_SERIAL.includes(dtype)) {
           const filled = (itemSerials[item.id] ?? []).filter(Boolean).length
-          if (filled < item.quantity) {
-            missing.push(`${item.device_name} (${filled}/${item.quantity} mã)`)
+          if (filled > 0 && filled < item.quantity) {
+            partial.push(`${item.device_name} (${filled}/${item.quantity})`)
           }
         }
       }
-      if (missing.length > 0) {
-        setValidationError(`Chưa nhập đủ mã IMEI cho: ${missing.join(' · ')}`)
-        return
+      if (partial.length > 0) {
+        setValidationError(`Mới nhập một phần IMEI: ${partial.join(' · ')} — vẫn tiếp tục?`)
+        // Không return — cho phép confirm luôn (IMEI bổ sung qua tab Kiểm tra kho)
       }
     }
     setValidationError(null)
@@ -2222,17 +2223,18 @@ function TabRecipients() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TAB — KIỂM TRA HÀNG CHỜ KHO KỸ THUẬT · WAREHOUSE QUEUE CHECK
+// TAB — KIỂM TRA HÀNG CHỜ KHO · WAREHOUSE QUEUE CHECK
 // ══════════════════════════════════════════════════════════════════════════════
 
 const WHC_LIST = [
-  { id: 2, label: 'HN Kỹ thuật',    en: 'HN Technical' },
-  { id: 3, label: 'HCM Kỹ thuật',   en: 'HCM Technical' },
-  { id: 4, label: 'Bình Dương KT',  en: 'Binh Duong Technical' },
-  { id: 5, label: 'Hải Phòng KT',   en: 'Hai Phong Technical' },
-  { id: 6, label: 'Đà Nẵng KT',     en: 'Da Nang Technical' },
-  { id: 7, label: 'Quảng Ninh KT',  en: 'Quang Ninh Technical' },
-  { id: 1, label: 'Kho Công ty',    en: 'Company' },
+  { id:  2, label: 'HN technical' },
+  { id:  3, label: 'HCM technical' },
+  { id:  4, label: 'Binh Duong technical' },
+  { id:  5, label: 'Hai Phong technical' },
+  { id:  6, label: 'Đà nẵng technical' },
+  { id:  7, label: 'Quảng ninh technical' },
+  { id:  1, label: 'Company' },
+  { id: -1, label: 'Other' },
 ]
 
 const KIND_LABEL: Record<number, string> = {
@@ -2246,17 +2248,42 @@ interface WhItem   { whId: number; whName: string; whSort: number }
 interface WqProd   { productName: string; productNumber: string; stockupKind: number; waitCount: number; transCount: number; whName: string }
 interface WqDevice { barcode: string; productName: string; carUnicode: string; sourceStock: string; destStock: string; status: string; updateMan: string; stockupKind: number; productNumber: string }
 
+// Kết quả so khớp từng item của đơn với thiết bị CRM
+interface OrderItemMatch {
+  itemId:      string
+  deviceName:  string
+  quantity:    number
+  assigned:    string[]   // barcodes từ CRM tự động khớp
+  available:   number     // tổng CRM devices khớp
+  matched:     boolean    // assigned.length === quantity
+}
+interface OrderMatch {
+  order:      DonHang
+  items:      OrderItemMatch[]
+  allMatched: boolean
+}
+
+/** So sánh tên device (order) với productName (CRM) — case-insensitive, flexible */
+function deviceNamesMatch(orderName: string, crmName: string): boolean {
+  const a = orderName.toLowerCase().trim()
+  const b = crmName.toLowerCase().trim()
+  return a === b || b.includes(a) || a.includes(b)
+}
+
 function TabWarehouseQueue() {
-  const [whcId,     setWhcId]     = useState<number>(2)
-  const [whList,    setWhList]    = useState<WhItem[]>([])
-  const [whId,      setWhId]      = useState<number | null>(null)
-  const [loadingWh, setLoadingWh] = useState(false)
-  const [loading,   setLoading]   = useState(false)
-  const [products,  setProducts]  = useState<WqProd[]>([])
-  const [devices,   setDevices]   = useState<WqDevice[]>([])
-  const [checkedAt, setCheckedAt] = useState<string | null>(null)
-  const [error,     setError]     = useState<string | null>(null)
-  const [openKinds, setOpenKinds] = useState<Set<number>>(new Set([-1, 0, 2, 3]))
+  const [whcId,        setWhcId]        = useState<number>(2)
+  const [whList,       setWhList]       = useState<WhItem[]>([])
+  const [whId,         setWhId]         = useState<number | null>(null)
+  const [loadingWh,    setLoadingWh]    = useState(false)
+  const [loading,      setLoading]      = useState(false)
+  const [products,     setProducts]     = useState<WqProd[]>([])
+  const [devices,      setDevices]      = useState<WqDevice[]>([])
+  const [pendingOrders,setPendingOrders]= useState<DonHang[]>([])
+  const [checkedAt,    setCheckedAt]    = useState<string | null>(null)
+  const [error,        setError]        = useState<string | null>(null)
+  const [openKinds,    setOpenKinds]    = useState<Set<number>>(new Set([-1, 0, 2, 3]))
+  const [confirming,   setConfirming]   = useState<string | null>(null)   // orderId
+  const [confirmed,    setConfirmed]    = useState<Set<string>>(new Set())
 
   // Load danh sách kho khi đổi WHC
   const loadWarehouses = useCallback(async (wid: number) => {
@@ -2268,7 +2295,6 @@ function TabWarehouseQueue() {
       if (d.ok && Array.isArray(d.warehouses)) {
         const list: WhItem[] = d.warehouses
         setWhList(list)
-        // Mặc định chọn kho đầu tiên (WH_Sort=1)
         const first = list.find(w => w.whSort === 1) ?? list[0]
         if (first) setWhId(first.whId)
       } else {
@@ -2284,11 +2310,19 @@ function TabWarehouseQueue() {
     if (!whId) { setError('Chọn kho trước'); return }
     setLoading(true); setError(null); setProducts([]); setDevices([])
     try {
-      const r = await fetch(`/api/giao-hang/warehouse-queue?whc_id=${whcId}&wh_id=${whId}`)
-      const d = await r.json()
-      if (!r.ok || !d.ok) { setError(d.error ?? 'Lỗi CRM'); return }
-      setProducts(d.products ?? [])
-      setDevices(d.devices   ?? [])
+      // Load CRM queue + pending orders song song
+      const [qRes, ordRes] = await Promise.all([
+        fetch(`/api/giao-hang/warehouse-queue?whc_id=${whcId}&wh_id=${whId}`).then(r => r.json()),
+        fetch('/api/giao-hang/don-hang?mine=0&limit=100').then(r => r.json()),
+      ])
+      if (!qRes.ok) { setError(qRes.error ?? 'Lỗi CRM'); return }
+      setProducts(qRes.products ?? [])
+      setDevices(qRes.devices   ?? [])
+      // Chỉ lấy đơn chưa gửi / đang xử lý
+      const pending = (ordRes.orders ?? []).filter((o: DonHang) =>
+        o.status === 'cho_xu_ly' || o.status === 'dang_xu_ly'
+      )
+      setPendingOrders(pending)
       setCheckedAt(new Date().toLocaleTimeString('vi-VN'))
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
@@ -2298,17 +2332,67 @@ function TabWarehouseQueue() {
     setOpenKinds(prev => { const s = new Set(prev); s.has(k) ? s.delete(k) : s.add(k); return s })
   }
 
+  // ── So khớp CRM devices với đơn hàng ──────────────────────────────────────
+  const orderMatches: OrderMatch[] = (() => {
+    if (!devices.length || !pendingOrders.length) return []
+    // Tạo pool: productName (lower) → [barcodes] (có thể dùng)
+    const pool: Record<string, string[]> = {}
+    for (const dev of devices) {
+      const bc = dev.barcode || dev.carUnicode
+      if (!bc) continue
+      const key = dev.productName.toLowerCase()
+      ;(pool[key] ??= []).push(bc)
+    }
+    const usedBarcodes = new Set<string>()
+
+    return pendingOrders.map(order => {
+      const items: OrderItemMatch[] = order.giao_hang_don_items.map(item => {
+        // Tìm key trong pool khớp với device_name
+        const matchKey = Object.keys(pool).find(k => deviceNamesMatch(item.device_name, k))
+        const available = matchKey ? pool[matchKey].filter(b => !usedBarcodes.has(b)).length : 0
+        // Gán barcodes chưa dùng
+        let assigned: string[] = []
+        if (matchKey) {
+          assigned = pool[matchKey]
+            .filter(b => !usedBarcodes.has(b))
+            .slice(0, item.quantity)
+          assigned.forEach(b => usedBarcodes.add(b))
+        }
+        return { itemId: item.id, deviceName: item.device_name, quantity: item.quantity, assigned, available, matched: assigned.length === item.quantity }
+      })
+      return { order, items, allMatched: items.every(i => i.matched || i.available === 0) }
+    }).filter(m => m.items.some(i => i.available > 0))
+  })()
+
+  // ── Xác nhận gửi đơn — tự điền IMEI từ CRM ───────────────────────────────
+  async function confirmOrder(match: OrderMatch) {
+    setConfirming(match.order.id)
+    try {
+      const item_serials = match.items.map(i => ({ item_id: i.itemId, serials: i.assigned }))
+      const res = await fetch('/api/giao-hang/don-hang', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: match.order.id, status: 'da_gui', item_serials }),
+      })
+      if (res.ok) setConfirmed(prev => new Set([...prev, match.order.id]))
+      else {
+        const d = await res.json()
+        setError(d.error ?? 'Lỗi khi xác nhận')
+      }
+    } catch (e) { setError(String(e)) }
+    finally { setConfirming(null) }
+  }
+
   const totalWait = products.reduce((a, p) => a + p.waitCount, 0)
   const devByKind: Record<number, WqDevice[]> = {}
   const prodByKind: Record<number, WqProd[]>  = {}
-  for (const d of devices) { (devByKind[d.stockupKind] ??= []).push(d) }
-  for (const p of products){ (prodByKind[p.stockupKind] ??= []).push(p) }
-  const usedKinds = [...new Set([...products.map(p => p.stockupKind)])].sort((a,b) => a - b)
+  for (const d of devices)  { (devByKind[d.stockupKind]  ??= []).push(d) }
+  for (const p of products) { (prodByKind[p.stockupKind] ??= []).push(p) }
+  const usedKinds = [...new Set(products.map(p => p.stockupKind))].sort((a,b) => a - b)
 
-  const whcName   = WHC_LIST.find(w => w.id === whcId)?.label ?? `WHC ${whcId}`
-  const whName    = whList.find(w => w.whId === whId)?.whName ?? (whId ? `WH ${whId}` : '—')
+  const whcName = WHC_LIST.find(w => w.id === whcId)?.label ?? `WHC ${whcId}`
+  const whName  = whList.find(w => w.whId === whId)?.whName ?? (whId ? `WH ${whId}` : '—')
 
-  // Sort: WH_Sort=1 lên đầu (kho chính), 2 (KTV), 3 (sales/customer)
   const sortLabels: Record<number, string> = { 1: 'Kho chính', 2: 'Kỹ thuật viên', 3: 'Sales / Customer' }
   const groupedWh = whList.reduce<Record<number, WhItem[]>>((acc, w) => {
     (acc[w.whSort] ??= []).push(w); return acc
@@ -2318,15 +2402,14 @@ function TabWarehouseQueue() {
     <div className="space-y-4">
       <div>
         <div className="text-sm font-semibold text-gray-700">Kiểm tra hàng chờ · Warehouse Queue</div>
-        <div className="text-xs text-gray-400 mt-0.5">Xem thiết bị đang chờ nhận tại kho kỹ thuật (StockupType=1 · Wait)</div>
+        <div className="text-xs text-gray-400 mt-0.5">Xem IMEI thiết bị chờ nhận, so sánh với đơn hàng và xác nhận gửi</div>
       </div>
 
       {/* Controls */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-          {/* WHC selector */}
           <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1">Trung tâm kỹ thuật · Center</label>
+            <label className="text-xs font-medium text-gray-500 block mb-1">Kho tổng · WHC</label>
             <select value={whcId} onChange={e => setWhcId(Number(e.target.value))}
               className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:outline-none">
               {WHC_LIST.map(c => (
@@ -2334,12 +2417,9 @@ function TabWarehouseQueue() {
               ))}
             </select>
           </div>
-
-          {/* WH selector — dynamic */}
           <div>
             <label className="text-xs font-medium text-gray-500 block mb-1">
-              Kho · Warehouse
-              {loadingWh && <span className="ml-1 text-gray-400">(đang tải…)</span>}
+              Kho con · Warehouse {loadingWh && <span className="text-gray-400">(đang tải…)</span>}
             </label>
             <select value={whId ?? ''} onChange={e => setWhId(Number(e.target.value))}
               disabled={loadingWh || whList.length === 0}
@@ -2347,15 +2427,11 @@ function TabWarehouseQueue() {
               {whList.length === 0 && <option value="">—</option>}
               {Object.entries(groupedWh).sort(([a],[b]) => Number(a)-Number(b)).map(([sort, items]) => (
                 <optgroup key={sort} label={sortLabels[Number(sort)] ?? `Nhóm ${sort}`}>
-                  {items.map(w => (
-                    <option key={w.whId} value={w.whId}>[{w.whId}] {w.whName}</option>
-                  ))}
+                  {items.map(w => <option key={w.whId} value={w.whId}>[{w.whId}] {w.whName}</option>)}
                 </optgroup>
               ))}
             </select>
           </div>
-
-          {/* Check button */}
           <button onClick={doCheck} disabled={loading || loadingWh || !whId}
             className="py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors">
             {loading ? '⏳ Đang kiểm tra…' : '🔍 Kiểm tra'}
@@ -2363,33 +2439,104 @@ function TabWarehouseQueue() {
         </div>
       </div>
 
-      {/* Error */}
       {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">⚠️ {error}</div>}
 
-      {/* Results */}
       {checkedAt && (
-        <div className="space-y-3">
-          {/* Summary */}
+        <div className="space-y-4">
+          {/* Summary bar */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2 text-sm">
               <span className="font-bold text-indigo-700 text-lg">{totalWait}</span>
-              <span className="text-indigo-500 ml-1">thiết bị chờ nhận · waiting</span>
+              <span className="text-indigo-500 ml-1">thiết bị chờ · waiting</span>
             </div>
+            {orderMatches.length > 0 && (
+              <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2 text-sm">
+                <span className="font-bold text-green-700 text-lg">{orderMatches.length}</span>
+                <span className="text-green-500 ml-1">đơn có thể khớp · matched orders</span>
+              </div>
+            )}
             <div className="text-xs text-gray-400">
-              {whcName} · <span className="font-medium text-gray-600">{whName}</span>
-              <span className="ml-1">(WH_ID: {whId})</span>
-              · {checkedAt}
+              {whcName} · <span className="font-medium text-gray-600">{whName}</span> · {checkedAt}
             </div>
             <button onClick={doCheck} disabled={loading}
-              className="ml-auto px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors">
+              className="ml-auto px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">
               🔄 Làm mới
             </button>
           </div>
 
-          {totalWait === 0 ? (
-            <div className="text-center text-gray-400 py-12 text-sm">✅ Không có thiết bị chờ nhận · No items waiting</div>
-          ) : (
-            <div className="space-y-3">
+          {/* ── SECTION 1: So khớp với đơn hàng ────────────────────────────── */}
+          {orderMatches.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                So sánh với đơn hàng đang xử lý · Order Matching
+              </div>
+              {orderMatches.map(match => {
+                const isDone = confirmed.has(match.order.id)
+                const isConfirming = confirming === match.order.id
+                return (
+                  <div key={match.order.id}
+                    className={`bg-white border rounded-xl p-4 space-y-3 ${isDone ? 'border-green-300 opacity-60' : 'border-gray-200'}`}>
+                    {/* Order header */}
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div>
+                        <span className="font-semibold text-gray-800 text-sm">{match.order.order_code}</span>
+                        <span className="ml-2 text-xs text-gray-400">{match.order.office}</span>
+                        {match.order.recipient_info && (
+                          <span className="ml-2 text-xs text-gray-400">→ {match.order.recipient_info}</span>
+                        )}
+                      </div>
+                      {isDone ? (
+                        <span className="text-green-600 text-xs font-semibold">✅ Đã xác nhận gửi</span>
+                      ) : (
+                        <button
+                          onClick={() => confirmOrder(match)}
+                          disabled={isConfirming || !match.items.some(i => i.assigned.length > 0)}
+                          className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
+                          {isConfirming ? '⏳ Đang gửi…' : '✅ Xác nhận gửi + lưu IMEI'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Item matches */}
+                    <div className="space-y-2">
+                      {match.items.map(item => (
+                        <div key={item.itemId} className="text-xs space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-gray-700">{item.deviceName}</span>
+                            <span className="text-gray-400">× {item.quantity}</span>
+                            {item.assigned.length === item.quantity ? (
+                              <span className="text-green-600 font-semibold">✅ Đủ {item.quantity} IMEI</span>
+                            ) : item.assigned.length > 0 ? (
+                              <span className="text-amber-600 font-semibold">⚠️ {item.assigned.length}/{item.quantity} IMEI</span>
+                            ) : (
+                              <span className="text-gray-400 italic">Không tìm thấy trong kho</span>
+                            )}
+                          </div>
+                          {item.assigned.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pl-2">
+                              {item.assigned.map(bc => (
+                                <span key={bc}
+                                  className="font-mono bg-green-50 border border-green-200 text-green-800 rounded px-1.5 py-0.5">
+                                  {bc}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* ── SECTION 2: Danh sách đầy đủ từ CRM ─────────────────────────── */}
+          {totalWait > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Danh sách IMEI từ CRM · All Waiting Devices
+              </div>
               {usedKinds.map(kind => {
                 const kProds = prodByKind[kind] ?? []
                 const kDevs  = devByKind[kind]  ?? []
@@ -2398,55 +2545,46 @@ function TabWarehouseQueue() {
                 return (
                   <div key={kind} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                     <button onClick={() => toggleKind(kind)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
+                      className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 transition-colors">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-gray-700">{KIND_LABEL[kind] ?? `Kind ${kind}`}</span>
                         <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">{kWait} chờ</span>
                       </div>
                       <span className="text-gray-400 text-xs">{isOpen ? '▲' : '▼'}</span>
                     </button>
-
                     {isOpen && (
                       <div className="border-t border-gray-100 divide-y divide-gray-50">
                         {kProds.map(prod => {
                           const pDevs = kDevs.filter(d => d.productNumber === prod.productNumber)
                           return (
                             <div key={prod.productNumber} className="px-4 py-3 space-y-2">
-                              {/* Product row */}
                               <div className="flex items-center justify-between flex-wrap gap-2">
                                 <div>
                                   <span className="text-sm font-semibold text-gray-800">{prod.productName}</span>
-                                  <span className="ml-2 text-xs text-gray-400">#{prod.productNumber}</span>
-                                  {prod.whName && <span className="ml-2 text-xs text-gray-400">· {prod.whName}</span>}
+                                  <span className="ml-1.5 text-xs text-gray-400">#{prod.productNumber}</span>
                                 </div>
-                                <div className="flex gap-2 text-xs">
-                                  <span className="bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded-full font-medium">⏳ {prod.waitCount} chờ</span>
-                                  {prod.transCount > 0 && (
-                                    <span className="bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5 rounded-full font-medium">🔄 {prod.transCount} đang chuyển</span>
-                                  )}
+                                <div className="flex gap-1.5 text-xs">
+                                  <span className="bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded-full">⏳ {prod.waitCount}</span>
+                                  {prod.transCount > 0 && <span className="bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5 rounded-full">🔄 {prod.transCount}</span>}
                                 </div>
                               </div>
-                              {/* Device list */}
                               {pDevs.length > 0 ? (
                                 <div className="space-y-1">
                                   {pDevs.map((dev, i) => (
                                     <div key={i} className="flex items-center gap-2 text-xs bg-gray-50 rounded-lg px-3 py-1.5 flex-wrap">
-                                      <span className="font-mono bg-white border border-gray-200 rounded px-1.5 py-0.5 text-gray-800 font-semibold">
+                                      <span className="font-mono bg-white border border-gray-200 rounded px-1.5 py-0.5 text-gray-800 font-semibold select-all">
                                         {dev.barcode || dev.carUnicode || '—'}
                                       </span>
                                       {dev.status === 'TRANS'
                                         ? <span className="text-blue-600">🔄 Đang chuyển</span>
-                                        : <span className="text-amber-600">⏳ Chờ nhận</span>
-                                      }
-                                      {dev.sourceStock && (
-                                        <span className="text-gray-400">{dev.sourceStock} → {dev.destStock || '?'}</span>
-                                      )}
+                                        : <span className="text-amber-600">⏳ Chờ nhận</span>}
+                                      {dev.sourceStock && <span className="text-gray-400">{dev.sourceStock} → {dev.destStock || '?'}</span>}
                                       {dev.updateMan && <span className="text-gray-400 ml-auto">{dev.updateMan}</span>}
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <div className="text-xs text-gray-400 italic pl-1">(không lấy được chi tiết barcode)</div>
+                                <div className="text-xs text-gray-400 italic pl-1">Không lấy được barcode chi tiết</div>
                               )}
                             </div>
                           )
@@ -2457,6 +2595,10 @@ function TabWarehouseQueue() {
                 )
               })}
             </div>
+          )}
+
+          {totalWait === 0 && (
+            <div className="text-center text-gray-400 py-12 text-sm">✅ Không có thiết bị chờ nhận · No items waiting</div>
           )}
         </div>
       )}
