@@ -255,8 +255,8 @@ export default function DepartmentsManager() {
       `/api/admin/departments/${dept.id}/user-dept-permissions?userId=${member.user_id}`
     ).then(r => r.json())
     const saved: string[] = res.permissions ?? []
-    // Chưa có setting → mặc định full quyền của phòng
-    setUserPerms(saved.length > 0 ? saved : ceiling)
+    // Hiển thị đúng những gì đã lưu — KHÔNG auto-check ceiling để tránh nhầm lẫn
+    setUserPerms(saved)
     setLoadingPerms(false)
   }
 
