@@ -1308,30 +1308,45 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
   const [search, setSearch]   = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [serialModal, setSerialModal] = useState<DonHang | null>(null)
   const [serialOnlyModal, setSerialOnlyModal] = useState<DonHang | null>(null)
-  const [crmResults, setCrmResults] = useState<Record<string, SerialCRMResult[]>>({})
+  const [crmResults, setCrmResults]   = useState<Record<string, SerialCRMResult[]>>({})
   const [crmChecking, setCrmChecking] = useState<Set<string>>(new Set())
+  const [checkingAll, setCheckingAll] = useState(false)
   const [daRightWarning, setDaRightWarning] = useState<DonHang | null>(null)
   const [crmWarningResults, setCrmWarningResults] = useState<SerialCRMResult[]>([])
+  const autoCheckedRef = useRef(false)
 
   const load = useCallback(() => {
     setLoading(true)
     const params = new URLSearchParams({ mine: '0' })
     if (search) params.set('search', search)
     if (statusFilter) params.set('status', statusFilter)
-    fetch(`/api/giao-hang/don-hang?${params}`).then(r => r.json())
-      .then(d => setOrders(d.orders ?? []))
+    return fetch(`/api/giao-hang/don-hang?${params}`).then(r => r.json())
+      .then(d => { setOrders(d.orders ?? []); return d.orders ?? [] as DonHang[] })
       .finally(() => setLoading(false))
   }, [search, statusFilter])
 
-  useEffect(() => { load() }, [load])
+  // Auto-check đơn đã gửi khi tab mở lần đầu
+  useEffect(() => {
+    load().then((orderList: DonHang[]) => {
+      if (autoCheckedRef.current) return
+      autoCheckedRef.current = true
+      autoCheckSentOrders(orderList)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function updateStatus(id: string, status: string, itemSerials?: { item_id: string; serials: string[] }[], trackingCode?: string) {
+  // Reload khi filter thay đổi (không auto-check lại)
+  useEffect(() => {
+    if (!autoCheckedRef.current) return  // bỏ qua lần mount đầu (đã handle ở trên)
+    load()
+  }, [load])
+
+  async function updateStatus(id: string, status: string, itemSerials?: { item_id: string; serials: string[] }[]) {
     await fetch('/api/giao-hang/don-hang', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status, item_serials: itemSerials, tracking_code: trackingCode }),
+      body: JSON.stringify({ id, status, item_serials: itemSerials }),
     })
     load()
   }
@@ -1345,23 +1360,51 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
     load()
   }
 
-  async function checkCRM(order: DonHang) {
+  /** Batch-check một đơn, hiển thị kết quả, auto-update da_nhan nếu tất cả đã chuyển */
+  async function checkCRMOrder(order: DonHang, autoUpdate = false) {
     const serials = order.giao_hang_don_items.flatMap(i => i.device_serials ?? []).filter(Boolean)
-    if (serials.length === 0) return
+    if (serials.length === 0) {
+      if (autoUpdate) await updateStatus(order.id, 'da_nhan')
+      return
+    }
     setCrmChecking(prev => new Set([...prev, order.id]))
     try {
       const res = await fetch('/api/giao-hang/batch-crm-check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serials }),
       })
       const d = await res.json()
       if (d.ok) {
-        setCrmResults(prev => ({ ...prev, [order.id]: d.results }))
+        const results = d.results as SerialCRMResult[]
+        setCrmResults(prev => ({ ...prev, [order.id]: results }))
+        if (autoUpdate) {
+          const checked = results.filter(r => r.ok)
+          if (checked.length > 0 && checked.every(r => r.transferred)) {
+            await updateStatus(order.id, 'da_nhan')
+          }
+        }
       }
     } finally {
       setCrmChecking(prev => { const n = new Set(prev); n.delete(order.id); return n })
     }
+  }
+
+  /** Auto-check toàn bộ đơn da_gui khi tải trang */
+  async function autoCheckSentOrders(orderList: DonHang[]) {
+    const sentOrders = orderList.filter(o => o.status === 'da_gui' &&
+      o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0))
+    if (sentOrders.length === 0) return
+    // Chạy song song
+    await Promise.all(sentOrders.map(o => checkCRMOrder(o, true)))
+  }
+
+  /** Manual: check tất cả đơn đã gửi */
+  async function checkAllSent() {
+    setCheckingAll(true)
+    const sentOrders = orders.filter(o => o.status === 'da_gui' &&
+      o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0))
+    await Promise.all(sentOrders.map(o => checkCRMOrder(o, true)))
+    setCheckingAll(false)
   }
 
   async function checkCRMAndWarn(order: DonHang) {
@@ -1370,13 +1413,14 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
     setCrmChecking(prev => new Set([...prev, order.id]))
     try {
       const res = await fetch('/api/giao-hang/batch-crm-check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serials }),
       })
       const d = await res.json()
       if (d.ok) {
-        const notTransferred = (d.results as SerialCRMResult[]).filter(r => r.ok && !r.transferred)
+        const results = d.results as SerialCRMResult[]
+        setCrmResults(prev => ({ ...prev, [order.id]: results }))
+        const notTransferred = results.filter(r => r.ok && !r.transferred)
         if (notTransferred.length > 0) {
           setCrmWarningResults(notTransferred)
           setDaRightWarning(order)
@@ -1384,19 +1428,17 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
         }
       }
       updateStatus(order.id, 'da_nhan')
-    } catch {
-      updateStatus(order.id, 'da_nhan')
-    } finally {
+    } catch { updateStatus(order.id, 'da_nhan') }
+    finally {
       setCrmChecking(prev => { const n = new Set(prev); n.delete(order.id); return n })
     }
   }
 
   function handleStatusClick(order: DonHang, status: string) {
-    if (status === 'da_gui') {
-      setSerialModal(order)
-    } else if (status === 'da_nhan') {
+    if (status === 'da_nhan') {
       checkCRMAndWarn(order)
     } else {
+      // da_gui và các trạng thái khác: update trực tiếp (IMEI đã lưu từ bước kiểm kho)
       updateStatus(order.id, status)
     }
   }
@@ -1404,9 +1446,18 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <input className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          placeholder="🔍 Tìm theo người đặt, mã đơn, văn phòng…"
-          value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="flex gap-2">
+          <input className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            placeholder="🔍 Tìm theo người đặt, mã đơn, văn phòng…"
+            value={search} onChange={e => setSearch(e.target.value)} />
+          {isKho && (
+            <button onClick={checkAllSent} disabled={checkingAll}
+              title="Kiểm tra CRM tất cả đơn Đã gửi, tự động cập nhật Đã nhận nếu đã chuyển kho"
+              className="flex-shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors whitespace-nowrap">
+              {checkingAll ? '⏳ Đang check…' : '📡 Check tất cả đơn đã gửi'}
+            </button>
+          )}
+        </div>
         <div className="flex gap-1.5 flex-wrap">
           <button onClick={() => setStatusFilter('')}
             className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${!statusFilter ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-400 hover:text-indigo-600'}`}>
@@ -1544,8 +1595,16 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-violet-200 text-violet-600 hover:bg-violet-50 hover:border-violet-400 transition-all">
                           📝 Nhập mã thiết bị
                         </button>
-                        {o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0) && (
-                          <button onClick={() => checkCRM(o)} disabled={crmChecking.has(o.id)}
+                        {/* Kiểm tra trạng thái kho — hiện cho đơn da_gui có IMEI */}
+                        {o.status === 'da_gui' && o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0) && (
+                          <button onClick={() => checkCRMOrder(o, true)} disabled={crmChecking.has(o.id)}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-400 disabled:opacity-50 transition-all">
+                            {crmChecking.has(o.id) ? '⏳ Đang kiểm tra…' : '📡 Kiểm tra trạng thái kho'}
+                          </button>
+                        )}
+                        {/* CRM check cho đơn không phải da_gui (xem IMEI status) */}
+                        {o.status !== 'da_gui' && o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0) && (
+                          <button onClick={() => checkCRMOrder(o, false)} disabled={crmChecking.has(o.id)}
                             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-blue-200 text-blue-600 hover:bg-blue-50 hover:border-blue-400 disabled:opacity-50 transition-all">
                             {crmChecking.has(o.id) ? '⏳ Đang check…' : '📡 Kiểm tra CRM'}
                           </button>
@@ -1559,7 +1618,7 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                   ) : (
                     <div className="flex gap-2 pt-2 border-t border-gray-100">
                       {o.giao_hang_don_items.some(i => (i.device_serials ?? []).length > 0) && (
-                        <button onClick={() => checkCRM(o)} disabled={crmChecking.has(o.id)}
+                        <button onClick={() => checkCRMOrder(o, false)} disabled={crmChecking.has(o.id)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-blue-200 text-blue-600 hover:bg-blue-50 disabled:opacity-50">
                           {crmChecking.has(o.id) ? '⏳ Đang check…' : '📡 Kiểm tra CRM'}
                         </button>
@@ -1575,18 +1634,6 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
             </div>
           ))}
         </div>
-      )}
-
-      {/* Serial input modal — khi bấm Đã gửi */}
-      {serialModal && (
-        <SerialInputModal
-          order={serialModal}
-          onConfirm={serials => {
-            updateStatus(serialModal.id, 'da_gui', serials)
-            setSerialModal(null)
-          }}
-          onCancel={() => setSerialModal(null)}
-        />
       )}
 
       {/* Serial input modal — nhập mã riêng không đổi TT */}
@@ -2369,10 +2416,11 @@ function TabWarehouseQueue() {
     setConfirming(match.order.id)
     try {
       const item_serials = match.items.map(i => ({ item_id: i.itemId, serials: i.assigned }))
+      // Xác nhận IMEI → chuyển sang Đang xử lý (da_gui là bước tiếp theo khi thực sự gửi hàng)
       const res = await fetch('/api/giao-hang/don-hang', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: match.order.id, status: 'da_gui', item_serials }),
+        body: JSON.stringify({ id: match.order.id, status: 'dang_xu_ly', item_serials }),
       })
       if (res.ok) setConfirmed(prev => new Set([...prev, match.order.id]))
       else {
@@ -2492,7 +2540,7 @@ function TabWarehouseQueue() {
                           onClick={() => confirmOrder(match)}
                           disabled={isConfirming || !match.items.some(i => i.assigned.length > 0)}
                           className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
-                          {isConfirming ? '⏳ Đang gửi…' : '✅ Xác nhận gửi + lưu IMEI'}
+                          {isConfirming ? '⏳ Đang xử lý…' : '✅ Xác nhận IMEI → Đang xử lý'}
                         </button>
                       )}
                     </div>
