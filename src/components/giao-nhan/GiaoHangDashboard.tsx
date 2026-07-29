@@ -2222,9 +2222,252 @@ function TabRecipients() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// TAB — KIỂM TRA HÀNG CHỜ KHO KỸ THUẬT · WAREHOUSE QUEUE CHECK
+// ══════════════════════════════════════════════════════════════════════════════
+
+const WHC_LIST = [
+  { id: 2, label: 'HN Kỹ thuật',    en: 'HN Technical' },
+  { id: 3, label: 'HCM Kỹ thuật',   en: 'HCM Technical' },
+  { id: 4, label: 'Bình Dương KT',  en: 'Binh Duong Technical' },
+  { id: 5, label: 'Hải Phòng KT',   en: 'Hai Phong Technical' },
+  { id: 6, label: 'Đà Nẵng KT',     en: 'Da Nang Technical' },
+  { id: 7, label: 'Quảng Ninh KT',  en: 'Quang Ninh Technical' },
+  { id: 1, label: 'Kho Công ty',    en: 'Company' },
+]
+
+const KIND_LABEL: Record<number, string> = {
+  [-1]: 'Tracker / GPS',
+  0:    'Thiết bị · Device barcode',
+  2:    'Phụ kiện · Accessories',
+  3:    'Sim Card',
+}
+
+interface WhItem   { whId: number; whName: string; whSort: number }
+interface WqProd   { productName: string; productNumber: string; stockupKind: number; waitCount: number; transCount: number; whName: string }
+interface WqDevice { barcode: string; productName: string; carUnicode: string; sourceStock: string; destStock: string; status: string; updateMan: string; stockupKind: number; productNumber: string }
+
+function TabWarehouseQueue() {
+  const [whcId,     setWhcId]     = useState<number>(2)
+  const [whList,    setWhList]    = useState<WhItem[]>([])
+  const [whId,      setWhId]      = useState<number | null>(null)
+  const [loadingWh, setLoadingWh] = useState(false)
+  const [loading,   setLoading]   = useState(false)
+  const [products,  setProducts]  = useState<WqProd[]>([])
+  const [devices,   setDevices]   = useState<WqDevice[]>([])
+  const [checkedAt, setCheckedAt] = useState<string | null>(null)
+  const [error,     setError]     = useState<string | null>(null)
+  const [openKinds, setOpenKinds] = useState<Set<number>>(new Set([-1, 0, 2, 3]))
+
+  // Load danh sách kho khi đổi WHC
+  const loadWarehouses = useCallback(async (wid: number) => {
+    setLoadingWh(true); setWhList([]); setWhId(null)
+    setProducts([]); setDevices([]); setCheckedAt(null); setError(null)
+    try {
+      const r = await fetch(`/api/giao-hang/warehouse-list?whc_id=${wid}`)
+      const d = await r.json()
+      if (d.ok && Array.isArray(d.warehouses)) {
+        const list: WhItem[] = d.warehouses
+        setWhList(list)
+        // Mặc định chọn kho đầu tiên (WH_Sort=1)
+        const first = list.find(w => w.whSort === 1) ?? list[0]
+        if (first) setWhId(first.whId)
+      } else {
+        setError(d.error ?? 'Không lấy được danh sách kho')
+      }
+    } catch (e) { setError(String(e)) }
+    finally { setLoadingWh(false) }
+  }, [])
+
+  useEffect(() => { loadWarehouses(whcId) }, [whcId, loadWarehouses])
+
+  async function doCheck() {
+    if (!whId) { setError('Chọn kho trước'); return }
+    setLoading(true); setError(null); setProducts([]); setDevices([])
+    try {
+      const r = await fetch(`/api/giao-hang/warehouse-queue?whc_id=${whcId}&wh_id=${whId}`)
+      const d = await r.json()
+      if (!r.ok || !d.ok) { setError(d.error ?? 'Lỗi CRM'); return }
+      setProducts(d.products ?? [])
+      setDevices(d.devices   ?? [])
+      setCheckedAt(new Date().toLocaleTimeString('vi-VN'))
+    } catch (e) { setError(String(e)) }
+    finally { setLoading(false) }
+  }
+
+  function toggleKind(k: number) {
+    setOpenKinds(prev => { const s = new Set(prev); s.has(k) ? s.delete(k) : s.add(k); return s })
+  }
+
+  const totalWait = products.reduce((a, p) => a + p.waitCount, 0)
+  const devByKind: Record<number, WqDevice[]> = {}
+  const prodByKind: Record<number, WqProd[]>  = {}
+  for (const d of devices) { (devByKind[d.stockupKind] ??= []).push(d) }
+  for (const p of products){ (prodByKind[p.stockupKind] ??= []).push(p) }
+  const usedKinds = [...new Set([...products.map(p => p.stockupKind)])].sort((a,b) => a - b)
+
+  const whcName   = WHC_LIST.find(w => w.id === whcId)?.label ?? `WHC ${whcId}`
+  const whName    = whList.find(w => w.whId === whId)?.whName ?? (whId ? `WH ${whId}` : '—')
+
+  // Sort: WH_Sort=1 lên đầu (kho chính), 2 (KTV), 3 (sales/customer)
+  const sortLabels: Record<number, string> = { 1: 'Kho chính', 2: 'Kỹ thuật viên', 3: 'Sales / Customer' }
+  const groupedWh = whList.reduce<Record<number, WhItem[]>>((acc, w) => {
+    (acc[w.whSort] ??= []).push(w); return acc
+  }, {})
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className="text-sm font-semibold text-gray-700">Kiểm tra hàng chờ · Warehouse Queue</div>
+        <div className="text-xs text-gray-400 mt-0.5">Xem thiết bị đang chờ nhận tại kho kỹ thuật (StockupType=1 · Wait)</div>
+      </div>
+
+      {/* Controls */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          {/* WHC selector */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">Trung tâm kỹ thuật · Center</label>
+            <select value={whcId} onChange={e => setWhcId(Number(e.target.value))}
+              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:outline-none">
+              {WHC_LIST.map(c => (
+                <option key={c.id} value={c.id}>[{c.id}] {c.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* WH selector — dynamic */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">
+              Kho · Warehouse
+              {loadingWh && <span className="ml-1 text-gray-400">(đang tải…)</span>}
+            </label>
+            <select value={whId ?? ''} onChange={e => setWhId(Number(e.target.value))}
+              disabled={loadingWh || whList.length === 0}
+              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-300 focus:outline-none disabled:opacity-50">
+              {whList.length === 0 && <option value="">—</option>}
+              {Object.entries(groupedWh).sort(([a],[b]) => Number(a)-Number(b)).map(([sort, items]) => (
+                <optgroup key={sort} label={sortLabels[Number(sort)] ?? `Nhóm ${sort}`}>
+                  {items.map(w => (
+                    <option key={w.whId} value={w.whId}>[{w.whId}] {w.whName}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+
+          {/* Check button */}
+          <button onClick={doCheck} disabled={loading || loadingWh || !whId}
+            className="py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors">
+            {loading ? '⏳ Đang kiểm tra…' : '🔍 Kiểm tra'}
+          </button>
+        </div>
+      </div>
+
+      {/* Error */}
+      {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">⚠️ {error}</div>}
+
+      {/* Results */}
+      {checkedAt && (
+        <div className="space-y-3">
+          {/* Summary */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2 text-sm">
+              <span className="font-bold text-indigo-700 text-lg">{totalWait}</span>
+              <span className="text-indigo-500 ml-1">thiết bị chờ nhận · waiting</span>
+            </div>
+            <div className="text-xs text-gray-400">
+              {whcName} · <span className="font-medium text-gray-600">{whName}</span>
+              <span className="ml-1">(WH_ID: {whId})</span>
+              · {checkedAt}
+            </div>
+            <button onClick={doCheck} disabled={loading}
+              className="ml-auto px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors">
+              🔄 Làm mới
+            </button>
+          </div>
+
+          {totalWait === 0 ? (
+            <div className="text-center text-gray-400 py-12 text-sm">✅ Không có thiết bị chờ nhận · No items waiting</div>
+          ) : (
+            <div className="space-y-3">
+              {usedKinds.map(kind => {
+                const kProds = prodByKind[kind] ?? []
+                const kDevs  = devByKind[kind]  ?? []
+                const kWait  = kProds.reduce((a, p) => a + p.waitCount, 0)
+                const isOpen = openKinds.has(kind)
+                return (
+                  <div key={kind} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                    <button onClick={() => toggleKind(kind)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-700">{KIND_LABEL[kind] ?? `Kind ${kind}`}</span>
+                        <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">{kWait} chờ</span>
+                      </div>
+                      <span className="text-gray-400 text-xs">{isOpen ? '▲' : '▼'}</span>
+                    </button>
+
+                    {isOpen && (
+                      <div className="border-t border-gray-100 divide-y divide-gray-50">
+                        {kProds.map(prod => {
+                          const pDevs = kDevs.filter(d => d.productNumber === prod.productNumber)
+                          return (
+                            <div key={prod.productNumber} className="px-4 py-3 space-y-2">
+                              {/* Product row */}
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div>
+                                  <span className="text-sm font-semibold text-gray-800">{prod.productName}</span>
+                                  <span className="ml-2 text-xs text-gray-400">#{prod.productNumber}</span>
+                                  {prod.whName && <span className="ml-2 text-xs text-gray-400">· {prod.whName}</span>}
+                                </div>
+                                <div className="flex gap-2 text-xs">
+                                  <span className="bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded-full font-medium">⏳ {prod.waitCount} chờ</span>
+                                  {prod.transCount > 0 && (
+                                    <span className="bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5 rounded-full font-medium">🔄 {prod.transCount} đang chuyển</span>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Device list */}
+                              {pDevs.length > 0 ? (
+                                <div className="space-y-1">
+                                  {pDevs.map((dev, i) => (
+                                    <div key={i} className="flex items-center gap-2 text-xs bg-gray-50 rounded-lg px-3 py-1.5 flex-wrap">
+                                      <span className="font-mono bg-white border border-gray-200 rounded px-1.5 py-0.5 text-gray-800 font-semibold">
+                                        {dev.barcode || dev.carUnicode || '—'}
+                                      </span>
+                                      {dev.status === 'TRANS'
+                                        ? <span className="text-blue-600">🔄 Đang chuyển</span>
+                                        : <span className="text-amber-600">⏳ Chờ nhận</span>
+                                      }
+                                      {dev.sourceStock && (
+                                        <span className="text-gray-400">{dev.sourceStock} → {dev.destStock || '?'}</span>
+                                      )}
+                                      {dev.updateMan && <span className="text-gray-400 ml-auto">{dev.updateMan}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-400 italic pl-1">(không lấy được chi tiết barcode)</div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // MAIN DASHBOARD
 // ══════════════════════════════════════════════════════════════════════════════
-type Tab = 'dat_hang' | 'my_orders' | 'all_orders' | 'lich_su' | 'combos' | 'recipients'
+type Tab = 'dat_hang' | 'my_orders' | 'all_orders' | 'lich_su' | 'combos' | 'recipients' | 'wh_queue'
 
 export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: string; isAdmin: boolean }) {
   const isKho = isKhoUser(userEmail)
@@ -2234,6 +2477,7 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
     { key: 'dat_hang',   label: '🛒 Đặt hàng' },
     { key: 'my_orders',  label: '📋 Đơn của tôi' },
     { key: 'all_orders', label: '📊 Tất cả đơn' },
+    { key: 'wh_queue',   label: '🏭 Kiểm tra kho' },
     { key: 'lich_su',    label: '📋 Lịch sử Sheet' },
     { key: 'combos',     label: '📦 Gói combo' },
     { key: 'recipients', label: '👤 Người nhận' },
@@ -2268,6 +2512,7 @@ export default function GiaoHangDashboard({ userEmail, isAdmin }: { userEmail: s
         <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 min-h-[400px] w-full">
           {tab === 'my_orders'  && <TabMyOrders userEmail={userEmail} isKho={isKho} />}
           {tab === 'all_orders' && <TabAllOrders isKho={isKho} />}
+          {tab === 'wh_queue'   && <TabWarehouseQueue />}
           {tab === 'lich_su'    && <TabLichSuSheet />}
           {tab === 'combos'     && <TabCombos isKho={isKho} />}
           {tab === 'recipients' && <TabRecipients />}
