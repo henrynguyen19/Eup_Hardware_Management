@@ -1065,23 +1065,49 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     setStatsLoading(true)
     try {
       const dateRange = getTicketDateRange()
-      const PAGE_SIZE = 1000
-      const all: CRMTicketRow[] = []
-      let page = 1
-      // Paginate để vượt giới hạn max-rows của Supabase (mặc định 1000)
-      while (true) {
-        const p = new URLSearchParams({
-          limit: String(PAGE_SIZE), page: String(page),
-          crmOnly: 'true', sortBy: 'ticket_date',
-        })
-        if (dateRange) { p.set('dateFrom', dateRange.dateFrom); p.set('dateTo', dateRange.dateTo) }
-        const res  = await fetch(`/api/ho-tro/tickets?${p}`)
-        const json = await res.json()
-        const batch: CRMTicketRow[] = json.tickets ?? []
-        all.push(...batch)
-        if (batch.length < PAGE_SIZE) break   // hết dữ liệu
-        page++
+
+      // Supabase max-rows=1000 khiến offset pagination không hoạt động với page>1.
+      // Giải pháp: chia nhỏ range thành từng chunk 5 ngày, fetch song song.
+      function buildChunks(from: string, to: string, chunkDays = 5) {
+        const chunks: { from: string; to: string }[] = []
+        const end = new Date(to)
+        const cur = new Date(from)
+        while (cur <= end) {
+          const chunkFrom = cur.toISOString().slice(0, 10)
+          const chunkEnd  = new Date(cur)
+          chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1)
+          const chunkTo = (chunkEnd > end ? end : chunkEnd).toISOString().slice(0, 10)
+          chunks.push({ from: chunkFrom, to: chunkTo })
+          cur.setDate(cur.getDate() + chunkDays)
+        }
+        return chunks
       }
+
+      let all: CRMTicketRow[] = []
+
+      if (!dateRange) {
+        // Không có filter date → fetch 1 lần (danh sách hẹn ngắn)
+        const res  = await fetch('/api/ho-tro/tickets?limit=1000&page=1&crmOnly=true&sortBy=ticket_date')
+        const json = await res.json()
+        all = json.tickets ?? []
+      } else {
+        // Chia range thành chunk 5 ngày, fetch song song để vượt giới hạn 1000 rows
+        const chunks = buildChunks(dateRange.dateFrom, dateRange.dateTo, 5)
+        const results = await Promise.all(
+          chunks.map(async chunk => {
+            const p = new URLSearchParams({
+              limit: '1000', page: '1',
+              crmOnly: 'true', sortBy: 'ticket_date',
+              dateFrom: chunk.from, dateTo: chunk.to,
+            })
+            const res  = await fetch(`/api/ho-tro/tickets?${p}`)
+            const json = await res.json()
+            return (json.tickets ?? []) as CRMTicketRow[]
+          })
+        )
+        all = results.flat()
+      }
+
       setStatsTickets(all)
     } catch (_e) { /* ignore */ }
     finally { setStatsLoading(false) }
