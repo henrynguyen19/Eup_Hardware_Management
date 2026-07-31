@@ -71,6 +71,8 @@ export async function POST(req: NextRequest) {
   const url = process.env.CRM_SOAP_URL!
   if (!url) return NextResponse.json({ error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
 
+  const db = adminClient()
+
   const body = await req.json().catch(() => ({})) as { fromYear?: number }
   const fromYear = body.fromYear ?? 2024
 
@@ -216,6 +218,25 @@ export async function POST(req: NextRequest) {
       totalSkipped  += r.value.skippedCount
       allRows.push(...r.value.rows)
       allBackfillRows.push(...r.value.backfillRows)
+    }
+
+    // Upsert full rows vào DB
+    for (let i = 0; i < allRows.length; i += 500) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: upsertErr } = await db.from('ho_tro_tickets')
+        .upsert(allRows.slice(i, i + 500) as any[], { onConflict: 'sheet_row_key' })
+      if (upsertErr) errors.push(`upsert batch ${i}: ${upsertErr.message}`)
+    }
+
+    // Backfill customer_id / zone cho records đã có nhưng thiếu field
+    for (let i = 0; i < allBackfillRows.length; i += 500) {
+      const chunk = allBackfillRows.slice(i, i + 500)
+      await Promise.all(chunk.map(row =>
+        db.from('ho_tro_tickets')
+          .update({ customer_id: row.customer_id, zone: row.zone })
+          .eq('sheet_row_key', row.sheet_row_key)
+          .is('customer_id', null)
+      ))
     }
   }
 

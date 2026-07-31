@@ -369,12 +369,12 @@ export async function POST(req: NextRequest) {
   if (body.toDate)   allTickets = allTickets.filter(t => t.CS_Date <= body.toDate!)
 
   const keys = allTickets.map(t => `crm:${t.CS_ID}`)
-  type ExistingRow = { sheet_row_key: string; cs_update_time: string | null; has_unread_update: boolean; customer_id: string | null; zone: string | null }
+  type ExistingRow = { sheet_row_key: string; cs_update_time: string | null; has_unread_update: boolean; customer_id: string | null; zone: string | null; reply: string | null; speed_tag: string | null }
   const existingMap = new Map<string, ExistingRow>()
   for (let i = 0; i < keys.length; i += 500) {
     const { data } = await db
       .from('ho_tro_tickets')
-      .select('sheet_row_key, cs_update_time, has_unread_update, customer_id, zone')
+      .select('sheet_row_key, cs_update_time, has_unread_update, customer_id, zone, reply, speed_tag')
       .in('sheet_row_key', keys.slice(i, i + 500))
     for (const row of (data ?? [])) existingMap.set(row.sheet_row_key, row as ExistingRow)
   }
@@ -393,6 +393,35 @@ export async function POST(req: NextRequest) {
         const dbMs  = new Date(existing.cs_update_time).getTime()
         const crmMs = new Date(crmUpdateTime).getTime()
         if (crmMs <= dbMs) {
+          // Timestamp chưa đổi — nhưng vẫn kiểm tra nếu CS_Memo thay đổi
+          // (VD: nhân viên thêm #update vào CRM mà update_time không đổi)
+          const crmReply     = t.CS_Memo || null
+          const newSpeedTag  = parseSpeedTag(t.CS_Memo ?? '')
+          const replyChanged = (existing.reply ?? '') !== (crmReply ?? '')
+          const tagChanged   = (existing.speed_tag ?? null) !== (newSpeedTag ?? null)
+          if (replyChanged || tagChanged) {
+            // CS_Memo thay đổi → update speed_tag + reply dù timestamp không đổi
+            updatedCount++
+            rows.push({
+              sheet_row_key:    key,
+              staff_name:       extractHandlerFromMemo(t.CS_Memo ?? '') ?? 'Unknown',
+              ticket_date:      t.CS_Date,
+              company:          t.Cust_Name  || null,
+              contact:          t.CM_Name    || null,
+              ticket_type:      t.CC_Name    || null,
+              direction:        t.CS_IO      || null,
+              content:          t.CS_Context || null,
+              reply:            crmReply,
+              speed_tag:        newSpeedTag,
+              code:             String(t.CS_ID),
+              zone:             t.Cust_SaleManAssistant_Zone || null,
+              customer_id:      t.Cust_ID ? String(t.Cust_ID) : null,
+              created_by:       user?.id ?? 'cron',
+              cs_update_time:   crmUpdateTime,
+              has_unread_update: existing.has_unread_update,
+            })
+            continue
+          }
           if (!existing.customer_id || !existing.zone) {
             backfillRows.push({
               sheet_row_key: key,

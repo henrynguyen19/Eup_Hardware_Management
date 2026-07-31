@@ -108,8 +108,8 @@ export function parseSpeedTag(memo: string): SpeedTag | null {
     tag = 'low'
   }
 
-  // #update reset hen/mbl về null (đã xử lý xong)
-  if (/#update\b/i.test(s) && (tag === 'hen' || tag === 'mai_bao_lai')) tag = null
+  // #update (hoặc "update:" khi CRM strip dấu #) = đã xử lý → reset về null
+  if ((/#update\b/i.test(s) || /\bupdate:/i.test(s)) && (tag === 'hen' || tag === 'mai_bao_lai')) tag = null
   return tag
 }
 

@@ -1065,11 +1065,24 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     setStatsLoading(true)
     try {
       const dateRange = getTicketDateRange()
-      const p = new URLSearchParams({ limit: '2000', crmOnly: 'true', sortBy: 'ticket_date' })
-      if (dateRange) { p.set('dateFrom', dateRange.dateFrom); p.set('dateTo', dateRange.dateTo) }
-      const res  = await fetch(`/api/ho-tro/tickets?${p}`)
-      const json = await res.json()
-      setStatsTickets(json.tickets ?? [])
+      const PAGE_SIZE = 1000
+      const all: CRMTicketRow[] = []
+      let page = 1
+      // Paginate để vượt giới hạn max-rows của Supabase (mặc định 1000)
+      while (true) {
+        const p = new URLSearchParams({
+          limit: String(PAGE_SIZE), page: String(page),
+          crmOnly: 'true', sortBy: 'ticket_date',
+        })
+        if (dateRange) { p.set('dateFrom', dateRange.dateFrom); p.set('dateTo', dateRange.dateTo) }
+        const res  = await fetch(`/api/ho-tro/tickets?${p}`)
+        const json = await res.json()
+        const batch: CRMTicketRow[] = json.tickets ?? []
+        all.push(...batch)
+        if (batch.length < PAGE_SIZE) break   // hết dữ liệu
+        page++
+      }
+      setStatsTickets(all)
     } catch (_e) { /* ignore */ }
     finally { setStatsLoading(false) }
   }
