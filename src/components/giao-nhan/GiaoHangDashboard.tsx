@@ -2330,7 +2330,9 @@ function deviceNamesMatch(orderName: string, crmName: string): boolean {
   const PAIRS: Array<[string, string]> = [
     ['temperature sensor', 'cảm biến nhiệt'],
     ['sensor wire',        'cảm biến'],
+    ['fuel sensor',        'cảm biến dầu'],
     ['smartbox',           'mở rộng cảm biến'],
+    ['smart box',          'smartbox'],
     ['power cable',        'dây nguồn'],
     ['sim card',           'sim'],
     ['memory',             'thẻ nhớ'],
@@ -2387,7 +2389,21 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
       const r = await fetch(`/api/giao-hang/warehouse-queue?whc_id=${whcId}&wh_id=${whId}`)
       const d = await r.json()
       if (!d.ok) { setError(d.error ?? 'Lỗi CRM'); return }
-      const devices: WqDevice[] = d.devices ?? []
+      // Chỉ lấy thiết bị trong ngày hôm nay (updateTime)
+      const todayStr = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+      function isToday(updateTime: string): boolean {
+        if (!updateTime) return true // không có ngày → giữ lại
+        // CRM có thể trả về "YYYY-MM-DD ..." hoặc "DD/MM/YYYY ..."
+        if (updateTime.length >= 10 && updateTime[4] === '-') return updateTime.startsWith(todayStr)
+        if (updateTime.length >= 10 && updateTime[2] === '/') {
+          const [d, m, y] = updateTime.split('/')
+          return `${y?.slice(0,4)}-${m?.padStart(2,'0')}-${d?.padStart(2,'0')}` === todayStr
+        }
+        return true
+      }
+      const rawDevices: WqDevice[] = d.devices ?? []
+      const devices = rawDevices.filter(dev => isToday(dev.updateTime))
+
       // Build pool: productName (lower) → { barcodes, stockupKind }
       const pool: Record<string, { barcodes: string[]; stockupKind: number }> = {}
       for (const dev of devices) {
@@ -2397,6 +2413,7 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
         if (!pool[key]) pool[key] = { barcodes: [], stockupKind: dev.stockupKind }
         pool[key].barcodes.push(bc)
       }
+
       const usedBarcodes = new Set<string>()
       const items: OrderItemMatch[] = order.giao_hang_don_items.map(item => {
         // Phụ kiện (cáp, thẻ nhớ, SIM) — không cần IMEI, bỏ qua matching
@@ -2406,19 +2423,21 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
             assigned: [], available: 0, matched: true, stockupKind: -99,
           }
         }
-        const matchKey = Object.keys(pool).find(k => deviceNamesMatch(item.device_name, k))
-        const entry    = matchKey ? pool[matchKey] : null
-        const available = entry ? entry.barcodes.filter(b => !usedBarcodes.has(b)).length : 0
-        let assigned: string[] = []
-        if (entry) {
-          assigned = entry.barcodes.filter(b => !usedBarcodes.has(b)).slice(0, item.quantity)
-          assigned.forEach(b => usedBarcodes.add(b))
-        }
-        // stockupKind 2=phụ kiện CRM / 3=SIM CRM — cũng không cần IMEI riêng
-        const sk = entry ? entry.stockupKind : null
+
+        // Tìm TẤT CẢ sản phẩm CRM khớp (VD: "Smart Box H1.5" + "Smart Box H2.0" → cùng khớp "Smartbox")
+        const matchKeys = Object.keys(pool).filter(k => deviceNamesMatch(item.device_name, k))
+        const firstEntry = matchKeys.length > 0 ? pool[matchKeys[0]] : null
+        const sk = firstEntry ? firstEntry.stockupKind : null
+
+        // Gộp barcodes từ tất cả product khớp
+        const allAvailable = matchKeys.flatMap(k => pool[k].barcodes.filter(b => !usedBarcodes.has(b)))
+        const assigned = allAvailable.slice(0, item.quantity)
+        assigned.forEach(b => usedBarcodes.add(b))
+
         return {
           itemId: item.id, deviceName: item.device_name, quantity: item.quantity,
-          assigned, available, matched: assigned.length === item.quantity || sk === 2 || sk === 3,
+          assigned, available: allAvailable.length,
+          matched: assigned.length === item.quantity || sk === 2 || sk === 3,
           stockupKind: sk,
         }
       })
