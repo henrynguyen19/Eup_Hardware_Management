@@ -801,10 +801,12 @@ function TabMyOrders({ userEmail, isKho }: { userEmail: string; isKho: boolean }
 // ══════════════════════════════════════════════════════════════════════════════
 // ─── Helper: hiển thị thiết bị + IMEI trong expanded order ───
 function DeviceIMEIList({ items }: { items: DonItem[] }) {
-  // Hiện TẤT CẢ thiết bị — serial đã nhập thì hiện mã, chưa nhập thì hiện "chưa nhập"
+  // Ẩn phụ kiện không có IMEI (cáp, thẻ nhớ, SIM) — chỉ hiện thiết bị cần tracking
+  const visibleItems = items.filter(i => !isNoImeiAccessory(i.device_name))
+
   const comboMap = new Map<string, DonItem[]>()
   const standalone: DonItem[] = []
-  for (const item of items) {
+  for (const item of visibleItems) {
     if (item.combo_name) {
       if (!comboMap.has(item.combo_name)) comboMap.set(item.combo_name, [])
       comboMap.get(item.combo_name)!.push(item)
@@ -2297,6 +2299,21 @@ interface OrderMatch {
   allMatched: boolean
 }
 
+/**
+ * Phụ kiện đi kèm thiết bị — KHÔNG cần kiểm tra IMEI riêng lẻ.
+ * Những item này bị loại khỏi bước matching CRM để tránh nhầm lẫn
+ * (VD: "Dây nguồn C43" chứa "C43" nhưng không phải camera C43).
+ */
+function isNoImeiAccessory(name: string): boolean {
+  const n = name.toLowerCase()
+  return (
+    /dây nguồn|cáp nguồn|power cable/.test(n) ||   // cáp điện
+    /thẻ nhớ|microsd|sd card/.test(n) ||            // thẻ nhớ kèm MDVR
+    /đầu đọc/.test(n) ||                            // đầu đọc thẻ
+    /viettel|vinaphone|m2m|3mbipts|data_\d|gps_m2m/.test(n) // SIM/data
+  )
+}
+
 /** So sánh tên device (order) với productName (CRM) — case-insensitive, flexible */
 function deviceNamesMatch(orderName: string, crmName: string): boolean {
   const a = orderName.toLowerCase().trim()
@@ -2382,6 +2399,13 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
       }
       const usedBarcodes = new Set<string>()
       const items: OrderItemMatch[] = order.giao_hang_don_items.map(item => {
+        // Phụ kiện (cáp, thẻ nhớ, SIM) — không cần IMEI, bỏ qua matching
+        if (isNoImeiAccessory(item.device_name)) {
+          return {
+            itemId: item.id, deviceName: item.device_name, quantity: item.quantity,
+            assigned: [], available: 0, matched: true, stockupKind: -99,
+          }
+        }
         const matchKey = Object.keys(pool).find(k => deviceNamesMatch(item.device_name, k))
         const entry    = matchKey ? pool[matchKey] : null
         const available = entry ? entry.barcodes.filter(b => !usedBarcodes.has(b)).length : 0
@@ -2390,10 +2414,12 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
           assigned = entry.barcodes.filter(b => !usedBarcodes.has(b)).slice(0, item.quantity)
           assigned.forEach(b => usedBarcodes.add(b))
         }
+        // stockupKind 2=phụ kiện CRM / 3=SIM CRM — cũng không cần IMEI riêng
+        const sk = entry ? entry.stockupKind : null
         return {
           itemId: item.id, deviceName: item.device_name, quantity: item.quantity,
-          assigned, available, matched: assigned.length === item.quantity,
-          stockupKind: entry ? entry.stockupKind : null,
+          assigned, available, matched: assigned.length === item.quantity || sk === 2 || sk === 3,
+          stockupKind: sk,
         }
       })
       setMatch({ items })
@@ -2466,11 +2492,12 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-medium text-gray-700">{item.deviceName}</span>
                 <span className="text-gray-400">× {item.quantity}</span>
-                {item.stockupKind === 2 ? (
-                  // Phụ kiện — không cần IMEI riêng, chỉ cần có trong kho
+                {item.stockupKind === -99 ? (
+                  // Pre-classified: cáp nguồn, thẻ nhớ, SIM/data — không IMEI
+                  <span className="text-gray-400 italic">Không cần kiểm tra IMEI</span>
+                ) : item.stockupKind === 2 ? (
                   <span className="text-blue-500 italic">Phụ kiện - có sẵn trong kho</span>
                 ) : item.stockupKind === 3 ? (
-                  // SIM Card — đi kèm thiết bị
                   <span className="text-blue-500 italic">SIM - đi kèm thiết bị</span>
                 ) : item.assigned.length === item.quantity ? (
                   <span className="text-green-600 font-semibold">✅ Đủ {item.quantity} IMEI</span>
@@ -2489,10 +2516,8 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
               )}
             </div>
           ))}
-          {/* Hiện nút xác nhận nếu: có ít nhất 1 IMEI khớp, HOẶC tất cả items đều là phụ kiện/SIM */}
-          {(match.items.some(i => i.assigned.length > 0) ||
-            match.items.every(i => i.stockupKind === 2 || i.stockupKind === 3)
-          ) && (
+          {/* Hiện nút xác nhận nếu tất cả items cần IMEI đều đã matched */}
+          {match.items.every(i => i.matched) && (
             <button onClick={confirmInline} disabled={confirming}
               className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors">
               {confirming ? '⏳ Đang xử lý…' : '✅ Xác nhận IMEI → Đang xử lý'}
