@@ -2286,9 +2286,10 @@ interface OrderItemMatch {
   itemId:      string
   deviceName:  string
   quantity:    number
-  assigned:    string[]   // barcodes từ CRM tự động khớp
-  available:   number     // tổng CRM devices khớp
-  matched:     boolean    // assigned.length === quantity
+  assigned:    string[]      // barcodes từ CRM tự động khớp
+  available:   number        // tổng CRM devices khớp
+  matched:     boolean       // assigned.length === quantity
+  stockupKind: number | null // -1=GPS, 0=Device, 2=Phụ kiện, 3=SIM; null=không tìm thấy
 }
 interface OrderMatch {
   order:      DonHang
@@ -2300,7 +2301,30 @@ interface OrderMatch {
 function deviceNamesMatch(orderName: string, crmName: string): boolean {
   const a = orderName.toLowerCase().trim()
   const b = crmName.toLowerCase().trim()
-  return a === b || b.includes(a) || a.includes(b)
+  if (a === b || b.includes(a) || a.includes(b)) return true
+
+  // Word-level: min 2 ký tự (để match "H5", "C4", v.v.)
+  const aWords = a.split(/[\s\-_()/,]+/).filter(w => w.length >= 2)
+  if (aWords.some(w => b.includes(w))) return true
+  const bWords = b.split(/[\s\-_()/,]+/).filter(w => w.length >= 2)
+  if (bWords.some(w => a.includes(w))) return true
+
+  // Cross-language pairs (CRM English ↔ order Vietnamese)
+  const PAIRS: Array<[string, string]> = [
+    ['temperature sensor', 'cảm biến nhiệt'],
+    ['sensor wire',        'cảm biến'],
+    ['smartbox',           'mở rộng cảm biến'],
+    ['power cable',        'dây nguồn'],
+    ['sim card',           'sim'],
+    ['memory',             'thẻ nhớ'],
+    ['card reader',        'đầu đọc'],
+  ]
+  for (const [en, vi] of PAIRS) {
+    if (a.includes(vi) && b.includes(en)) return true
+    if (b.includes(vi) && a.includes(en)) return true
+  }
+
+  return false
 }
 
 // ── Kiểm tra kho inline — hiện trong card đơn Chờ xử lý ─────────────────────
@@ -2347,24 +2371,30 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
       const d = await r.json()
       if (!d.ok) { setError(d.error ?? 'Lỗi CRM'); return }
       const devices: WqDevice[] = d.devices ?? []
-      // Build pool: productName (lower) → barcodes
-      const pool: Record<string, string[]> = {}
+      // Build pool: productName (lower) → { barcodes, stockupKind }
+      const pool: Record<string, { barcodes: string[]; stockupKind: number }> = {}
       for (const dev of devices) {
         const bc = dev.barcode || dev.carUnicode
         if (!bc) continue
         const key = dev.productName.toLowerCase()
-        ;(pool[key] ??= []).push(bc)
+        if (!pool[key]) pool[key] = { barcodes: [], stockupKind: dev.stockupKind }
+        pool[key].barcodes.push(bc)
       }
       const usedBarcodes = new Set<string>()
       const items: OrderItemMatch[] = order.giao_hang_don_items.map(item => {
         const matchKey = Object.keys(pool).find(k => deviceNamesMatch(item.device_name, k))
-        const available = matchKey ? pool[matchKey].filter(b => !usedBarcodes.has(b)).length : 0
+        const entry    = matchKey ? pool[matchKey] : null
+        const available = entry ? entry.barcodes.filter(b => !usedBarcodes.has(b)).length : 0
         let assigned: string[] = []
-        if (matchKey) {
-          assigned = pool[matchKey].filter(b => !usedBarcodes.has(b)).slice(0, item.quantity)
+        if (entry) {
+          assigned = entry.barcodes.filter(b => !usedBarcodes.has(b)).slice(0, item.quantity)
           assigned.forEach(b => usedBarcodes.add(b))
         }
-        return { itemId: item.id, deviceName: item.device_name, quantity: item.quantity, assigned, available, matched: assigned.length === item.quantity }
+        return {
+          itemId: item.id, deviceName: item.device_name, quantity: item.quantity,
+          assigned, available, matched: assigned.length === item.quantity,
+          stockupKind: entry ? entry.stockupKind : null,
+        }
       })
       setMatch({ items })
     } catch (e) { setError(String(e)) }
@@ -2436,12 +2466,18 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-medium text-gray-700">{item.deviceName}</span>
                 <span className="text-gray-400">× {item.quantity}</span>
-                {item.assigned.length === item.quantity ? (
+                {item.stockupKind === 2 ? (
+                  // Phụ kiện — không cần IMEI riêng, chỉ cần có trong kho
+                  <span className="text-blue-500 italic">Phụ kiện - có sẵn trong kho</span>
+                ) : item.stockupKind === 3 ? (
+                  // SIM Card — đi kèm thiết bị
+                  <span className="text-blue-500 italic">SIM - đi kèm thiết bị</span>
+                ) : item.assigned.length === item.quantity ? (
                   <span className="text-green-600 font-semibold">✅ Đủ {item.quantity} IMEI</span>
                 ) : item.assigned.length > 0 ? (
                   <span className="text-amber-600 font-semibold">⚠️ {item.assigned.length}/{item.quantity} IMEI</span>
                 ) : (
-                  <span className="text-gray-400 italic">Không tìm thấy trong kho này</span>
+                  <span className="text-orange-500 italic">⚠ Không tìm thấy trong kho này</span>
                 )}
               </div>
               {item.assigned.length > 0 && (
@@ -2453,7 +2489,10 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
               )}
             </div>
           ))}
-          {match.items.some(i => i.assigned.length > 0) && (
+          {/* Hiện nút xác nhận nếu: có ít nhất 1 IMEI khớp, HOẶC tất cả items đều là phụ kiện/SIM */}
+          {(match.items.some(i => i.assigned.length > 0) ||
+            match.items.every(i => i.stockupKind === 2 || i.stockupKind === 3)
+          ) && (
             <button onClick={confirmInline} disabled={confirming}
               className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors">
               {confirming ? '⏳ Đang xử lý…' : '✅ Xác nhận IMEI → Đang xử lý'}
