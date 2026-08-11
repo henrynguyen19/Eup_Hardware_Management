@@ -172,7 +172,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Không có quyền' }, { status: 403 })
     }
 
-    const body = await req.json().catch(() => ({})) as { fromDate?: string }
+    const body = await req.json().catch(() => ({})) as { fromDate?: string; forceFrom?: string }
+
+    // forceFrom: xóa sync_log của tất cả tháng >= forceFrom để sync lại
+    if (body.forceFrom) {
+      const forceYM = body.forceFrom.substring(0, 7)
+      const allMonths0 = allMonthsToNow()
+      const monthsToClear = allMonths0.filter(m => m >= forceYM)
+      if (monthsToClear.length > 0) {
+        await db.from('device_inventory_sync_log').delete().in('month', monthsToClear)
+        console.log(`[device-inventory/sync] forceFrom=${forceYM}: cleared ${monthsToClear.length} months from sync_log`)
+      }
+      // Xóa cache stats
+      await db.from('device_inventory_stats_cache').delete().eq('id', 'singleton')
+    }
 
     // Lấy danh sách tháng đã sync thành công
     const { data: syncedRows } = await db
@@ -184,7 +197,7 @@ export async function POST(req: NextRequest) {
     const totalMonths  = allMonths.length
     const syncedMonths = allMonths.filter(m => syncedSet.has(m)).length
 
-    // Tìm tháng cần sync: ưu tiên fromDate (force), nếu không → tháng đầu tiên chưa sync
+    // Tìm tháng cần sync: ưu tiên fromDate (force 1 tháng), nếu không → tháng đầu tiên chưa sync
     let targetMonth: string
     if (body.fromDate) {
       // fromDate có thể là YYYY-MM hoặc YYYY-MM-DD

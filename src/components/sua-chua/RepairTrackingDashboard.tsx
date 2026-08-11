@@ -1246,20 +1246,21 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
       .catch(() => {})
   }, [syncDone])
 
-  async function startSync() {
+  async function runSyncLoop(firstBody: Record<string, string> = {}) {
     setSyncing(true); setSyncDone(false); setSyncLog([]); abortRef.current = false
-    let fromDate: string|null = null; let finalDone = false
+    let fromDate: string|null = null; let finalDone = false; let isFirst = true
     while (true) {
       if (abortRef.current) { setSyncLog(p=>[...p,'⛔ '+t('Đã dừng','Stopped')]); break }
       try {
-        const body: Record<string,string> = {}
-        if (fromDate) body.fromDate = fromDate
+        const body: Record<string,string> = isFirst ? { ...firstBody } : {}
+        if (!isFirst && fromDate) body.fromDate = fromDate
+        isFirst = false
         const res  = await fetch('/api/device-inventory/sync-crm', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })
         const txt = await res.text()
         let d: Record<string,unknown>
         try { d=JSON.parse(txt) } catch { setSyncLog(p=>[...p,`❌ ${txt.substring(0,80)}`]); break }
         if (!res.ok||d.error) { setSyncLog(p=>[...p,`❌ ${d.error}`]); break }
-        if (d.done&&!d.month) { setSyncLog(p=>[...p,`✅ ${d.message}`]); finalDone=true; break }
+        if (d.done&&!d.month) { setSyncLog(p=>[...p,`✅ ${d.message??t('Hoàn thành','Done')}`]); finalDone=true; break }
         const progress = (d.syncedMonths&&d.totalMonths) ? ` [${d.syncedMonths}/${d.totalMonths}]` : ''
         setSyncLog(p=>[...p,`${d.ok?'✅':'⚠'} ${t('Tháng','Month')} ${d.month}: ${d.total} ${t('thiết bị → lưu','devices → saved')} ${d.upserted}${progress}`])
         if (d.done) { finalDone=true; break }
@@ -1270,6 +1271,14 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
     }
     setSyncing(false); setSyncDone(finalDone)
     if (finalDone) onDone()
+  }
+
+  async function startSync() { await runSyncLoop() }
+
+  async function forceResync2026() {
+    const year = new Date().getFullYear()
+    setSyncLog([`🗑 ${t('Đang xóa log','Clearing log')} ${year}...`])
+    await runSyncLoop({ forceFrom: `${year}-01` })
   }
 
   const fmtMonth = (ym: string) => { const [y, m] = ym.split('-'); return `${m}/${y}` }
@@ -1296,10 +1305,14 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
             <p className="text-xs text-indigo-500 mt-0.5">{t('Tải từng tháng từ 01/2023 → hiện tại','Load month by month from 01/2023 → present')}</p>
           )}
         </div>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex gap-2 shrink-0 flex-wrap justify-end">
           {syncing
             ? <button onClick={()=>{abortRef.current=true}} className="px-4 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600">⛔ {t('Dừng','Stop')}</button>
-            : <button onClick={startSync} className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">🔄 {syncDone?t('Sync lại','Re-sync'):t('Bắt đầu Sync','Start Sync')}</button>}
+            : <>
+                <button onClick={startSync} className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">🔄 {syncDone?t('Sync lại','Re-sync'):t('Bắt đầu Sync','Start Sync')}</button>
+                <button onClick={forceResync2026} title={t(`Xóa log & sync lại toàn bộ năm ${new Date().getFullYear()}`,`Clear log & re-sync all of ${new Date().getFullYear()}`)} className="px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600">⚡ {t(`Sync lại ${new Date().getFullYear()}`,`Re-sync ${new Date().getFullYear()}`)}</button>
+              </>
+          }
         </div>
       </div>
       {syncLog.length>0 && (
