@@ -102,6 +102,59 @@ async function callGetDeviceMaintenance(
   return records
 }
 
+/**
+ * Gọi GetDeviceMaintenance theo chunks tuần để tránh giới hạn records CRM.
+ * Mỗi tháng chia thành 4-5 chunks 7 ngày, gộp lại rồi dedupe theo device_id.
+ */
+async function callGetDeviceMaintenanceChunked(
+  sessionId: string, identity: string,
+  monthStart: string, monthEnd: string,
+): Promise<CRMDevice[]> {
+  // Parse YYYY-MM-DD HH:MM:SS
+  const start = new Date(monthStart.replace(' ', 'T'))
+  const end   = new Date(monthEnd.replace(' ', 'T'))
+  const CHUNK_DAYS = 7
+
+  const chunks: { s: string; e: string }[] = []
+  const cur = new Date(start)
+  while (cur <= end) {
+    const chunkStart = new Date(cur)
+    const chunkEnd   = new Date(cur)
+    chunkEnd.setDate(chunkEnd.getDate() + CHUNK_DAYS - 1)
+    if (chunkEnd > end) chunkEnd.setTime(end.getTime())
+
+    const fmt = (d: Date, isEnd: boolean) => {
+      const y  = d.getFullYear()
+      const mo = pad(d.getMonth() + 1)
+      const dy = pad(d.getDate())
+      return isEnd ? `${y}-${mo}-${dy} 23:59:59` : `${y}-${mo}-${dy} 00:00:00`
+    }
+    chunks.push({ s: fmt(chunkStart, false), e: fmt(chunkEnd, true) })
+    cur.setDate(cur.getDate() + CHUNK_DAYS)
+  }
+
+  console.log(`[device-inventory/sync] Chunked: ${chunks.length} chunks for ${monthStart.slice(0,7)}`)
+
+  // Gọi lần lượt (không song song để tránh quá tải CRM)
+  const allRecords: CRMDevice[] = []
+  for (const chunk of chunks) {
+    try {
+      const recs = await callGetDeviceMaintenance(sessionId, identity, chunk.s, chunk.e)
+      allRecords.push(...recs)
+    } catch (e) {
+      console.error(`[device-inventory/sync] chunk ${chunk.s} lỗi:`, e)
+    }
+  }
+
+  // Dedupe theo device_id (giữ record đầu tiên — order từ CRM)
+  const seen = new Set<number>()
+  return allRecords.filter(r => {
+    if (seen.has(r.Device_ID)) return false
+    seen.add(r.Device_ID)
+    return true
+  })
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = createSupabaseServerClient()
@@ -156,15 +209,15 @@ export async function POST(req: NextRequest) {
     const session = await getCRMSessionForUser(user.id)
     const { sessionId, identity } = session
 
-    // Gọi CRM
+    // Gọi CRM — chia theo tuần để tránh giới hạn records CRM
     let records: CRMDevice[]
     try {
-      records = await callGetDeviceMaintenance(sessionId, identity, start, end)
+      records = await callGetDeviceMaintenanceChunked(sessionId, identity, start, end)
     } catch (e) {
       return NextResponse.json({ error: `Lỗi CRM tháng ${monthLabel}: ${String(e)}` }, { status: 500 })
     }
 
-    console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} records`)
+    console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} records (chunked)`)
 
     let upserted = 0
     const errors: string[] = []
