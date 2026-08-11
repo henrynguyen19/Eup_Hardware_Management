@@ -2288,7 +2288,8 @@ interface OrderItemMatch {
   itemId:      string
   deviceName:  string
   quantity:    number
-  assigned:    string[]      // barcodes từ CRM tự động khớp
+  assigned:    string[]      // barcodes auto-gợi ý (slice đầu tiên)
+  allBarcodes: string[]      // TẤT CẢ barcodes khớp (để nhân viên chọn khi dư)
   available:   number        // tổng CRM devices khớp
   matched:     boolean       // assigned.length === quantity
   stockupKind: number | null // -1=GPS, 0=Device, 2=Phụ kiện, 3=SIM; null=không tìm thấy
@@ -2348,15 +2349,33 @@ function deviceNamesMatch(orderName: string, crmName: string): boolean {
 
 // ── Kiểm tra kho inline — hiện trong card đơn Chờ xử lý ─────────────────────
 function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfirmed: () => void }) {
-  const [whcId,      setWhcId]      = useState<number>(2)
-  const [whList,     setWhList]     = useState<WhItem[]>([])
-  const [whId,       setWhId]       = useState<number | null>(null)
-  const [loadingWh,  setLoadingWh]  = useState(false)
-  const [loading,    setLoading]    = useState(false)
-  const [match,      setMatch]      = useState<{ items: OrderItemMatch[] } | null>(null)
-  const [error,      setError]      = useState<string | null>(null)
-  const [confirmed,  setConfirmed]  = useState(false)
-  const [confirming, setConfirming] = useState(false)
+  const [whcId,         setWhcId]         = useState<number>(2)
+  const [whList,        setWhList]        = useState<WhItem[]>([])
+  const [whId,          setWhId]          = useState<number | null>(null)
+  const [loadingWh,     setLoadingWh]     = useState(false)
+  const [loading,       setLoading]       = useState(false)
+  const [match,         setMatch]         = useState<{ items: OrderItemMatch[] } | null>(null)
+  const [error,         setError]         = useState<string | null>(null)
+  const [confirmed,     setConfirmed]     = useState(false)
+  const [confirming,    setConfirming]    = useState(false)
+  // userPicks: khi có nhiều barcodes hơn cần, nhân viên tự chọn
+  const [userPicks,     setUserPicks]     = useState<Record<string, Set<string>>>({})
+
+  function togglePick(itemId: string, bc: string, qty: number) {
+    setUserPicks(prev => {
+      const next = new Map(Object.entries(prev))
+      const cur  = new Set(next.get(itemId) ?? [])
+      if (cur.has(bc)) { cur.delete(bc) } else if (cur.size < qty) { cur.add(bc) }
+      next.set(itemId, cur)
+      return Object.fromEntries(next)
+    })
+  }
+
+  function getSelectedBarcodes(item: OrderItemMatch): string[] {
+    const manual = userPicks[item.itemId]
+    if (manual && manual.size > 0) return Array.from(manual)
+    return item.assigned
+  }
 
   const sortLabels: Record<number, string> = { 1: 'Kho chính', 2: 'Kỹ thuật viên', 3: 'Sales / Customer' }
   const groupedWh = whList.reduce<Record<number, WhItem[]>>((acc, w) => {
@@ -2420,7 +2439,7 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
         if (isNoImeiAccessory(item.device_name)) {
           return {
             itemId: item.id, deviceName: item.device_name, quantity: item.quantity,
-            assigned: [], available: 0, matched: true, stockupKind: -99,
+            assigned: [], allBarcodes: [], available: 0, matched: true, stockupKind: -99,
           }
         }
 
@@ -2429,14 +2448,17 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
         const firstEntry = matchKeys.length > 0 ? pool[matchKeys[0]] : null
         const sk = firstEntry ? firstEntry.stockupKind : null
 
-        // Gộp barcodes từ tất cả product khớp
-        const allAvailable = matchKeys.flatMap(k => pool[k].barcodes.filter(b => !usedBarcodes.has(b)))
-        const assigned = allAvailable.slice(0, item.quantity)
+        // Gộp TẤT CẢ barcodes từ các product khớp (không lọc usedBarcodes để hiện đủ danh sách)
+        const allBarcodes = matchKeys.flatMap(k => pool[k].barcodes)
+        // Auto-assign: chỉ lấy đủ quantity, tránh dùng lại barcode
+        const available = allBarcodes.filter(b => !usedBarcodes.has(b))
+        const assigned  = available.slice(0, item.quantity)
         assigned.forEach(b => usedBarcodes.add(b))
 
         return {
           itemId: item.id, deviceName: item.device_name, quantity: item.quantity,
-          assigned, available: allAvailable.length,
+          assigned, allBarcodes,
+          available: available.length,
           matched: assigned.length === item.quantity || sk === 2 || sk === 3,
           stockupKind: sk,
         }
@@ -2450,7 +2472,7 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
     if (!match) return
     setConfirming(true)
     try {
-      const item_serials = match.items.map(i => ({ item_id: i.itemId, serials: i.assigned }))
+      const item_serials = match.items.map(i => ({ item_id: i.itemId, serials: getSelectedBarcodes(i) }))
       const res = await fetch('/api/giao-hang/don-hang', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2506,37 +2528,81 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
 
       {match && (
         <div className="space-y-2">
-          {match.items.map(item => (
-            <div key={item.itemId} className="text-xs space-y-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium text-gray-700">{item.deviceName}</span>
-                <span className="text-gray-400">× {item.quantity}</span>
-                {item.stockupKind === -99 ? (
-                  // Pre-classified: cáp nguồn, thẻ nhớ, SIM/data — không IMEI
-                  <span className="text-gray-400 italic">Không cần kiểm tra IMEI</span>
-                ) : item.stockupKind === 2 ? (
-                  <span className="text-blue-500 italic">Phụ kiện - có sẵn trong kho</span>
-                ) : item.stockupKind === 3 ? (
-                  <span className="text-blue-500 italic">SIM - đi kèm thiết bị</span>
-                ) : item.assigned.length === item.quantity ? (
-                  <span className="text-green-600 font-semibold">✅ Đủ {item.quantity} IMEI</span>
-                ) : item.assigned.length > 0 ? (
-                  <span className="text-amber-600 font-semibold">⚠️ {item.assigned.length}/{item.quantity} IMEI</span>
-                ) : (
-                  <span className="text-orange-500 italic">⚠ Không tìm thấy trong kho này</span>
+          {match.items.map(item => {
+            const needsManual = item.stockupKind !== -99 && item.stockupKind !== 2 && item.stockupKind !== 3
+                              && item.allBarcodes.length > item.quantity
+            const picks       = userPicks[item.itemId]
+            const pickedCount = picks ? picks.size : 0
+            const selectedBcs = getSelectedBarcodes(item)
+
+            return (
+              <div key={item.itemId} className="text-xs space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-gray-700">{item.deviceName}</span>
+                  <span className="text-gray-400">× {item.quantity}</span>
+                  {item.stockupKind === -99 ? (
+                    <span className="text-gray-400 italic">Không cần kiểm tra IMEI</span>
+                  ) : item.stockupKind === 2 ? (
+                    <span className="text-blue-500 italic">Phụ kiện - có sẵn trong kho</span>
+                  ) : item.stockupKind === 3 ? (
+                    <span className="text-blue-500 italic">SIM - đi kèm thiết bị</span>
+                  ) : needsManual ? (
+                    <span className="text-amber-600 font-semibold">
+                      ⚠️ Có {item.allBarcodes.length} mã — chọn đúng {item.quantity}
+                    </span>
+                  ) : item.assigned.length === item.quantity ? (
+                    <span className="text-green-600 font-semibold">✅ Đủ {item.quantity} IMEI</span>
+                  ) : item.assigned.length > 0 ? (
+                    <span className="text-amber-600 font-semibold">⚠️ {item.assigned.length}/{item.quantity} IMEI</span>
+                  ) : (
+                    <span className="text-orange-500 italic">⚠ Không tìm thấy trong kho này</span>
+                  )}
+                </div>
+
+                {/* Manual selection khi nhiều barcodes hơn cần */}
+                {needsManual && (
+                  <div className="pl-2 space-y-1">
+                    <div className="text-[10px] text-amber-700 font-medium">
+                      Chọn {item.quantity} mã ({pickedCount}/{item.quantity} đã chọn):
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {item.allBarcodes.map(bc => {
+                        const isChosen = picks?.has(bc) ?? false
+                        return (
+                          <button key={bc} onClick={() => togglePick(item.itemId, bc, item.quantity)}
+                            className={`font-mono rounded px-1.5 py-0.5 border transition-colors text-[10px] ${
+                              isChosen
+                                ? 'bg-green-100 border-green-400 text-green-800 font-semibold'
+                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-indigo-300'
+                            }`}>
+                            {bc}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Auto-assigned barcodes (khi không cần manual) */}
+                {!needsManual && selectedBcs.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pl-2">
+                    {selectedBcs.map(bc => (
+                      <span key={bc} className="font-mono bg-green-50 border border-green-200 text-green-800 rounded px-1.5 py-0.5 text-[10px]">{bc}</span>
+                    ))}
+                  </div>
                 )}
               </div>
-              {item.assigned.length > 0 && (
-                <div className="flex flex-wrap gap-1 pl-2">
-                  {item.assigned.map(bc => (
-                    <span key={bc} className="font-mono bg-green-50 border border-green-200 text-green-800 rounded px-1.5 py-0.5">{bc}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-          {/* Hiện nút xác nhận nếu tất cả items cần IMEI đều đã matched */}
-          {match.items.every(i => i.matched) && (
+            )
+          })}
+
+          {/* Xác nhận: tất cả items phải matched hoặc đã chọn đủ manual */}
+          {match.items.every(i => {
+            if (i.matched) return true
+            const needsManual = i.stockupKind !== -99 && i.stockupKind !== 2 && i.stockupKind !== 3
+                              && i.allBarcodes.length > i.quantity
+            if (needsManual) return (userPicks[i.itemId]?.size ?? 0) === i.quantity
+            return false
+          }) && (
             <button onClick={confirmInline} disabled={confirming}
               className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors">
               {confirming ? '⏳ Đang xử lý…' : '✅ Xác nhận IMEI → Đang xử lý'}
