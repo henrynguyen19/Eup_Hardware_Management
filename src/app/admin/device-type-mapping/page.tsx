@@ -10,31 +10,28 @@ interface Mapping {
   is_active: boolean
   created_by: string | null
   created_at: string
-  updated_at: string
 }
 
 export default function DeviceTypeMappingPage() {
-  const [mappings, setMappings]   = useState<Mapping[]>([])
-  const [crmNames, setCrmNames]   = useState<string[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [saving, setSaving]       = useState(false)
-  const [msg, setMsg]             = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [mappings, setMappings]     = useState<Mapping[]>([])
+  const [crmNames, setCrmNames]     = useState<string[]>([])
+  const [orderNames, setOrderNames] = useState<string[]>([])
+  const [loading, setLoading]       = useState(true)
 
-  // Form thêm mới
-  const [newOrder, setNewOrder]   = useState('')
-  const [newCrm, setNewCrm]       = useState('')
-  const [newNotes, setNewNotes]   = useState('')
-  const [crmSearch, setCrmSearch] = useState('')
+  // Selection state
+  const [selOrder, setSelOrder] = useState<string | null>(null)
+  const [selCrm, setSelCrm]     = useState<string | null>(null)
+  const [notes, setNotes]       = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [msg, setMsg]           = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
-  // Filter / search bảng
-  const [search, setSearch]       = useState('')
+  // Search filters
+  const [searchOrder, setSearchOrder] = useState('')
+  const [searchCrm, setSearchCrm]     = useState('')
+  const [searchMap, setSearchMap]     = useState('')
 
-  // Edit inline
-  const [editId, setEditId]       = useState<string | null>(null)
-  const [editOrder, setEditOrder] = useState('')
-  const [editCrm, setEditCrm]     = useState('')
-  const [editNotes, setEditNotes] = useState('')
-  const [editSearch, setEditSearch] = useState('')
+  // Show all or only unmapped
+  const [onlyUnmapped, setOnlyUnmapped] = useState(true)
 
   useEffect(() => { load() }, [])
 
@@ -45,42 +42,62 @@ export default function DeviceTypeMappingPage() {
       const j = await res.json()
       setMappings(j.mappings ?? [])
       setCrmNames(j.crmNames ?? [])
+      setOrderNames(j.orderNames ?? [])
     }
     setLoading(false)
   }
 
-  async function handleAdd() {
-    if (!newOrder.trim() || !newCrm.trim()) {
-      setMsg({ type: 'err', text: 'Nhập tên đơn hàng và chọn loại CRM' })
-      return
-    }
+  // Set của order_name đã được map
+  const mappedOrders = useMemo(() => new Set(mappings.map(m => m.order_name)), [mappings])
+  const mappedCrm    = useMemo(() => new Set(mappings.map(m => m.crm_name)), [mappings])
+
+  // Lọc danh sách trái (order names)
+  const filteredOrders = useMemo(() => {
+    let list = orderNames
+    if (onlyUnmapped) list = list.filter(n => !mappedOrders.has(n))
+    if (searchOrder.trim()) list = list.filter(n => n.toLowerCase().includes(searchOrder.toLowerCase()))
+    return list
+  }, [orderNames, onlyUnmapped, searchOrder, mappedOrders])
+
+  // Lọc danh sách phải (CRM names)
+  const filteredCrm = useMemo(() => {
+    let list = crmNames
+    if (searchCrm.trim()) list = list.filter(n => n.toLowerCase().includes(searchCrm.toLowerCase()))
+    return list
+  }, [crmNames, searchCrm])
+
+  // Lọc bảng mapping bên dưới
+  const filteredMap = useMemo(() => {
+    if (!searchMap.trim()) return mappings
+    return mappings.filter(m =>
+      m.order_name.toLowerCase().includes(searchMap.toLowerCase()) ||
+      m.crm_name.toLowerCase().includes(searchMap.toLowerCase())
+    )
+  }, [mappings, searchMap])
+
+  async function handleMap() {
+    if (!selOrder || !selCrm) return
     setSaving(true); setMsg(null)
     const res = await fetch('/api/admin/device-type-mapping', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_name: newOrder.trim(), crm_name: newCrm.trim(), notes: newNotes.trim() || null }),
+      body: JSON.stringify({ order_name: selOrder, crm_name: selCrm, notes: notes.trim() || null }),
     })
     const j = await res.json()
-    if (!res.ok) { setMsg({ type: 'err', text: j.error }); setSaving(false); return }
-    setMsg({ type: 'ok', text: `✅ Đã thêm mapping "${newOrder.trim()}" → "${newCrm.trim()}"` })
-    setNewOrder(''); setNewCrm(''); setNewNotes(''); setCrmSearch('')
+    if (!res.ok) {
+      setMsg({ type: 'err', text: j.error })
+      setSaving(false); return
+    }
+    setMsg({ type: 'ok', text: `✅ "${selOrder}" → "${selCrm}"` })
+    setSelOrder(null); setSelCrm(null); setNotes('')
     await load()
     setSaving(false)
   }
 
-  async function handleEdit(id: string) {
-    if (!editOrder.trim() || !editCrm.trim()) return
-    setSaving(true); setMsg(null)
-    const res = await fetch('/api/admin/device-type-mapping', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, order_name: editOrder.trim(), crm_name: editCrm.trim(), notes: editNotes.trim() || null }),
-    })
-    const j = await res.json()
-    if (!res.ok) { setMsg({ type: 'err', text: j.error }); setSaving(false); return }
-    setEditId(null)
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`Xoá mapping "${name}"?`)) return
+    await fetch(`/api/admin/device-type-mapping?id=${id}`, { method: 'DELETE' })
     await load()
-    setSaving(false)
   }
 
   async function handleToggle(m: Mapping) {
@@ -92,252 +109,200 @@ export default function DeviceTypeMappingPage() {
     await load()
   }
 
-  async function handleDelete(id: string, name: string) {
-    if (!confirm(`Xoá mapping "${name}"?`)) return
-    await fetch(`/api/admin/device-type-mapping?id=${id}`, { method: 'DELETE' })
-    await load()
-  }
-
-  function startEdit(m: Mapping) {
-    setEditId(m.id)
-    setEditOrder(m.order_name)
-    setEditCrm(m.crm_name)
-    setEditNotes(m.notes ?? '')
-    setEditSearch('')
-  }
-
-  // Lọc CRM names theo search (form thêm mới)
-  const filteredCrmNew = useMemo(() =>
-    crmSearch.trim()
-      ? crmNames.filter(n => n.toLowerCase().includes(crmSearch.toLowerCase()))
-      : crmNames
-  , [crmNames, crmSearch])
-
-  // Lọc CRM names theo search (edit)
-  const filteredCrmEdit = useMemo(() =>
-    editSearch.trim()
-      ? crmNames.filter(n => n.toLowerCase().includes(editSearch.toLowerCase()))
-      : crmNames
-  , [crmNames, editSearch])
-
-  // Lọc bảng mapping theo search
-  const filtered = useMemo(() =>
-    search.trim()
-      ? mappings.filter(m =>
-          m.order_name.toLowerCase().includes(search.toLowerCase()) ||
-          m.crm_name.toLowerCase().includes(search.toLowerCase())
-        )
-      : mappings
-  , [mappings, search])
-
-  const activeCount   = mappings.filter(m => m.is_active).length
-  const inactiveCount = mappings.length - activeCount
+  const unmappedCount = orderNames.filter(n => !mappedOrders.has(n)).length
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="max-w-6xl mx-auto p-6 space-y-5">
 
       {/* Header */}
       <div className="flex items-center gap-3">
         <a href="/admin/users" className="text-gray-400 hover:text-gray-600 text-sm">← Admin</a>
         <h1 className="text-xl font-semibold text-gray-800">Device Type Mapping</h1>
         <span className="ml-auto text-xs text-gray-400">
-          {activeCount} active · {inactiveCount} inactive · {crmNames.length} loại CRM
+          {mappings.length} đã map · {unmappedCount} chưa map · {crmNames.length} loại CRM
         </span>
       </div>
 
-      {/* Hướng dẫn */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
-        <strong>Mục đích:</strong> Mapping tên thiết bị trong đơn hàng (Order name) sang tên chính xác trong CRM
-        (CRM name = <code className="bg-blue-100 px-1 rounded text-xs">product_name</code> trong bảng device_inventory).
-        Dùng để hệ thống tự nhận diện số lượng tồn kho khi xử lý đơn.
-      </div>
+      {/* ── 2 cột chọn ── */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+          <p className="text-sm font-medium text-gray-700">
+            Chọn 1 tên từ mỗi cột → nhấn <strong>Tạo mapping</strong>
+          </p>
+        </div>
 
-      {/* Form thêm mới */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-gray-700">Thêm mapping mới</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 divide-x divide-gray-100">
 
-          {/* Order name */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Tên trong đơn hàng (Order name)</label>
-            <input
-              value={newOrder}
-              onChange={e => setNewOrder(e.target.value)}
-              placeholder="vd: GO-168 V3, Router WiFi 6..."
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
-
-          {/* CRM name */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Tên CRM (từ device_inventory)</label>
-            <div className="flex gap-2">
-              <input
-                value={crmSearch}
-                onChange={e => { setCrmSearch(e.target.value); setNewCrm('') }}
-                placeholder="Tìm loại CRM..."
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-              />
-            </div>
-            {/* Dropdown kết quả tìm kiếm */}
-            {crmSearch.trim() && (
-              <div className="mt-1 border border-gray-200 rounded-lg bg-white shadow-sm max-h-40 overflow-y-auto">
-                {filteredCrmNew.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-400">Không tìm thấy</div>
-                ) : filteredCrmNew.map(n => (
-                  <button key={n} onClick={() => { setNewCrm(n); setCrmSearch(n) }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${newCrm === n ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
-                    {n}
-                  </button>
-                ))}
+          {/* ── Cột TRÁI: Order names ── */}
+          <div className="flex flex-col">
+            <div className="px-4 py-3 border-b border-gray-100 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  Tên trong đơn hàng
+                </span>
+                <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                  <input type="checkbox" checked={onlyUnmapped}
+                    onChange={e => setOnlyUnmapped(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-indigo-600" />
+                  Chỉ chưa map
+                </label>
               </div>
-            )}
-            {newCrm && (
-              <p className="text-xs text-green-600 mt-1">✓ Đã chọn: <strong>{newCrm}</strong></p>
-            )}
+              <input value={searchOrder} onChange={e => setSearchOrder(e.target.value)}
+                placeholder="Tìm tên đơn..."
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+            </div>
+
+            <div className="overflow-y-auto" style={{ maxHeight: 340 }}>
+              {loading ? (
+                <div className="p-6 text-center text-xs text-gray-400">Đang tải...</div>
+              ) : filteredOrders.length === 0 ? (
+                <div className="p-6 text-center text-xs text-gray-400">
+                  {orderNames.length === 0 ? 'Chưa có đơn nào trong hệ thống' : 'Không có kết quả'}
+                </div>
+              ) : filteredOrders.map(name => {
+                const isMapped   = mappedOrders.has(name)
+                const isSelected = selOrder === name
+                return (
+                  <button key={name} onClick={() => setSelOrder(isSelected ? null : name)}
+                    className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-50 flex items-center justify-between gap-2 transition-colors
+                      ${isSelected ? 'bg-indigo-600 text-white' : isMapped ? 'bg-green-50 hover:bg-green-100 text-gray-600' : 'hover:bg-gray-50 text-gray-800'}`}>
+                    <span className="truncate">{name}</span>
+                    {isMapped && !isSelected && (
+                      <span className="shrink-0 text-[10px] bg-green-200 text-green-700 px-1.5 py-0.5 rounded-full">mapped</span>
+                    )}
+                    {isSelected && <span className="shrink-0 text-xs">✓</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* ── Cột PHẢI: CRM names ── */}
+          <div className="flex flex-col">
+            <div className="px-4 py-3 border-b border-gray-100 space-y-2">
+              <div className="flex items-center">
+                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  Tên CRM (device_inventory)
+                </span>
+              </div>
+              <input value={searchCrm} onChange={e => setSearchCrm(e.target.value)}
+                placeholder="Tìm tên CRM..."
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+            </div>
+
+            <div className="overflow-y-auto" style={{ maxHeight: 340 }}>
+              {loading ? (
+                <div className="p-6 text-center text-xs text-gray-400">Đang tải...</div>
+              ) : filteredCrm.length === 0 ? (
+                <div className="p-6 text-center text-xs text-gray-400">
+                  {crmNames.length === 0 ? 'Chưa có dữ liệu CRM (chạy sync trước)' : 'Không có kết quả'}
+                </div>
+              ) : filteredCrm.map(name => {
+                const isMapped   = mappedCrm.has(name)
+                const isSelected = selCrm === name
+                return (
+                  <button key={name} onClick={() => setSelCrm(isSelected ? null : name)}
+                    className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-50 flex items-center justify-between gap-2 transition-colors
+                      ${isSelected ? 'bg-indigo-600 text-white' : isMapped ? 'bg-green-50 hover:bg-green-100 text-gray-600' : 'hover:bg-gray-50 text-gray-800'}`}>
+                    <span className="truncate">{name}</span>
+                    {isMapped && !isSelected && (
+                      <span className="shrink-0 text-[10px] bg-green-200 text-green-700 px-1.5 py-0.5 rounded-full">mapped</span>
+                    )}
+                    {isSelected && <span className="shrink-0 text-xs">✓</span>}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
 
-        {/* Notes */}
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Ghi chú (tuỳ chọn)</label>
-          <input
-            value={newNotes}
-            onChange={e => setNewNotes(e.target.value)}
-            placeholder="Ghi chú thêm..."
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
-          />
-        </div>
+        {/* ── Action bar ── */}
+        <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex flex-wrap items-center gap-3">
+          {/* Preview selection */}
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className={`truncate max-w-[200px] text-sm font-medium px-3 py-1 rounded-lg ${selOrder ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>
+              {selOrder ?? 'Chưa chọn đơn'}
+            </span>
+            <span className="text-gray-400 font-bold">→</span>
+            <span className={`truncate max-w-[200px] text-sm font-medium px-3 py-1 rounded-lg ${selCrm ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>
+              {selCrm ?? 'Chưa chọn CRM'}
+            </span>
+          </div>
 
-        <div className="flex items-center gap-3">
-          <button onClick={handleAdd} disabled={saving || !newOrder.trim() || !newCrm.trim()}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40">
-            {saving ? 'Đang lưu...' : '+ Thêm mapping'}
+          <input value={notes} onChange={e => setNotes(e.target.value)}
+            placeholder="Ghi chú (tuỳ chọn)"
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+
+          <button onClick={handleMap} disabled={!selOrder || !selCrm || saving}
+            className="px-5 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 shrink-0">
+            {saving ? 'Đang lưu...' : '+ Tạo mapping'}
           </button>
+
           {msg && (
-            <span className={`text-sm ${msg.type === 'ok' ? 'text-green-600' : 'text-red-600'}`}>
+            <span className={`text-xs ${msg.type === 'ok' ? 'text-green-600' : 'text-red-600'}`}>
               {msg.text}
             </span>
           )}
         </div>
       </div>
 
-      {/* Bảng mapping */}
+      {/* ── Bảng mapping đã tạo ── */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
-          <h2 className="text-sm font-semibold text-gray-700">Danh sách mapping</h2>
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+          <h2 className="text-sm font-semibold text-gray-700">Mapping đã tạo</h2>
+          <span className="text-xs text-gray-400">({mappings.length})</span>
+          <input value={searchMap} onChange={e => setSearchMap(e.target.value)}
             placeholder="Tìm kiếm..."
-            className="ml-auto border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200 w-48"
-          />
+            className="ml-auto border border-gray-200 rounded-lg px-3 py-1.5 text-xs w-48 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">Đang tải...</div>
-        ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">
-            {mappings.length === 0 ? 'Chưa có mapping nào. Thêm mới ở trên.' : 'Không tìm thấy kết quả.'}
+          <div className="p-8 text-center text-sm text-gray-400">Đang tải...</div>
+        ) : filteredMap.length === 0 ? (
+          <div className="p-8 text-center text-sm text-gray-400">
+            {mappings.length === 0 ? 'Chưa có mapping nào.' : 'Không tìm thấy.'}
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
                 <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium w-8">#</th>
-                <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium">Tên trong đơn (Order name)</th>
+                <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium">Tên đơn hàng</th>
                 <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium">Tên CRM</th>
                 <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium hidden md:table-cell">Ghi chú</th>
-                <th className="text-center px-4 py-2.5 text-xs text-gray-500 font-medium">Trạng thái</th>
-                <th className="px-4 py-2.5 text-xs text-gray-500 font-medium text-right">Thao tác</th>
+                <th className="text-center px-4 py-2.5 text-xs text-gray-500 font-medium">Active</th>
+                <th className="px-4 py-2.5 text-xs text-gray-500 font-medium text-right">Xoá</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((m, i) => (
+              {filteredMap.map((m, i) => (
                 <tr key={m.id} className={`border-b border-gray-50 ${!m.is_active ? 'opacity-50' : ''} ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
                   <td className="px-4 py-2.5 text-gray-400 text-xs">{i + 1}</td>
-
-                  {editId === m.id ? (
-                    // ── Edit mode ──
-                    <>
-                      <td className="px-4 py-2">
-                        <input value={editOrder} onChange={e => setEditOrder(e.target.value)}
-                          className="w-full border border-blue-300 rounded px-2 py-1 text-sm focus:outline-none" />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input value={editSearch} onChange={e => { setEditSearch(e.target.value); setEditCrm('') }}
-                          placeholder="Tìm CRM name..."
-                          className="w-full border border-blue-300 rounded px-2 py-1 text-sm focus:outline-none mb-1" />
-                        {editSearch.trim() && (
-                          <div className="border border-gray-200 rounded bg-white shadow-sm max-h-32 overflow-y-auto">
-                            {filteredCrmEdit.map(n => (
-                              <button key={n} onClick={() => { setEditCrm(n); setEditSearch(n) }}
-                                className={`w-full text-left px-2 py-1 text-xs hover:bg-blue-50 ${editCrm === n ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}>
-                                {n}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        {editCrm && !editSearch.trim() && (
-                          <span className="text-xs text-gray-600">{editCrm}</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 hidden md:table-cell">
-                        <input value={editNotes} onChange={e => setEditNotes(e.target.value)}
-                          className="w-full border border-blue-300 rounded px-2 py-1 text-sm focus:outline-none" />
-                      </td>
-                      <td className="px-4 py-2 text-center">—</td>
-                      <td className="px-4 py-2 text-right space-x-2">
-                        <button onClick={() => handleEdit(m.id)} disabled={saving}
-                          className="text-blue-600 hover:text-blue-800 text-xs font-medium">Lưu</button>
-                        <button onClick={() => setEditId(null)}
-                          className="text-gray-400 hover:text-gray-600 text-xs">Huỷ</button>
-                      </td>
-                    </>
-                  ) : (
-                    // ── View mode ──
-                    <>
-                      <td className="px-4 py-2.5">
-                        <span className="font-medium text-gray-800">{m.order_name}</span>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-medium">
-                          {m.crm_name}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-gray-400 text-xs hidden md:table-cell">
-                        {m.notes ?? '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-center">
-                        <button onClick={() => handleToggle(m)}
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${m.is_active
-                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                          }`}>
-                          {m.is_active ? 'Active' : 'Tắt'}
-                        </button>
-                      </td>
-                      <td className="px-4 py-2.5 text-right space-x-3">
-                        <button onClick={() => startEdit(m)}
-                          className="text-blue-500 hover:text-blue-700 text-xs">Sửa</button>
-                        <button onClick={() => handleDelete(m.id, m.order_name)}
-                          className="text-red-400 hover:text-red-600 text-xs">Xoá</button>
-                      </td>
-                    </>
-                  )}
+                  <td className="px-4 py-2.5 font-medium text-gray-800">{m.order_name}</td>
+                  <td className="px-4 py-2.5">
+                    <span className="inline-flex items-center bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                      {m.crm_name}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-400 text-xs hidden md:table-cell">{m.notes ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    <button onClick={() => handleToggle(m)}
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${m.is_active
+                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>
+                      {m.is_active ? 'On' : 'Off'}
+                    </button>
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <button onClick={() => handleDelete(m.id, m.order_name)}
+                      className="text-red-400 hover:text-red-600 text-xs">Xoá</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
-
-      {/* Thống kê */}
-      {mappings.length > 0 && (
-        <div className="text-xs text-gray-400 text-right">
-          Tổng {mappings.length} mapping · {crmNames.length} loại thiết bị CRM trong database
-        </div>
-      )}
     </div>
   )
 }

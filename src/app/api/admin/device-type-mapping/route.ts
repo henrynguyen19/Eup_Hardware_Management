@@ -38,8 +38,8 @@ export async function GET() {
 
   const d = db()
 
-  // Lấy danh sách mapping + distinct CRM names song song
-  const [mapRes, crmRes] = await Promise.all([
+  // Lấy mapping + CRM names + order device names song song
+  const [mapRes, crmRes, orderRes] = await Promise.all([
     d.from('device_type_mapping')
       .select('*')
       .order('order_name', { ascending: true }),
@@ -47,19 +47,31 @@ export async function GET() {
       .select('product_name')
       .not('product_name', 'is', null)
       .order('product_name', { ascending: true }),
+    d.from('giao_hang_don_items')
+      .select('device_name')
+      .not('device_name', 'is', null)
+      .order('device_name', { ascending: true }),
   ])
 
   if (mapRes.error) return NextResponse.json({ error: mapRes.error.message }, { status: 500 })
 
   // Distinct product_name từ device_inventory
-  const seen = new Set<string>()
+  const crmSeen = new Set<string>()
   const crmNames: string[] = []
   for (const row of (crmRes.data ?? [])) {
-    const n = row.product_name as string
-    if (n && !seen.has(n)) { seen.add(n); crmNames.push(n) }
+    const n = (row.product_name as string)?.trim()
+    if (n && !crmSeen.has(n)) { crmSeen.add(n); crmNames.push(n) }
   }
 
-  return NextResponse.json({ mappings: mapRes.data ?? [], crmNames })
+  // Distinct device_name từ giao_hang_don_items
+  const orderSeen = new Set<string>()
+  const orderNames: string[] = []
+  for (const row of (orderRes.data ?? [])) {
+    const n = (row.device_name as string)?.trim()
+    if (n && !orderSeen.has(n)) { orderSeen.add(n); orderNames.push(n) }
+  }
+
+  return NextResponse.json({ mappings: mapRes.data ?? [], crmNames, orderNames })
 }
 
 // ── POST ─────────────────────────────────────────────────────────────
