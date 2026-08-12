@@ -81,7 +81,9 @@ function getProductName(r: CRMDevice): string {
 }
 
 function getImportedDate(r: CRMDevice): string | null {
-  const raw = r.Device_TransferTime || r.Device_Date
+  // Ưu tiên Device_Date (ngày nhập kho/đăng ký trong CRM) vì đây là ngày thực tế thiết bị được nhập
+  // Device_TransferTime chỉ là ngày của từng giao dịch cụ thể, có thể khác tháng nhập
+  const raw = r.Device_Date || r.Device_TransferTime
   if (!raw?.trim()) return null
   const d = new Date(raw.replace(' ', 'T'))
   return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0]
@@ -236,34 +238,31 @@ export async function POST(req: NextRequest) {
     const errors: string[] = []
 
     if (records.length > 0) {
-      // Dedupe theo device_id (giữ record cuối cùng nếu trùng)
-      const rowMap = new Map<number, Record<string, unknown>>()
-      for (const r of records) {
-        rowMap.set(r.Device_ID, {
-          device_id:       r.Device_ID,
-          device_code:     (r.Device_Code || '').trim() || null,
-          product_name:    getProductName(r),
-          vendor_name:     r.Device_VendorName || null,
-          imported_date:   getImportedDate(r),
-          source_stock:    r.Device_SourceStockName || null,
-          dest_stock:      r.Device_DestStockName || null,
-          transfer_action: r.Device_TransferActionName || null,
-          firmware_ver:    r.Device_FirewareVer || null,
-          hardware_memo:   r.Device_HardwareMemo || null,
-          memo:            r.Device_Memo || null,
-          // crm_raw bị bỏ để giảm payload (48MB+ với tháng lớn → timeout)
-          synced_at:       new Date().toISOString(),
-        })
-      }
-      const rows = Array.from(rowMap.values())
-      console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} raw → ${rows.length} sau dedupe`)
+      // records đã được deduped theo device_id (giữ FIRST occurrence) trong callGetDeviceMaintenanceChunked
+      const rows = records.map(r => ({
+        device_id:       r.Device_ID,
+        device_code:     (r.Device_Code || '').trim() || null,
+        product_name:    getProductName(r),
+        vendor_name:     r.Device_VendorName || null,
+        imported_date:   getImportedDate(r),    // Device_Date = ngày nhập kho thực tế
+        source_stock:    r.Device_SourceStockName || null,
+        dest_stock:      r.Device_DestStockName || null,
+        transfer_action: r.Device_TransferActionName || null,
+        firmware_ver:    r.Device_FirewareVer || null,
+        hardware_memo:   r.Device_HardwareMemo || null,
+        memo:            r.Device_Memo || null,
+        // crm_raw bị bỏ để giảm payload (48MB+ với tháng lớn → timeout)
+        synced_at:       new Date().toISOString(),
+      }))
+      console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} records`)
 
-      // Batch 500 thay vì 200 để giảm số DB round-trips
+      // ignoreDuplicates: true — không overwrite device đã tồn tại từ tháng trước
+      // Mỗi device chỉ được ghi 1 lần (lần đầu sync tháng chứa Device_Date)
       for (let i = 0; i < rows.length; i += 500) {
         const batch = rows.slice(i, i + 500)
         const { error } = await db
           .from('device_inventory')
-          .upsert(batch, { onConflict: 'device_id', ignoreDuplicates: false })
+          .upsert(batch, { onConflict: 'device_id', ignoreDuplicates: true })
         if (error) errors.push(error.message)
         else upserted += batch.length
       }
