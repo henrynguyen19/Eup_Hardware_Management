@@ -900,6 +900,8 @@ interface CrmCheckResult {
   unicode?: string | null
   suggested_status?: string | null
   stock_error?: string; car_error?: string
+  matchResult?: 'match' | 'mismatch' | 'fuzzy' | null
+  orderName?: string | null
 }
 
 function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
@@ -953,7 +955,7 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceTypes])
 
-  async function checkCRM(itemId: string, slotIdx: number) {
+  async function checkCRM(itemId: string, slotIdx: number, deviceName?: string) {
     const slotKey = `${itemId}:${slotIdx}`
     const barcode = crmInput[slotKey]?.trim()
     if (!barcode) return
@@ -961,7 +963,9 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
     setCrmResult(r  => ({ ...r,  [slotKey]: null }))
     setCrmError(e   => ({ ...e,  [slotKey]: '' }))
     try {
-      const res = await fetch(`/api/giao-hang/crm-check?barcode=${encodeURIComponent(barcode)}`)
+      const params = new URLSearchParams({ barcode })
+      if (deviceName) params.set('orderName', deviceName)
+      const res = await fetch(`/api/giao-hang/crm-check?${params}`)
       const d = await res.json()
       if (d.ok) {
         setCrmResult(r => ({ ...r, [slotKey]: d }))
@@ -1124,10 +1128,10 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
                                 placeholder="Quét hoặc nhập barcode/IMEI"
                                 value={crmInput[slotKey] ?? ''}
                                 onChange={e => setCrmInput(i => ({ ...i, [slotKey]: e.target.value }))}
-                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); checkCRM(item.id, si) } }}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); checkCRM(item.id, si, item.device_name) } }}
                                 autoFocus={si === 0 && isFirstVisible}
                               />
-                              <button onClick={() => checkCRM(item.id, si)} disabled={crmLoading[slotKey]}
+                              <button onClick={() => checkCRM(item.id, si, item.device_name)} disabled={crmLoading[slotKey]}
                                 className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
                                 {crmLoading[slotKey] ? '…' : 'Kiểm tra'}
                               </button>
@@ -1135,7 +1139,18 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
                             {crmError[slotKey] && <div className="text-xs text-red-500">{crmError[slotKey]}</div>}
                             {cr?.stock && (
                               <div className={`text-xs border rounded-lg p-2 space-y-0.5 ${cr.stock.isAtCompany ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
-                                <div className="font-semibold text-gray-800">{cr.stock.productName}</div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-semibold text-gray-800">{cr.stock.productName}</span>
+                                  {cr.matchResult === 'match' && (
+                                    <span className="text-[10px] bg-green-100 text-green-700 border border-green-300 px-1.5 py-0.5 rounded-full font-medium">✓ Đúng loại</span>
+                                  )}
+                                  {cr.matchResult === 'fuzzy' && (
+                                    <span className="text-[10px] bg-yellow-100 text-yellow-700 border border-yellow-300 px-1.5 py-0.5 rounded-full font-medium">~ Có thể khớp</span>
+                                  )}
+                                  {cr.matchResult === 'mismatch' && (
+                                    <span className="text-[10px] bg-red-100 text-red-700 border border-red-300 px-1.5 py-0.5 rounded-full font-medium">⚠ Sai loại</span>
+                                  )}
+                                </div>
                                 <div className="flex flex-wrap gap-x-3 text-gray-600">
                                   <span>📦 Kho: <span className="font-medium">{cr.stock.sourceStock || '—'}</span></span>
                                   <span className={`font-medium ${cr.stock.status === 'HAVE' ? 'text-green-600' : 'text-orange-500'}`}>{cr.stock.status}</span>

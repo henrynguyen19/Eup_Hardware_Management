@@ -1,6 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { getCRMSessionForUser } from '@/lib/crm-session'
+
+const sb = () => createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
+// ── Device type matching ──────────────────────────────────────────────
+// matchResult: 'match' | 'mismatch' | 'fuzzy' | null (null = không có orderName)
+export type MatchResult = 'match' | 'mismatch' | 'fuzzy' | null
+
+async function resolveMatch(orderName: string, crmProductName: string): Promise<MatchResult> {
+  if (!orderName || !crmProductName) return null
+
+  const orderLower = orderName.toLowerCase().trim()
+  const crmLower   = crmProductName.toLowerCase().trim()
+
+  // 1. Tra bảng device_type_mapping (active)
+  const { data: mappings } = await sb()
+    .from('device_type_mapping')
+    .select('crm_name, crm_device_type_id')
+    .eq('is_active', true)
+    .ilike('order_name', orderName.trim())
+
+  if (mappings && mappings.length > 0) {
+    const hit = mappings.some(m =>
+      (m.crm_name as string).toLowerCase() === crmLower
+    )
+    return hit ? 'match' : 'mismatch'
+  }
+
+  // 2. Exact / contains fallback
+  if (crmLower === orderLower) return 'match'
+  if (crmLower.includes(orderLower) || orderLower.includes(crmLower)) return 'fuzzy'
+
+  // 3. Token overlap: tokenize, bỏ stop-words ngắn, đếm chung
+  const tokenize = (s: string) =>
+    s.split(/[\s\-_\/\(\)]+/).map(t => t.trim()).filter(t => t.length > 2)
+  const oTokens = tokenize(orderLower)
+  const cTokens = tokenize(crmLower)
+  if (oTokens.length === 0 || cTokens.length === 0) return null
+  const overlap = oTokens.filter(t => cTokens.includes(t)).length
+  const minLen  = Math.min(oTokens.length, cTokens.length)
+  if (overlap >= Math.max(1, Math.ceil(minLen * 0.5))) return 'fuzzy'
+
+  return 'mismatch'
+}
 
 const CRM_SOAP_URL = process.env.CRM_SOAP_URL ?? ''
 
@@ -86,9 +133,10 @@ export async function GET(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
 
-    const sp      = req.nextUrl.searchParams
-    const barcode = sp.get('barcode')?.trim()
-    const unicode = sp.get('unicode')?.trim()
+    const sp        = req.nextUrl.searchParams
+    const barcode   = sp.get('barcode')?.trim()
+    const unicode   = sp.get('unicode')?.trim()
+    const orderName = sp.get('orderName')?.trim() ?? ''  // tên thiết bị trong đơn (để match)
 
     if (!barcode && !unicode) {
       return NextResponse.json({ error: 'Cần barcode hoặc unicode' }, { status: 400 })
@@ -164,6 +212,11 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Match device name trong đơn với productName từ CRM
+    const matchResult = stockInfo && orderName
+      ? await resolveMatch(orderName, stockInfo.productName)
+      : null
+
     return NextResponse.json({
       ok:          true,
       barcode:     barcode ?? null,
@@ -176,6 +229,9 @@ export async function GET(req: NextRequest) {
         ? (stockInfo.isAtCompany ? null : 'da_nhan')  // null = không tự động cập nhật
         : null,
       company_warehouses: companyWarehouses,
+      // Kết quả match loại thiết bị đơn vs CRM
+      matchResult,   // 'match' | 'mismatch' | 'fuzzy' | null
+      orderName:     orderName || null,
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)

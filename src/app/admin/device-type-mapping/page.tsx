@@ -23,19 +23,17 @@ export default function DeviceTypeMappingPage() {
   const [orderNames, setOrderNames] = useState<string[]>([])
   const [loading, setLoading]       = useState(true)
 
-  // Selection state
-  const [selOrder, setSelOrder]   = useState<string | null>(null)
-  const [selCrm, setSelCrm]       = useState<CrmType | null>(null)
-  const [notes, setNotes]         = useState('')
-  const [saving, setSaving]       = useState(false)
-  const [msg, setMsg]             = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  // Selection — cột trái single, cột phải multi
+  const [selOrder, setSelOrder] = useState<string | null>(null)
+  const [selCrms, setSelCrms]   = useState<CrmType[]>([])
+  const [notes, setNotes]       = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [msg, setMsg]           = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
-  // Search filters
+  // Filters
   const [searchOrder, setSearchOrder] = useState('')
   const [searchCrm, setSearchCrm]     = useState('')
   const [searchMap, setSearchMap]     = useState('')
-
-  // Show all or only unmapped
   const [onlyUnmapped, setOnlyUnmapped] = useState(true)
 
   useEffect(() => { load() }, [])
@@ -52,27 +50,39 @@ export default function DeviceTypeMappingPage() {
     setLoading(false)
   }
 
-  // Set của order_name đã được map
-  const mappedOrders  = useMemo(() => new Set(mappings.map(m => m.order_name)), [mappings])
-  const mappedCrmIds  = useMemo(() => new Set(mappings.map(m => m.crm_device_type_id).filter(Boolean)), [mappings])
-  const mappedCrmNames = useMemo(() => new Set(mappings.map(m => m.crm_name)), [mappings])
+  // order_name → số lượng CRM đã map
+  const orderMappedCount = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const mp of mappings) m.set(mp.order_name, (m.get(mp.order_name) ?? 0) + 1)
+    return m
+  }, [mappings])
 
-  // Lọc danh sách trái (order names)
+  // CRM IDs/names đã map với order đang chọn (để highlight cột phải)
+  const selOrderMappedCrmIds = useMemo(() => {
+    if (!selOrder) return new Set<number>()
+    return new Set(
+      mappings
+        .filter(m => m.order_name === selOrder && m.crm_device_type_id != null)
+        .map(m => m.crm_device_type_id as number)
+    )
+  }, [mappings, selOrder])
+
+  const selCrmIds = useMemo(() => new Set(selCrms.map(t => t.id)), [selCrms])
+
+  // Filtered lists
   const filteredOrders = useMemo(() => {
     let list = orderNames
-    if (onlyUnmapped) list = list.filter(n => !mappedOrders.has(n))
+    if (onlyUnmapped) list = list.filter(n => !orderMappedCount.has(n))
     if (searchOrder.trim()) list = list.filter(n => n.toLowerCase().includes(searchOrder.toLowerCase()))
     return list
-  }, [orderNames, onlyUnmapped, searchOrder, mappedOrders])
+  }, [orderNames, onlyUnmapped, searchOrder, orderMappedCount])
 
-  // Lọc danh sách phải (CRM types)
   const filteredCrm = useMemo(() => {
     let list = crmTypes
     if (searchCrm.trim()) list = list.filter(t => t.name.toLowerCase().includes(searchCrm.toLowerCase()))
     return list
   }, [crmTypes, searchCrm])
 
-  // Lọc bảng mapping bên dưới
   const filteredMap = useMemo(() => {
     if (!searchMap.trim()) return mappings
     return mappings.filter(m =>
@@ -81,26 +91,26 @@ export default function DeviceTypeMappingPage() {
     )
   }, [mappings, searchMap])
 
+  function toggleCrm(type: CrmType) {
+    setSelCrms(prev =>
+      prev.some(t => t.id === type.id)
+        ? prev.filter(t => t.id !== type.id)
+        : [...prev, type]
+    )
+  }
+
   async function handleMap() {
-    if (!selOrder || !selCrm) return
+    if (!selOrder || selCrms.length === 0) return
     setSaving(true); setMsg(null)
     const res = await fetch('/api/admin/device-type-mapping', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        order_name: selOrder,
-        crm_name: selCrm.name,
-        crm_device_type_id: selCrm.id,
-        notes: notes.trim() || null,
-      }),
+      body: JSON.stringify({ order_name: selOrder, crm_types: selCrms, notes: notes.trim() || null }),
     })
     const j = await res.json()
-    if (!res.ok) {
-      setMsg({ type: 'err', text: j.error })
-      setSaving(false); return
-    }
-    setMsg({ type: 'ok', text: `✅ "${selOrder}" → "${selCrm.name}"` })
-    setSelOrder(null); setSelCrm(null); setNotes('')
+    if (!res.ok) { setMsg({ type: 'err', text: j.error }); setSaving(false); return }
+    setMsg({ type: 'ok', text: `✅ "${selOrder}" → ${selCrms.length} loại CRM` })
+    setSelOrder(null); setSelCrms([]); setNotes('')
     await load()
     setSaving(false)
   }
@@ -120,7 +130,7 @@ export default function DeviceTypeMappingPage() {
     await load()
   }
 
-  const unmappedCount = orderNames.filter(n => !mappedOrders.has(n)).length
+  const unmappedCount = orderNames.filter(n => !orderMappedCount.has(n)).length
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-5">
@@ -138,7 +148,7 @@ export default function DeviceTypeMappingPage() {
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
           <p className="text-sm font-medium text-gray-700">
-            Chọn 1 tên từ mỗi cột → nhấn <strong>Tạo mapping</strong>
+            Chọn 1 tên đơn (trái) + 1 hoặc nhiều loại CRM (phải) → nhấn <strong>Tạo mapping</strong>
           </p>
         </div>
 
@@ -171,15 +181,18 @@ export default function DeviceTypeMappingPage() {
                   {orderNames.length === 0 ? 'Chưa có đơn nào trong hệ thống' : 'Không có kết quả'}
                 </div>
               ) : filteredOrders.map(name => {
-                const isMapped   = mappedOrders.has(name)
-                const isSelected = selOrder === name
+                const mappedCount = orderMappedCount.get(name) ?? 0
+                const isSelected  = selOrder === name
                 return (
-                  <button key={name} onClick={() => setSelOrder(isSelected ? null : name)}
+                  <button key={name}
+                    onClick={() => { setSelOrder(isSelected ? null : name); setSelCrms([]) }}
                     className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-50 flex items-center justify-between gap-2 transition-colors
-                      ${isSelected ? 'bg-indigo-600 text-white' : isMapped ? 'bg-green-50 hover:bg-green-100 text-gray-600' : 'hover:bg-gray-50 text-gray-800'}`}>
+                      ${isSelected ? 'bg-indigo-600 text-white' : mappedCount > 0 ? 'bg-green-50 hover:bg-green-100 text-gray-600' : 'hover:bg-gray-50 text-gray-800'}`}>
                     <span className="truncate">{name}</span>
-                    {isMapped && !isSelected && (
-                      <span className="shrink-0 text-[10px] bg-green-200 text-green-700 px-1.5 py-0.5 rounded-full">mapped</span>
+                    {mappedCount > 0 && !isSelected && (
+                      <span className="shrink-0 text-[10px] bg-green-200 text-green-700 px-1.5 py-0.5 rounded-full">
+                        {mappedCount} CRM
+                      </span>
                     )}
                     {isSelected && <span className="shrink-0 text-xs">✓</span>}
                   </button>
@@ -188,15 +201,20 @@ export default function DeviceTypeMappingPage() {
             </div>
           </div>
 
-          {/* ── Cột PHẢI: CRM device types (từ GetDeviceType SOAP) ── */}
+          {/* ── Cột PHẢI: CRM device types — multi-select ── */}
           <div className="flex flex-col">
             <div className="px-4 py-3 border-b border-gray-100 space-y-2">
-              <div className="flex items-center">
+              <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                   Loại thiết bị CRM
                 </span>
                 {crmTypes.length > 0 && (
-                  <span className="ml-2 text-[10px] text-gray-400">{crmTypes.length} loại</span>
+                  <span className="text-[10px] text-gray-400">{crmTypes.length} loại</span>
+                )}
+                {selCrms.length > 0 && (
+                  <span className="ml-auto text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                    {selCrms.length} đã chọn
+                  </span>
                 )}
               </div>
               <input value={searchCrm} onChange={e => setSearchCrm(e.target.value)}
@@ -212,18 +230,24 @@ export default function DeviceTypeMappingPage() {
                   {crmTypes.length === 0 ? 'Không lấy được dữ liệu CRM' : 'Không có kết quả'}
                 </div>
               ) : filteredCrm.map(type => {
-                const isMapped   = mappedCrmIds.has(type.id) || mappedCrmNames.has(type.name)
-                const isSelected = selCrm?.id === type.id
+                const alreadyMapped = selOrderMappedCrmIds.has(type.id)
+                const isSelected    = selCrmIds.has(type.id)
                 return (
-                  <button key={type.id} onClick={() => setSelCrm(isSelected ? null : type)}
-                    className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-50 flex items-center justify-between gap-2 transition-colors
-                      ${isSelected ? 'bg-indigo-600 text-white' : isMapped ? 'bg-green-50 hover:bg-green-100 text-gray-600' : 'hover:bg-gray-50 text-gray-800'}`}>
-                    <span className="truncate">{type.name}</span>
-                    <span className={`shrink-0 text-[10px] font-mono ${isSelected ? 'text-indigo-200' : 'text-gray-300'}`}>#{type.id}</span>
-                    {isMapped && !isSelected && (
+                  <button key={type.id} onClick={() => toggleCrm(type)}
+                    className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-50 flex items-center gap-2 transition-colors
+                      ${isSelected
+                        ? 'bg-indigo-600 text-white'
+                        : alreadyMapped
+                          ? 'bg-green-50 hover:bg-green-100 text-gray-600'
+                          : 'hover:bg-gray-50 text-gray-800'}`}>
+                    <span className="truncate flex-1">{type.name}</span>
+                    <span className={`shrink-0 text-[10px] font-mono ${isSelected ? 'text-indigo-200' : 'text-gray-300'}`}>
+                      #{type.id}
+                    </span>
+                    {alreadyMapped && !isSelected && (
                       <span className="shrink-0 text-[10px] bg-green-200 text-green-700 px-1.5 py-0.5 rounded-full">mapped</span>
                     )}
-                    {isSelected && <span className="shrink-0 text-xs">✓</span>}
+                    {isSelected && <span className="shrink-0 text-xs font-bold">✓</span>}
                   </button>
                 )
               })}
@@ -233,27 +257,32 @@ export default function DeviceTypeMappingPage() {
 
         {/* ── Action bar ── */}
         <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex flex-wrap items-center gap-3">
-          {/* Preview selection */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className={`truncate max-w-[200px] text-sm font-medium px-3 py-1 rounded-lg ${selOrder ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>
+          <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+            <span className={`shrink-0 text-sm font-medium px-3 py-1 rounded-lg ${selOrder ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>
               {selOrder ?? 'Chưa chọn đơn'}
             </span>
-            <span className="text-gray-400 font-bold">→</span>
-            <span className={`truncate max-w-[200px] text-sm font-medium px-3 py-1 rounded-lg ${selCrm ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>
-              {selCrm ? selCrm.name : 'Chưa chọn CRM'}
-            </span>
-            {selCrm && (
-              <span className="text-[10px] text-gray-400 font-mono">#{selCrm.id}</span>
+            <span className="text-gray-400 font-bold shrink-0">→</span>
+            {selCrms.length === 0 ? (
+              <span className="text-sm px-3 py-1 rounded-lg bg-gray-100 text-gray-400">Chưa chọn CRM</span>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {selCrms.map(t => (
+                  <span key={t.id} className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-lg font-medium flex items-center gap-1">
+                    {t.name}
+                    <button onClick={() => toggleCrm(t)} className="text-indigo-400 hover:text-indigo-700 leading-none">×</button>
+                  </span>
+                ))}
+              </div>
             )}
           </div>
 
           <input value={notes} onChange={e => setNotes(e.target.value)}
             placeholder="Ghi chú (tuỳ chọn)"
-            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-indigo-200 shrink-0" />
 
-          <button onClick={handleMap} disabled={!selOrder || !selCrm || saving}
+          <button onClick={handleMap} disabled={!selOrder || selCrms.length === 0 || saving}
             className="px-5 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 shrink-0">
-            {saving ? 'Đang lưu...' : '+ Tạo mapping'}
+            {saving ? 'Đang lưu...' : `+ Tạo mapping${selCrms.length > 1 ? ` (${selCrms.length})` : ''}`}
           </button>
 
           {msg && (
@@ -298,8 +327,11 @@ export default function DeviceTypeMappingPage() {
                   <td className="px-4 py-2.5 text-gray-400 text-xs">{i + 1}</td>
                   <td className="px-4 py-2.5 font-medium text-gray-800">{m.order_name}</td>
                   <td className="px-4 py-2.5">
-                    <span className="inline-flex items-center bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                    <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-medium">
                       {m.crm_name}
+                      {m.crm_device_type_id && (
+                        <span className="text-indigo-300 font-mono text-[10px]">#{m.crm_device_type_id}</span>
+                      )}
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-gray-400 text-xs hidden md:table-cell">{m.notes ?? '—'}</td>

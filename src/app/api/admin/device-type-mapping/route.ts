@@ -83,6 +83,8 @@ export async function GET() {
 }
 
 // ── POST ─────────────────────────────────────────────────────────────
+// body: { order_name, crm_types: [{id, name}][], notes? }
+// Tạo nhiều rows cùng lúc (1 order_name → nhiều CRM types)
 export async function POST(req: NextRequest) {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -90,31 +92,31 @@ export async function POST(req: NextRequest) {
   if (!(await checkAdmin(user.id))) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
   const body = await req.json()
-  const { order_name, crm_name, crm_device_type_id, notes } = body
+  const { order_name, crm_types, notes } = body as {
+    order_name: string
+    crm_types: { id: number; name: string }[]
+    notes?: string
+  }
 
-  if (!order_name?.trim()) return NextResponse.json({ error: 'Thiếu order_name' }, { status: 400 })
-  if (!crm_name?.trim())   return NextResponse.json({ error: 'Thiếu crm_name' }, { status: 400 })
+  if (!order_name?.trim())      return NextResponse.json({ error: 'Thiếu order_name' }, { status: 400 })
+  if (!crm_types?.length)       return NextResponse.json({ error: 'Thiếu crm_types' }, { status: 400 })
+
+  const rows = crm_types.map(t => ({
+    order_name:         order_name.trim(),
+    crm_name:           t.name.trim(),
+    crm_device_type_id: t.id,
+    notes:              notes?.trim() ?? null,
+    created_by:         user.email,
+  }))
 
   const { data, error } = await db()
     .from('device_type_mapping')
-    .insert({
-      order_name:         order_name.trim(),
-      crm_name:           crm_name.trim(),
-      crm_device_type_id: crm_device_type_id ?? null,
-      notes:              notes?.trim() ?? null,
-      created_by:         user.email,
-    })
+    .upsert(rows, { onConflict: 'order_name,crm_name', ignoreDuplicates: true })
     .select()
-    .single()
 
-  if (error) {
-    if (error.code === '23505') {
-      return NextResponse.json({ error: `"${order_name.trim()}" đã tồn tại trong mapping` }, { status: 409 })
-    }
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ ok: true, mapping: data }, { status: 201 })
+  return NextResponse.json({ ok: true, mappings: data }, { status: 201 })
 }
 
 // ── PUT ──────────────────────────────────────────────────────────────
