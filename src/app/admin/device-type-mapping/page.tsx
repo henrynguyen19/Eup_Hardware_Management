@@ -12,18 +12,23 @@ interface Mapping {
   created_at: string
 }
 
+interface CrmType {
+  id: number
+  name: string
+}
+
 export default function DeviceTypeMappingPage() {
   const [mappings, setMappings]     = useState<Mapping[]>([])
-  const [crmNames, setCrmNames]     = useState<string[]>([])
+  const [crmTypes, setCrmTypes]     = useState<CrmType[]>([])
   const [orderNames, setOrderNames] = useState<string[]>([])
   const [loading, setLoading]       = useState(true)
 
   // Selection state
-  const [selOrder, setSelOrder] = useState<string | null>(null)
-  const [selCrm, setSelCrm]     = useState<string | null>(null)
-  const [notes, setNotes]       = useState('')
-  const [saving, setSaving]     = useState(false)
-  const [msg, setMsg]           = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [selOrder, setSelOrder]   = useState<string | null>(null)
+  const [selCrm, setSelCrm]       = useState<CrmType | null>(null)
+  const [notes, setNotes]         = useState('')
+  const [saving, setSaving]       = useState(false)
+  const [msg, setMsg]             = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
   // Search filters
   const [searchOrder, setSearchOrder] = useState('')
@@ -41,15 +46,16 @@ export default function DeviceTypeMappingPage() {
     if (res.ok) {
       const j = await res.json()
       setMappings(j.mappings ?? [])
-      setCrmNames(j.crmNames ?? [])
+      setCrmTypes(j.crmTypes ?? [])
       setOrderNames(j.orderNames ?? [])
     }
     setLoading(false)
   }
 
   // Set của order_name đã được map
-  const mappedOrders = useMemo(() => new Set(mappings.map(m => m.order_name)), [mappings])
-  const mappedCrm    = useMemo(() => new Set(mappings.map(m => m.crm_name)), [mappings])
+  const mappedOrders  = useMemo(() => new Set(mappings.map(m => m.order_name)), [mappings])
+  const mappedCrmIds  = useMemo(() => new Set(mappings.map(m => m.crm_device_type_id).filter(Boolean)), [mappings])
+  const mappedCrmNames = useMemo(() => new Set(mappings.map(m => m.crm_name)), [mappings])
 
   // Lọc danh sách trái (order names)
   const filteredOrders = useMemo(() => {
@@ -59,12 +65,12 @@ export default function DeviceTypeMappingPage() {
     return list
   }, [orderNames, onlyUnmapped, searchOrder, mappedOrders])
 
-  // Lọc danh sách phải (CRM names)
+  // Lọc danh sách phải (CRM types)
   const filteredCrm = useMemo(() => {
-    let list = crmNames
-    if (searchCrm.trim()) list = list.filter(n => n.toLowerCase().includes(searchCrm.toLowerCase()))
+    let list = crmTypes
+    if (searchCrm.trim()) list = list.filter(t => t.name.toLowerCase().includes(searchCrm.toLowerCase()))
     return list
-  }, [crmNames, searchCrm])
+  }, [crmTypes, searchCrm])
 
   // Lọc bảng mapping bên dưới
   const filteredMap = useMemo(() => {
@@ -81,14 +87,19 @@ export default function DeviceTypeMappingPage() {
     const res = await fetch('/api/admin/device-type-mapping', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_name: selOrder, crm_name: selCrm, notes: notes.trim() || null }),
+      body: JSON.stringify({
+        order_name: selOrder,
+        crm_name: selCrm.name,
+        crm_device_type_id: selCrm.id,
+        notes: notes.trim() || null,
+      }),
     })
     const j = await res.json()
     if (!res.ok) {
       setMsg({ type: 'err', text: j.error })
       setSaving(false); return
     }
-    setMsg({ type: 'ok', text: `✅ "${selOrder}" → "${selCrm}"` })
+    setMsg({ type: 'ok', text: `✅ "${selOrder}" → "${selCrm.name}"` })
     setSelOrder(null); setSelCrm(null); setNotes('')
     await load()
     setSaving(false)
@@ -119,7 +130,7 @@ export default function DeviceTypeMappingPage() {
         <a href="/admin/users" className="text-gray-400 hover:text-gray-600 text-sm">← Admin</a>
         <h1 className="text-xl font-semibold text-gray-800">Device Type Mapping</h1>
         <span className="ml-auto text-xs text-gray-400">
-          {mappings.length} đã map · {unmappedCount} chưa map · {crmNames.length} loại CRM
+          {mappings.length} đã map · {unmappedCount} chưa map · {crmTypes.length} loại CRM
         </span>
       </div>
 
@@ -177,13 +188,16 @@ export default function DeviceTypeMappingPage() {
             </div>
           </div>
 
-          {/* ── Cột PHẢI: CRM names ── */}
+          {/* ── Cột PHẢI: CRM device types (từ GetDeviceType SOAP) ── */}
           <div className="flex flex-col">
             <div className="px-4 py-3 border-b border-gray-100 space-y-2">
               <div className="flex items-center">
                 <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                  Tên CRM (device_inventory)
+                  Loại thiết bị CRM
                 </span>
+                {crmTypes.length > 0 && (
+                  <span className="ml-2 text-[10px] text-gray-400">{crmTypes.length} loại</span>
+                )}
               </div>
               <input value={searchCrm} onChange={e => setSearchCrm(e.target.value)}
                 placeholder="Tìm tên CRM..."
@@ -192,19 +206,20 @@ export default function DeviceTypeMappingPage() {
 
             <div className="overflow-y-auto" style={{ maxHeight: 340 }}>
               {loading ? (
-                <div className="p-6 text-center text-xs text-gray-400">Đang tải...</div>
+                <div className="p-6 text-center text-xs text-gray-400">Đang tải từ CRM...</div>
               ) : filteredCrm.length === 0 ? (
                 <div className="p-6 text-center text-xs text-gray-400">
-                  {crmNames.length === 0 ? 'Chưa có dữ liệu CRM (chạy sync trước)' : 'Không có kết quả'}
+                  {crmTypes.length === 0 ? 'Không lấy được dữ liệu CRM' : 'Không có kết quả'}
                 </div>
-              ) : filteredCrm.map(name => {
-                const isMapped   = mappedCrm.has(name)
-                const isSelected = selCrm === name
+              ) : filteredCrm.map(type => {
+                const isMapped   = mappedCrmIds.has(type.id) || mappedCrmNames.has(type.name)
+                const isSelected = selCrm?.id === type.id
                 return (
-                  <button key={name} onClick={() => setSelCrm(isSelected ? null : name)}
+                  <button key={type.id} onClick={() => setSelCrm(isSelected ? null : type)}
                     className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-50 flex items-center justify-between gap-2 transition-colors
                       ${isSelected ? 'bg-indigo-600 text-white' : isMapped ? 'bg-green-50 hover:bg-green-100 text-gray-600' : 'hover:bg-gray-50 text-gray-800'}`}>
-                    <span className="truncate">{name}</span>
+                    <span className="truncate">{type.name}</span>
+                    <span className={`shrink-0 text-[10px] font-mono ${isSelected ? 'text-indigo-200' : 'text-gray-300'}`}>#{type.id}</span>
                     {isMapped && !isSelected && (
                       <span className="shrink-0 text-[10px] bg-green-200 text-green-700 px-1.5 py-0.5 rounded-full">mapped</span>
                     )}
@@ -225,8 +240,11 @@ export default function DeviceTypeMappingPage() {
             </span>
             <span className="text-gray-400 font-bold">→</span>
             <span className={`truncate max-w-[200px] text-sm font-medium px-3 py-1 rounded-lg ${selCrm ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>
-              {selCrm ?? 'Chưa chọn CRM'}
+              {selCrm ? selCrm.name : 'Chưa chọn CRM'}
             </span>
+            {selCrm && (
+              <span className="text-[10px] text-gray-400 font-mono">#{selCrm.id}</span>
+            )}
           </div>
 
           <input value={notes} onChange={e => setNotes(e.target.value)}

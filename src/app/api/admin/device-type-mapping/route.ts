@@ -1,7 +1,7 @@
 /**
  * GET  /api/admin/device-type-mapping
- *   → { mappings: Mapping[], crmNames: string[] }
- *   crmNames = distinct product_name từ device_inventory (để populate dropdown)
+ *   → { mappings: Mapping[], crmTypes: {id, name}[], orderNames: string[] }
+ *   crmTypes = danh sách loại thiết bị từ CRM SOAP GetDeviceType (authoritative)
  *
  * POST /api/admin/device-type-mapping
  *   body: { order_name, crm_name, crm_device_type_id?, notes? }
@@ -18,6 +18,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { isAdminUser } from '@/lib/auth-helpers'
+import { callCrmSoap } from '@/lib/crm-utils'
+import { getCRMSessionForUser } from '@/lib/crm-session'
+
+interface CRMDeviceType {
+  Device_Type:         number
+  Device_TypeName:     string
+  Device_TypeDisabled: boolean
+  Device_VendorName?:  string
+}
 
 function db() {
   return createClient(
@@ -38,30 +47,29 @@ export async function GET() {
 
   const d = db()
 
-  // Lấy mapping + CRM names + order device names song song
-  const [mapRes, crmRes, orderRes] = await Promise.all([
+  // Lấy mapping + order names song song, đồng thời gọi CRM SOAP GetDeviceType
+  const session = await getCRMSessionForUser(user.id)
+  const { sessionId, identity } = session
+
+  const [mapRes, orderRes, crmRaw] = await Promise.all([
     d.from('device_type_mapping')
       .select('*')
       .order('order_name', { ascending: true }),
-    d.from('device_inventory')
-      .select('product_name')
-      .not('product_name', 'is', null)
-      .order('product_name', { ascending: true }),
     d.from('giao_hang_don_items')
       .select('device_name')
       .not('device_name', 'is', null)
-      .order('device_name', { ascending: true }),
+      .order('device_name', { ascending: true })
+      .limit(10000),
+    callCrmSoap<CRMDeviceType>('GetDeviceType', {}, sessionId, identity).catch(() => [] as CRMDeviceType[]),
   ])
 
   if (mapRes.error) return NextResponse.json({ error: mapRes.error.message }, { status: 500 })
 
-  // Distinct product_name từ device_inventory
-  const crmSeen = new Set<string>()
-  const crmNames: string[] = []
-  for (const row of (crmRes.data ?? [])) {
-    const n = (row.product_name as string)?.trim()
-    if (n && !crmSeen.has(n)) { crmSeen.add(n); crmNames.push(n) }
-  }
+  // Lọc bỏ disabled, sort theo tên
+  const crmTypes = (crmRaw as CRMDeviceType[])
+    .filter(t => !t.Device_TypeDisabled && t.Device_TypeName?.trim())
+    .map(t => ({ id: t.Device_Type, name: t.Device_TypeName.trim() }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 
   // Distinct device_name từ giao_hang_don_items
   const orderSeen = new Set<string>()
@@ -71,7 +79,7 @@ export async function GET() {
     if (n && !orderSeen.has(n)) { orderSeen.add(n); orderNames.push(n) }
   }
 
-  return NextResponse.json({ mappings: mapRes.data ?? [], crmNames, orderNames })
+  return NextResponse.json({ mappings: mapRes.data ?? [], crmTypes, orderNames })
 }
 
 // ── POST ─────────────────────────────────────────────────────────────

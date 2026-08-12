@@ -256,13 +256,14 @@ export async function POST(req: NextRequest) {
       }))
       console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} records`)
 
-      // ignoreDuplicates: true — không overwrite device đã tồn tại từ tháng trước
-      // Mỗi device chỉ được ghi 1 lần (lần đầu sync tháng chứa Device_Date)
+      // ignoreDuplicates: false — cho phép UPDATE các row đã tồn tại
+      // Cần thiết để sửa imported_date sai từ lần sync cũ (khi dùng Device_TransferTime thay vì Device_Date)
+      // An toàn vì imported_date luôn = Device_Date (ổn định), không bị thay đổi khi sync lại nhiều lần
       for (let i = 0; i < rows.length; i += 500) {
         const batch = rows.slice(i, i + 500)
         const { error } = await db
           .from('device_inventory')
-          .upsert(batch, { onConflict: 'device_id', ignoreDuplicates: true })
+          .upsert(batch, { onConflict: 'device_id', ignoreDuplicates: false })
         if (error) errors.push(error.message)
         else upserted += batch.length
       }
