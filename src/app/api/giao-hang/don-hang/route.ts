@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
-import { isAdminUser } from '@/lib/auth-helpers'
+import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
 
 function db() {
   return createClient(
@@ -25,8 +25,7 @@ export async function GET(req: NextRequest) {
   const limit  = Math.min(parseInt(sp.get('limit') ?? '50'), 100)
   const offset = (page - 1) * limit
 
-  const { data: permData } = await db()
-    const isAdmin = await isAdminUser(user.id)
+  const isAdmin = await isAdminUser(user.id)
 
   // All authenticated users can view all orders; mine=0 shows everyone's
   const filterMine = mine
@@ -71,29 +70,58 @@ export async function PATCH(req: NextRequest) {
   if (body.status !== undefined && !VALID_STATUSES.includes(body.status))
     return NextResponse.json({ error: 'Trạng thái không hợp lệ' }, { status: 400 })
 
-  const admin   = db()
-  const isAdmin = await isAdminUser(user.id)
+  const admin = db()
+  const [isAdmin, isKho] = await Promise.all([
+    isAdminUser(user.id),
+    hasSubPagePerm(user.id, 'giao_hang_main', 'can_update'),
+  ])
 
   const { data: existing } = await admin
     .from('giao_hang_don_hang')
-    .select('orderer_email')
+    .select('orderer_email, status')
     .eq('id', body.id)
     .single()
 
   if (!existing)
     return NextResponse.json({ error: 'Đơn hàng không tồn tại' }, { status: 404 })
 
-  // Chỉ admin hoặc chính người tạo đơn mới được cập nhật
   const isOwner = existing.orderer_email === user.email
-  if (!isAdmin && !isOwner)
-    return NextResponse.json({ error: 'Không có quyền cập nhật đơn hàng này' }, { status: 403 })
+
+  // ── Quyền cập nhật status: chỉ admin hoặc nhân viên kho ──
+  if (body.status !== undefined && !isAdmin && !isKho) {
+    return NextResponse.json(
+      { error: 'Chỉ nhân viên kho mới được cập nhật trạng thái đơn hàng' },
+      { status: 403 }
+    )
+  }
+
+  // ── Quyền cập nhật tracking / serials: admin hoặc kho ──
+  const wantsOperational = body.tracking_code !== undefined ||
+    (body.item_serials && body.item_serials.length > 0)
+  if (wantsOperational && !isAdmin && !isKho) {
+    return NextResponse.json(
+      { error: 'Chỉ nhân viên kho mới được cập nhật thông tin giao hàng' },
+      { status: 403 }
+    )
+  }
+
+  // ── Owner chỉ sửa được khi đơn đang ở trạng thái chờ xử lý ──
+  if (!isAdmin && !isKho) {
+    if (!isOwner)
+      return NextResponse.json({ error: 'Không có quyền cập nhật đơn hàng này' }, { status: 403 })
+    if (existing.status !== 'cho_xu_ly')
+      return NextResponse.json(
+        { error: 'Đơn đã được kho tiếp nhận, không thể chỉnh sửa. Liên hệ nhân viên kho nếu cần thay đổi.' },
+        { status: 403 }
+      )
+  }
 
   const now = new Date().toISOString()
   const updates: Record<string, unknown> = { updated_at: now }
   if (body.status !== undefined) {
-    updates.status             = body.status
-    updates.status_updated_by  = user.email
-    updates.status_updated_at  = now
+    updates.status            = body.status
+    updates.status_updated_by = user.email
+    updates.status_updated_at = now
   }
   if (body.tracking_code !== undefined) {
     updates.tracking_code = body.tracking_code
