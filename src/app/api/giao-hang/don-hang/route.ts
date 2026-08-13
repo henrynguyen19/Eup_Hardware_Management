@@ -71,9 +71,8 @@ export async function PATCH(req: NextRequest) {
   if (body.status !== undefined && !VALID_STATUSES.includes(body.status))
     return NextResponse.json({ error: 'Trạng thái không hợp lệ' }, { status: 400 })
 
-  const admin = db()
-  const { data: permData } = await admin
-    const isAdmin = await isAdminUser(user.id)
+  const admin   = db()
+  const isAdmin = await isAdminUser(user.id)
 
   const { data: existing } = await admin
     .from('giao_hang_don_hang')
@@ -83,7 +82,11 @@ export async function PATCH(req: NextRequest) {
 
   if (!existing)
     return NextResponse.json({ error: 'Đơn hàng không tồn tại' }, { status: 404 })
-  // All authenticated users can update status (not just admin/owner)
+
+  // Chỉ admin hoặc chính người tạo đơn mới được cập nhật
+  const isOwner = existing.orderer_email === user.email
+  if (!isAdmin && !isOwner)
+    return NextResponse.json({ error: 'Không có quyền cập nhật đơn hàng này' }, { status: 403 })
 
   const now = new Date().toISOString()
   const updates: Record<string, unknown> = { updated_at: now }

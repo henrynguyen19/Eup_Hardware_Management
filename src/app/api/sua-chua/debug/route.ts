@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
+import { createSupabaseServerClient } from '@/lib/supabase-server'
 
 const SPREADSHEET_ID = '1nn77HB7xZRGGCKNbLgMyWPH9ROJht8k_Egk5gljz9Fc'
 
@@ -15,8 +16,12 @@ function getSheetsClient() {
 }
 
 // GET /api/sua-chua/debug?sheet=Tuan+21+-+2026&rows=40
-// Trả về raw values của sheet để kiểm tra cấu trúc
+// Trả về raw values của sheet để kiểm tra cấu trúc (admin only)
 export async function GET(req: NextRequest) {
+  const supabase = createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const sheetName = req.nextUrl.searchParams.get('sheet') || 'Tuan 21 - 2026'
   const rowLimit = parseInt(req.nextUrl.searchParams.get('rows') || '60')
 

@@ -25,7 +25,18 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!auth.ok) return auth.error!
 
   const body = await req.json()
-  const { error } = await sb().from('departments').update(body).eq('id', params.id)
+
+  // Whitelist — chỉ cho phép update các field cụ thể
+  const allowed: Record<string, unknown> = {}
+  if (body.name        !== undefined) allowed.name        = String(body.name).trim()
+  if (body.color       !== undefined) allowed.color       = String(body.color).trim()
+  if (body.description !== undefined) allowed.description = String(body.description).trim()
+  if (body.sort_order  !== undefined) allowed.sort_order  = Number(body.sort_order)
+
+  if (Object.keys(allowed).length === 0)
+    return NextResponse.json({ error: 'Không có field hợp lệ để update' }, { status: 400 })
+
+  const { error } = await sb().from('departments').update(allowed).eq('id', params.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

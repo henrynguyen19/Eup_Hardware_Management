@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { google } from 'googleapis'
+import { createSupabaseServerClient } from '@/lib/supabase-server'
 
 const SPREADSHEET_ID = '1q3rgjEmoYDPjAu8m-jTaathrl4fsrzHvwqUWKtkZWvo'
 const SHEET_NAMES = ['Kai_report', 'Bob_report', 'Thor_report', 'Nick_report']
@@ -15,9 +16,12 @@ function getSheetsClient() {
   return google.sheets({ version: 'v4', auth })
 }
 
-// GET /api/kho-daily/probe
-// Đọc 30 dòng đầu tiên của mỗi sheet để hiểu cấu trúc
+// GET /api/kho-daily/probe — admin only
 export async function GET() {
+  const supabase = createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
     const sheets = getSheetsClient()
 

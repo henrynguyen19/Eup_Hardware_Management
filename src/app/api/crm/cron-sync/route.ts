@@ -14,15 +14,18 @@ export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 phút — đủ để sync 5 staff
 
 export async function GET(req: NextRequest) {
-  // ── Xác thực cron secret ──
+  // ── Xác thực cron secret — PHẢI có CRON_SECRET trong env ──
   const cronSecret = process.env.CRON_SECRET
-  if (cronSecret) {
-    const auth = req.headers.get('authorization') ?? ''
-    const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
-    if (token !== cronSecret) {
-      console.warn('[cron-sync] Unauthorized attempt')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  if (!cronSecret) {
+    // Nếu chưa set CRON_SECRET → từ chối mọi request (không bỏ qua auth)
+    console.error('[cron-sync] CRON_SECRET chưa được cấu hình — từ chối request')
+    return NextResponse.json({ error: 'Cron not configured' }, { status: 503 })
+  }
+  const auth  = req.headers.get('authorization') ?? ''
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
+  if (token !== cronSecret) {
+    console.warn('[cron-sync] Unauthorized attempt')
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const startedAt = new Date().toISOString()

@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { isAdminUser } from '@/lib/auth-helpers'
+import { randomBytes } from 'crypto'
+
+// Sinh mật khẩu ngẫu nhiên 16 ký tự — không bao giờ hardcode password
+function generatePassword(): string {
+  return randomBytes(12).toString('base64url')  // ~16 ký tự, an toàn
+}
 
 const supabaseAdmin = () =>
   createClient(
@@ -38,7 +44,7 @@ export async function GET() {
   return NextResponse.json({ users })
 }
 
-// POST: thêm user mới — tạo tài khoản Supabase Auth với mật khẩu mặc định eupvn123
+// POST: thêm user mới — tạo tài khoản Supabase Auth với mật khẩu ngẫu nhiên
 export async function POST(req: NextRequest) {
   const auth = await requireAdminPermission()
   if (!auth.ok) return auth.error!
@@ -53,7 +59,7 @@ export async function POST(req: NextRequest) {
   // Thử tạo user mới trước
   const { data: created, error: createErr } = await sb.auth.admin.createUser({
     email,
-    password: 'eupvn123',
+    password: generatePassword(),
     email_confirm: true,
   })
 
@@ -123,7 +129,7 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ ok: true })
 }
 
-// PUT: reset mật khẩu về mặc định
+// PUT: reset mật khẩu — sinh random, trả về tempPassword để admin thông báo cho user
 export async function PUT(req: NextRequest) {
   const auth = await requireAdminPermission()
   if (!auth.ok) return auth.error!
@@ -131,11 +137,12 @@ export async function PUT(req: NextRequest) {
   const { userId } = await req.json()
   if (!userId) return NextResponse.json({ error: 'Thiếu userId' }, { status: 400 })
 
+  const tempPassword = generatePassword()
   const { error } = await supabaseAdmin().auth.admin.updateUserById(userId, {
-    password: 'eupvn123',
+    password: tempPassword,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, tempPassword })
 }
 
 // DELETE: xóa tài khoản hoàn toàn

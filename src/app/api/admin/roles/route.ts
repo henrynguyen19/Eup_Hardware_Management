@@ -20,11 +20,10 @@ async function requireAdmin(): Promise<{ ok: boolean; error?: NextResponse }> {
   return { ok: true }
 }
 
-// GET: danh sach tat ca roles kem permissions
+// GET: danh sach tat ca roles kem permissions (admin only)
 export async function GET() {
-  const supabase = createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Chua dang nhap' }, { status: 401 })
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.error!
 
   const { data: roles } = await supabaseAdmin()
     .from('roles')

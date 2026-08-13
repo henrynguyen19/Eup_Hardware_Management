@@ -232,11 +232,12 @@ export default function UserManagement({ currentUserEmail }: Props) {
   }
 
   async function resetPassword(userId: string) {
-    await fetch('/api/admin/users', {
+    const res = await fetch('/api/admin/users', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId }),
     })
-    alert('Đã reset mật khẩu về: eupvn123')
+    const j = await res.json()
+    alert(`Đã reset mật khẩu thành công.\nMật khẩu tạm: ${j.tempPassword ?? '(lỗi, thử lại)'}\n\nHãy thông báo cho người dùng và yêu cầu đổi mật khẩu ngay.`)
   }
 
   async function deleteUser(userId: string, email: string) {
@@ -537,7 +538,7 @@ export default function UserManagement({ currentUserEmail }: Props) {
                 </select>
               </div>
               {addError && <p className="text-xs text-red-600 bg-red-50 rounded p-2">{addError}</p>}
-              <p className="text-xs text-gray-400">Mật khẩu mặc định: <strong>eupvn123</strong></p>
+              <p className="text-xs text-gray-400">Mật khẩu sẽ được tạo ngẫu nhiên và hiển thị sau khi tạo.</p>
             </div>
             <div className="mt-5 flex gap-2">
               <button onClick={addUserToSystem} disabled={addSaving || !addEmail || !addRoleId}

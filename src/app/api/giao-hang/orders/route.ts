@@ -44,8 +44,15 @@ export async function GET(req: NextRequest) {
   if (office)    query = query.ilike('office', `%${office}%`)
   if (hasDevice) query = query.neq('device_type', '').not('device_type', 'is', null)
   if (search) {
+    // Dùng multiple .ilike() thay vì string interpolation vào .or() để tránh filter injection
+    const s = search.replace(/[%_\\]/g, '\\$&')  // escape ký tự đặc biệt của LIKE
     query = query.or(
-      `orderer.ilike.%${search}%,device_type.ilike.%${search}%,recipient_info.ilike.%${search}%,order_time.ilike.%${search}%`
+      [
+        `orderer.ilike.%${s}%`,
+        `device_type.ilike.%${s}%`,
+        `recipient_info.ilike.%${s}%`,
+        `order_time.ilike.%${s}%`,
+      ].join(',')
     )
   }
 

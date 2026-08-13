@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 const supabaseAdmin = () =>
   createClient(
@@ -8,11 +9,12 @@ const supabaseAdmin = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
 
-// GET: lấy role hiện tại của tất cả users
+// GET: lấy role hiện tại của tất cả users (admin only)
 export async function GET() {
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
+  if (!(await isAdminUser(user.id))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const sb = supabaseAdmin()
 
