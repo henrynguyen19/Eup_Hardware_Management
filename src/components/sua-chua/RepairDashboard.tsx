@@ -610,7 +610,7 @@ function AnalyticsSection({
   )
 }
 // ── Tab: Dashboard ────────────────────────────────────────────
-function DashboardTab() {
+function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
   const { t } = useLanguage()
   const now = new Date()
   const todayISO = getISOWeekYear(now)
@@ -631,6 +631,14 @@ function DashboardTab() {
   // ── Data cache ──
   const [cache, setCache] = useState<Record<number, { weeks: RepairWeek[]; stats: RepairStat[] }>>({})
   const [loading, setLoading] = useState(true)
+  const [autoNavigated, setAutoNavigated] = useState(false)
+  // Clear cache khi có data mới được lưu từ tab Nhập liệu
+  useEffect(() => {
+    if (refreshKey === 0) return  // lần đầu load, không cần clear
+    setCache({})
+    setAutoNavigated(false)  // cho phép auto-navigate đến tuần mới nhất
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
   // Determine years to fetch
   // Luôn load năm hiện tại + năm trước để navigation có đủ tuần
   const baseYears = Array.from(new Set([now.getFullYear(), now.getFullYear() - 1]))
@@ -674,7 +682,6 @@ function DashboardTab() {
   const dataReady = yearsNeeded.every(y => y in cache)
   // Khi data load lần đầu và tuần hiện tại không có data,
   // tự động nhảy đến tuần gần nhất có data trong DB
-  const [autoNavigated, setAutoNavigated] = useState(false)
   useEffect(() => {
     if (!dataReady || autoNavigated || periodMode !== 'tuan') return
     // Kiểm tra xem tuần hiện tại có data không
@@ -1902,7 +1909,7 @@ export default function RepairDashboard({ userEmail = '', permissions = [] }: { 
         </div>
       </div>
       <div className="px-6 py-5">
-        {tab === 'dashboard' && <DashboardTab />}
+        {tab === 'dashboard' && <DashboardTab refreshKey={refreshKey} />}
         {tab === 'entry'     && <EntryTab onSaved={() => setRefreshKey(k => k + 1)} faultConfigs={faultConfigs} />}
         {tab === 'history'   && <HistoryTab refreshKey={refreshKey} canWrite={canWrite} />}
         {tab === 'tracking'  && <RepairTrackingDashboard externalLang={lang} />}
