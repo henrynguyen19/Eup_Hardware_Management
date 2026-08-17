@@ -56,23 +56,41 @@ export async function GET(req: NextRequest) {
     const weekIds = (weeksRes.data ?? []).map(w => w.id)
     if (weekIds.length === 0) return NextResponse.json({ weeks: [], totals: [], stats: [] })
 
-    const [totalsRes, statsRes] = await Promise.all([
-      client.from('repair_totals').select('*').in('week_id', weekIds).limit(10000),
-      client.from('repair_stats').select('*').in('week_id', weekIds).limit(100000),
-    ])
+    // Paginate stats để tránh bị cắt ở 1000 rows (PostgREST default limit)
+    const allStats: Record<string, unknown>[] = []
+    {
+      const PAGE = 1000
+      let from = 0
+      while (true) {
+        const { data, error } = await client
+          .from('repair_stats')
+          .select('*')
+          .in('week_id', weekIds)
+          .range(from, from + PAGE - 1)
+        if (error) { console.error('[sua-chua/stats] statsRes error:', error); break }
+        if (!data || data.length === 0) break
+        allStats.push(...data)
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+    }
 
-    if (statsRes.error) console.error('[sua-chua/stats] statsRes error:', statsRes.error)
+    const totalsRes = await client
+      .from('repair_totals')
+      .select('*')
+      .in('week_id', weekIds)
+      .limit(10000)
+
     if (totalsRes.error) console.error('[sua-chua/stats] totalsRes error:', totalsRes.error)
 
     return NextResponse.json({
       weeks:       weeksRes.data  ?? [],
       totals:      totalsRes.data ?? [],
-      stats:       statsRes.data  ?? [],
+      stats:       allStats,
       _debug: {
         weekCount: (weeksRes.data ?? []).length,
-        statCount: (statsRes.data ?? []).length,
-        statsError: statsRes.error?.message ?? null,
-        weekIds: weekIds.slice(0, 5),  // chỉ show 5 đầu
+        statCount: allStats.length,
+        weekIds: weekIds.slice(0, 5),
       },
     })
   }
