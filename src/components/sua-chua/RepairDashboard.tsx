@@ -200,6 +200,10 @@ function SingleWeekView({
 }) {
   const { t } = useLanguage()
   const devStats = deviceFilter === 'all' ? stats : stats.filter(s => s.device_type === deviceFilter)
+  // Chỉ hiển thị cột device có dữ liệu (quantity > 0) trong tuần này
+  const activeDevices = deviceFilter === 'all'
+    ? DEVICE_TYPES.filter(dt => stats.some(s => s.week_id === week.id && s.device_type === dt && s.quantity > 0))
+    : DEVICE_TYPES.filter(dt => dt === deviceFilter && stats.some(s => s.week_id === week.id && s.device_type === dt && s.quantity > 0))
   const banGiao = calcBanGiao(devStats, week.id)
   return (
     <div className="space-y-4">
@@ -251,14 +255,11 @@ function SingleWeekView({
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[110px]">{t.suaChua.colStatus}</th>
-                {DEVICE_TYPES.map(dt => {
-                  const active = deviceFilter === 'all' || deviceFilter === dt
-                  return (
-                    <th key={dt} className="px-2 py-2 text-right font-medium min-w-[48px] transition"
-                      style={{ color: active ? DEVICE_COLORS[dt] : '#d1d5db', borderBottom: `2px solid ${active ? DEVICE_COLORS[dt] + '55' : '#f3f4f6'}` }}
-                    >{dt}</th>
-                  )
-                })}
+                {activeDevices.map(dt => (
+                  <th key={dt} className="px-2 py-2 text-right font-medium min-w-[48px] transition"
+                    style={{ color: DEVICE_COLORS[dt], borderBottom: `2px solid ${DEVICE_COLORS[dt]}55` }}
+                  >{dt}</th>
+                ))}
                 <th className="px-3 py-2 text-right font-semibold text-gray-700 border-l border-gray-200">{t.suaChua.colTotal}</th>
               </tr>
             </thead>
@@ -270,13 +271,12 @@ function SingleWeekView({
                 return (
                   <tr key={st.key} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
                     <td className="px-3 py-2 font-medium sticky left-0 bg-inherit z-10" style={{ color: st.color }}>{getStatusLabel(st.key, t)}</td>
-                    {DEVICE_TYPES.map(dt => {
+                    {activeDevices.map(dt => {
                       const qty = stStats.filter(s => s.device_type === dt).reduce((a, s) => a + s.quantity, 0)
-                      const dimmed = deviceFilter !== 'all' && deviceFilter !== dt
                       return (
                         <td key={dt} className="px-2 py-2 text-right">
                           {qty > 0
-                            ? <span className="font-medium" style={{ color: dimmed ? '#d1d5db' : st.color }}>{qty}</span>
+                            ? <span className="font-medium" style={{ color: st.color }}>{qty}</span>
                             : <span className="text-gray-200">—</span>}
                         </td>
                       )
@@ -291,11 +291,10 @@ function SingleWeekView({
             <tfoot>
               <tr className="border-t-2 border-gray-200 bg-gray-50">
                 <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50 z-10">{t.suaChua.kpiBanGiao}</td>
-                {DEVICE_TYPES.map(dt => {
+                {activeDevices.map(dt => {
                   const qty = calcBanGiao(stats, week.id, dt)
-                  const dimmed = deviceFilter !== 'all' && deviceFilter !== dt
                   return (
-                    <td key={dt} className="px-2 py-2 text-right font-semibold" style={{ color: dimmed ? '#d1d5db' : '#374151' }}>
+                    <td key={dt} className="px-2 py-2 text-right font-semibold" style={{ color: '#374151' }}>
                       {qty > 0 ? qty : <span className="text-gray-300">—</span>}
                     </td>
                   )
@@ -944,7 +943,12 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
             ))}
           </div>
           {/* TABLE */}
-          {chartMode === 'table' && (
+          {chartMode === 'table' && (() => {
+            // Chỉ hiển thị cột device có ít nhất 1 row có dữ liệu trong khoảng thời gian này
+            const activeMultiDevices = DEVICE_TYPES.filter(dt =>
+              weekDeviceTotals.some(r => ((r[dt] as number) ?? 0) > 0)
+            )
+            return (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-gray-700">{t.suaChua.deviceByWeekTitle}</h3>
@@ -956,9 +960,9 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[120px]">{t.suaChua.colWeek}</th>
                       <th className="px-3 py-2 text-right font-semibold text-gray-800 border-r border-gray-200">{t.suaChua.colTotal}</th>
-                      {DEVICE_TYPES.map(dt => (
-                        <th key={dt} className="px-2 py-2 text-right font-medium text-gray-500 min-w-[52px]"
-                          style={{ borderBottom: `2px solid ${DEVICE_COLORS[dt]}22` }}
+                      {activeMultiDevices.map(dt => (
+                        <th key={dt} className="px-2 py-2 text-right font-medium min-w-[52px]"
+                          style={{ color: DEVICE_COLORS[dt], borderBottom: `2px solid ${DEVICE_COLORS[dt]}44` }}
                         >{dt}</th>
                       ))}
                     </tr>
@@ -970,7 +974,7 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
                         <td className="px-3 py-2 text-right font-bold text-gray-900 border-r border-gray-100">
                           {total > 0 ? total : <span className="text-gray-300">—</span>}
                         </td>
-                        {DEVICE_TYPES.map(dt => {
+                        {activeMultiDevices.map(dt => {
                           const qty = (deviceCounts as Record<string, number>)[dt] ?? 0
                           return (
                             <td key={dt} className="px-2 py-2 text-right">
@@ -989,10 +993,10 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
                       <td className="px-3 py-2 text-right font-bold text-gray-900 border-r border-gray-100">
                         {weekDeviceTotals.reduce((a, r) => a + (r.total as number), 0)}
                       </td>
-                      {DEVICE_TYPES.map(dt => {
+                      {activeMultiDevices.map(dt => {
                         const sum = weekDeviceTotals.reduce((a, r) => a + ((r[dt] as number) ?? 0), 0)
                         return (
-                          <td key={dt} className="px-2 py-2 text-right font-semibold" style={{ color: sum > 0 ? DEVICE_COLORS[dt] : '#d1d5db' }}>
+                          <td key={dt} className="px-2 py-2 text-right font-semibold" style={{ color: DEVICE_COLORS[dt] }}>
                             {sum > 0 ? sum : '—'}
                           </td>
                         )
@@ -1002,7 +1006,8 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
                 </table>
               </div>
             </div>
-          )}
+            )
+          })()}
           {/* LINE CHART */}
           {chartMode === 'line' && (
             <>
@@ -1573,7 +1578,10 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
         </>
       )}
       {/* Preview mode */}
-      {mode === 'preview' && (
+      {mode === 'preview' && (() => {
+        // Chỉ hiển thị cột có dữ liệu trong preview
+        const previewDevices = DEVICE_TYPES.filter(dt => getDeviceTotal(dt) > 0)
+        return (
         <>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -1590,8 +1598,10 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
                     <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 min-w-[110px]">{t.suaChua.colStatus}</th>
-                    {DEVICE_TYPES.map(dt => (
-                      <th key={dt} className="px-2 py-2 text-right font-medium text-gray-500 min-w-[48px]">{dt}</th>
+                    {previewDevices.map(dt => (
+                      <th key={dt} className="px-2 py-2 text-right font-medium min-w-[48px]"
+                        style={{ color: DEVICE_COLORS[dt], borderBottom: `2px solid ${DEVICE_COLORS[dt]}55` }}
+                      >{dt}</th>
                     ))}
                     <th className="px-3 py-2 text-right font-semibold text-gray-700 border-l border-gray-200">{t.suaChua.colTotal}</th>
                   </tr>
@@ -1600,7 +1610,7 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
                   {STATUS_TYPES.map((st, i) => (
                     <tr key={st.key} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
                       <td className="px-3 py-2 font-medium sticky left-0 bg-inherit" style={{ color: st.color }}>{getStatusLabel(st.key, t)}</td>
-                      {DEVICE_TYPES.map(dt => {
+                      {previewDevices.map(dt => {
                         const qty = getStatusDeviceTotal(st.key, dt)
                         return (
                           <td key={dt} className="px-2 py-2 text-right">
@@ -1617,10 +1627,10 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
                 <tfoot>
                   <tr className="border-t-2 border-gray-200 bg-gray-50">
                     <td className="px-3 py-2 font-bold text-gray-800 sticky left-0 bg-gray-50">{t.suaChua.kpiBanGiao}</td>
-                    {DEVICE_TYPES.map(dt => {
+                    {previewDevices.map(dt => {
                       const qty = getDeviceTotal(dt)
                       return (
-                        <td key={dt} className="px-2 py-2 text-right font-semibold text-gray-700">
+                        <td key={dt} className="px-2 py-2 text-right font-semibold" style={{ color: DEVICE_COLORS[dt] }}>
                           {qty > 0 ? qty : <span className="text-gray-300">—</span>}
                         </td>
                       )
@@ -1642,7 +1652,8 @@ function EntryTab({ onSaved, faultConfigs }: { onSaved: () => void; faultConfigs
             {msg && <p className="text-sm">{msg}</p>}
           </div>
         </>
-      )}
+        )
+      })()}
     </div>
   )
 }
