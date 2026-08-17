@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useLanguage } from '@/contexts/LanguageContext'
 import RepairTrackingDashboard from '@/components/sua-chua/RepairTrackingDashboard'
 import {
@@ -612,8 +612,9 @@ function AnalyticsSection({
 // ── Tab: Dashboard ────────────────────────────────────────────
 function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
   const { t } = useLanguage()
-  const now = new Date()
-  const todayISO = getISOWeekYear(now)
+  // Dùng useMemo để tránh hydration mismatch (server vs client time)
+  const now = useMemo(() => new Date(), [])
+  const todayISO = useMemo(() => getISOWeekYear(now), [now])
   // ── Period state ──
   const [periodMode, setPeriodMode] = useState<PeriodMode>('tuan')
   const [weekYear, setWeekYear] = useState(todayISO.year)
@@ -632,13 +633,8 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
   const [cache, setCache] = useState<Record<number, { weeks: RepairWeek[]; stats: RepairStat[] }>>({})
   const [loading, setLoading] = useState(true)
   const [autoNavigated, setAutoNavigated] = useState(false)
-  // Clear cache khi có data mới được lưu từ tab Nhập liệu
-  useEffect(() => {
-    if (refreshKey === 0) return  // lần đầu load, không cần clear
-    setCache({})
-    setAutoNavigated(false)  // cho phép auto-navigate đến tuần mới nhất
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey])
+  // Track refreshKey để detect khi user vừa lưu data mới
+  const prevRefreshKeyRef = useRef(0)
   // Determine years to fetch
   // Luôn load năm hiện tại + năm trước để navigation có đủ tuần
   const baseYears = Array.from(new Set([now.getFullYear(), now.getFullYear() - 1]))
@@ -657,11 +653,15 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
   })()
   const yearsKey = [...yearsNeeded].sort().join(',')
   useEffect(() => {
-    const missing = yearsNeeded.filter(y => !(y in cache))
-    if (missing.length === 0) { setLoading(false); return }
+    // Khi vừa lưu data mới → force re-fetch tất cả (bỏ qua cache)
+    const forced = refreshKey > prevRefreshKeyRef.current
+    if (forced) prevRefreshKeyRef.current = refreshKey
+
+    const toFetch = forced ? yearsNeeded : yearsNeeded.filter(y => !(y in cache))
+    if (toFetch.length === 0) { setLoading(false); return }
     setLoading(true)
     Promise.all(
-      missing.map(y =>
+      toFetch.map(y =>
         fetch(`/api/sua-chua/stats?year=${y}`)
           .then(r => r.json())
           .then(d => ({ y, weeks: d.weeks ?? [], stats: d.stats ?? [] }))
@@ -672,10 +672,11 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
         results.forEach(({ y, weeks, stats }) => { next[y] = { weeks, stats } })
         return next
       })
+      if (forced) setAutoNavigated(false)  // cho phép auto-navigate đến tuần mới nhất
       setLoading(false)
     }).catch(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [yearsKey])
+  }, [yearsKey, refreshKey])
   // Combine from cache
   const allWeeks  = yearsNeeded.flatMap(y => cache[y]?.weeks ?? [])
   const allStats  = yearsNeeded.flatMap(y => cache[y]?.stats ?? [])
