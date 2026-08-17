@@ -35,8 +35,8 @@ export async function GET(req: NextRequest) {
   if (week_id) {
     // Chi tiết 1 tuần: stats + totals
     const [statsRes, totalsRes] = await Promise.all([
-      client.from('repair_stats').select('*').eq('week_id', week_id),
-      client.from('repair_totals').select('*').eq('week_id', week_id),
+      client.from('repair_stats').select('*').eq('week_id', week_id).limit(10000),
+      client.from('repair_totals').select('*').eq('week_id', week_id).limit(1000),
     ])
     return NextResponse.json({
       stats:  statsRes.data  ?? [],
@@ -51,19 +51,29 @@ export async function GET(req: NextRequest) {
       .select('id, year, week_number, week_label, date_start, date_end')
       .eq('year', parseInt(year))
       .order('week_number')
+      .limit(200)
 
     const weekIds = (weeksRes.data ?? []).map(w => w.id)
     if (weekIds.length === 0) return NextResponse.json({ weeks: [], totals: [], stats: [] })
 
     const [totalsRes, statsRes] = await Promise.all([
-      client.from('repair_totals').select('*').in('week_id', weekIds),
-      client.from('repair_stats').select('*').in('week_id', weekIds),
+      client.from('repair_totals').select('*').in('week_id', weekIds).limit(10000),
+      client.from('repair_stats').select('*').in('week_id', weekIds).limit(100000),
     ])
 
+    if (statsRes.error) console.error('[sua-chua/stats] statsRes error:', statsRes.error)
+    if (totalsRes.error) console.error('[sua-chua/stats] totalsRes error:', totalsRes.error)
+
     return NextResponse.json({
-      weeks:  weeksRes.data  ?? [],
-      totals: totalsRes.data ?? [],
-      stats:  statsRes.data  ?? [],
+      weeks:       weeksRes.data  ?? [],
+      totals:      totalsRes.data ?? [],
+      stats:       statsRes.data  ?? [],
+      _debug: {
+        weekCount: (weeksRes.data ?? []).length,
+        statCount: (statsRes.data ?? []).length,
+        statsError: statsRes.error?.message ?? null,
+        weekIds: weekIds.slice(0, 5),  // chỉ show 5 đầu
+      },
     })
   }
 
