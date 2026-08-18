@@ -1241,78 +1241,208 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
 // ══════════════════════════════════════════════════════════════════════════════
 function printLabel(order: DonHang) {
   const items = order.giao_hang_don_items
-  const dateStr = new Date().toLocaleDateString('vi-VN')
+  const now = new Date()
+  const dateStr  = now.toLocaleDateString('vi-VN')
+  const dateISO  = now.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+  // Parse recipient_info: "VP — Tên — SĐT — Địa chỉ"
+  const recipParts  = (order.recipient_info ?? '').split('—').map(s => s.trim())
+  const recipOffice = recipParts[0] ?? ''
+  const recipName   = recipParts[1] ?? ''
+  const recipPhone  = recipParts[2] ?? ''
+  const recipAddr   = recipParts.slice(3).join(', ').trim()
+
+  // Gộp combo items cùng tên lại, tách main device và accessories
+  // Thứ tự: main device (có serial) trước, accessories sau
+  const mainItems   = items.filter(i => i.device_serials !== undefined && !isNoImeiAccessoryName(i.device_name))
+  const accessItems = items.filter(i => isNoImeiAccessoryName(i.device_name))
+  const allRows     = [...mainItems, ...accessItems]
+
+  function isNoImeiAccessoryName(name: string): boolean {
+    const n = name.toLowerCase()
+    return /dây nguồn|cáp nguồn|power cable|thẻ nhớ|microsd|sd card|đầu đọc|viettel|vinaphone|m2m|data_\d|sim/.test(n)
+  }
+
+  let stt = 0
+  const rows = allRows.map(item => {
+    stt++
+    const serials = (item.device_serials ?? []).filter(Boolean)
+    const isAccessory = isNoImeiAccessoryName(item.device_name)
+
+    // Mỗi serial = 1 dòng nếu có nhiều
+    if (!isAccessory && serials.length > 1) {
+      return serials.map((s, si) => `
+        <tr>
+          ${si === 0 ? `<td rowspan="${serials.length}" style="text-align:center;vertical-align:middle">${stt}</td>
+                        <td rowspan="${serials.length}" style="vertical-align:middle">${item.device_name}${item.combo_name ? `<br><span style="font-size:10px;color:#888">[${item.combo_name}]</span>` : ''}</td>
+                        <td rowspan="${serials.length}" style="text-align:center;vertical-align:middle">${item.quantity}</td>` : ''}
+          <td style="text-align:center">${si + 1}</td>
+          <td class="mono">${s}</td>
+          <td></td>
+        </tr>`).join('')
+    }
+
+    const serialCell = isAccessory
+      ? '<td colspan="2" style="text-align:center;color:#aaa;font-size:10px">Không cần IMEI</td>'
+      : serials.length === 1
+        ? `<td style="text-align:center">1</td><td class="mono">${serials[0]}</td>`
+        : `<td style="text-align:center;color:#ccc">—</td><td style="color:#ccc;font-size:10px">Chưa nhập</td>`
+
+    return `<tr>
+      <td style="text-align:center">${stt}</td>
+      <td>${item.device_name}${item.combo_name ? `<br><span style="font-size:10px;color:#888">[${item.combo_name}]</span>` : ''}</td>
+      <td style="text-align:center">${item.quantity}</td>
+      <td style="text-align:center">—</td>
+      ${serialCell}
+      <td></td>
+    </tr>`
+  }).join('')
+
+  const totalQty = allRows.reduce((a, i) => a + i.quantity, 0)
+
   const html = `<!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<title>Nhãn đơn hàng ${order.order_code}</title>
+<title>Biên bản bàn giao – ${order.order_code}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 13px; color: #111; padding: 20px; }
-  .label { border: 2px solid #111; padding: 16px; max-width: 420px; }
-  .header { text-align: center; border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 10px; }
-  .order-code { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
-  .meta { font-size: 11px; color: #555; margin-top: 4px; }
-  .section { margin-bottom: 10px; }
-  .section-title { font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #555; margin-bottom: 4px; border-bottom: 1px dashed #ddd; padding-bottom: 2px; }
-  .recipient-name { font-size: 16px; font-weight: bold; }
-  .recipient-info { font-size: 12px; color: #333; margin-top: 3px; line-height: 1.6; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { background: #f5f5f5; text-align: left; padding: 4px 6px; font-weight: 600; border: 1px solid #ddd; }
-  td { padding: 4px 6px; border: 1px solid #ddd; vertical-align: top; }
-  .serials { font-size: 10px; color: #555; margin-top: 2px; }
-  .footer { margin-top: 10px; font-size: 10px; color: #999; text-align: right; }
-  @media print { body { padding: 0; } }
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; background: #fff; }
+  .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 15mm 15mm 20mm; }
+  .company { font-size: 10px; color: #555; line-height: 1.5; }
+  .company strong { font-size: 13px; color: #111; display: block; }
+  .title-block { text-align: center; margin: 12px 0 8px; }
+  .title { font-size: 17px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+  .subtitle { font-size: 11px; color: #555; margin-top: 3px; }
+  .order-code { font-size: 12px; font-weight: bold; margin-top: 4px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; margin: 12px 0; font-size: 11.5px; line-height: 1.7; }
+  .info-label { color: #555; }
+  .info-value { font-weight: 600; }
+  .dotline { border-bottom: 1px dotted #aaa; display: inline-block; min-width: 120px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 8px 0; }
+  th { background: #f0f0f0; border: 1px solid #999; padding: 5px 6px; text-align: center; font-weight: bold; }
+  td { border: 1px solid #bbb; padding: 4px 6px; vertical-align: middle; }
+  .mono { font-family: 'Courier New', monospace; font-size: 10.5px; letter-spacing: 0.5px; }
+  tfoot td { font-weight: bold; background: #f9f9f9; }
+  .sign-block { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 28px; text-align: center; }
+  .sign-title { font-weight: bold; font-size: 12px; }
+  .sign-note { font-size: 10px; color: #888; margin: 2px 0 50px; }
+  .sign-name { font-size: 11px; border-top: 1px solid #555; padding-top: 4px; }
+  .note-box { background: #fffbe6; border: 1px solid #e0c060; border-radius: 4px; padding: 6px 10px; font-size: 11px; margin-top: 8px; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page { padding: 10mm 12mm 15mm; }
+    @page { size: A4; margin: 0; }
+  }
 </style>
 </head>
 <body>
-<div class="label">
-  <div class="header">
-    <div class="order-code">${order.order_code}</div>
-    <div class="meta">Ngày in: ${dateStr} · Người đặt: ${order.orderer_name || order.orderer_email} · VP: ${order.office}</div>
+<div class="page">
+
+  <!-- Header -->
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px">
+    <div class="company">
+      <strong>CÔNG TY TNHH EUPSOLUTION VIỆT NAM</strong>
+      Bộ phận Phần cứng – Hardware Division<br>
+      ĐT: (028) 3636 5599 &nbsp;|&nbsp; www.eupsolution.vn
+    </div>
+    <div style="text-align:right;font-size:10px;color:#555">
+      Mã đơn: <strong>${order.order_code}</strong><br>
+      Ngày in: ${dateStr}
+    </div>
   </div>
 
-  <div class="section">
-    <div class="section-title">Người nhận</div>
-    ${order.recipient_info
-      ? `<div class="recipient-name">${order.recipient_info.split('—')[0]?.trim() ?? ''}</div>
-         <div class="recipient-info">${order.recipient_info.split('—').slice(1).join(' · ').trim()}</div>`
-      : '<div class="recipient-info" style="color:#999">Chưa có thông tin người nhận</div>'
-    }
+  <!-- Title -->
+  <div class="title-block">
+    <div class="title">Biên bản bàn giao thiết bị</div>
+    <div class="subtitle">Device Handover Record</div>
   </div>
 
-  <div class="section">
-    <div class="section-title">Danh sách thiết bị</div>
-    <table>
-      <thead>
-        <tr><th>Thiết bị</th><th>SL</th><th>Mã serial/IMEI</th></tr>
-      </thead>
-      <tbody>
-        ${items.map(item => `
-        <tr>
-          <td>${item.device_name}</td>
-          <td style="text-align:center">${item.quantity}</td>
-          <td>${
-            item.device_serials && item.device_serials.length > 0
-              ? item.device_serials.join('<br>')
-              : '<span style="color:#999;font-size:10px">Không có mã</span>'
-          }</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
+  <!-- Parties -->
+  <div class="info-grid">
+    <div>
+      <span class="info-label">Bên giao (A): </span>
+      <span class="info-value">Bộ phận Kho – EUP Hardware</span>
+    </div>
+    <div>
+      <span class="info-label">Ngày bàn giao: </span>
+      <span class="info-value dotline">${order.expected_date ? new Date(order.expected_date).toLocaleDateString('vi-VN') : dateISO}</span>
+    </div>
+    <div>
+      <span class="info-label">Bên nhận (B): </span>
+      <span class="info-value">${recipName || '<span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'}</span>
+    </div>
+    <div>
+      <span class="info-label">VP / Đơn vị: </span>
+      <span class="info-value">${recipOffice || order.office}</span>
+    </div>
+    <div>
+      <span class="info-label">Địa chỉ nhận: </span>
+      <span class="info-value">${recipAddr || '<span class="dotline" style="min-width:200px">&nbsp;</span>'}</span>
+    </div>
+    <div>
+      <span class="info-label">Số điện thoại: </span>
+      <span class="info-value">${recipPhone || '<span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'}</span>
+    </div>
+    <div>
+      <span class="info-label">Người đặt hàng: </span>
+      <span class="info-value">${order.orderer_name || order.orderer_email}</span>
+    </div>
+    <div>
+      <span class="info-label">Mã vận đơn: </span>
+      <span class="info-value">${order.tracking_code || '<span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'}</span>
+    </div>
   </div>
 
-  ${order.expected_date ? `<div class="section"><div class="section-title">Ngày giao dự kiến</div><div>${order.expected_date}</div></div>` : ''}
-  ${order.notes ? `<div class="section"><div class="section-title">Ghi chú</div><div>${order.notes}</div></div>` : ''}
+  <!-- Device table -->
+  <table>
+    <thead>
+      <tr>
+        <th style="width:30px">STT</th>
+        <th style="text-align:left">Tên thiết bị / Phụ kiện</th>
+        <th style="width:35px">SL</th>
+        <th style="width:35px">Số<br>thứ tự</th>
+        <th style="width:140px">Mã Serial / IMEI</th>
+        <th style="width:80px">Ghi chú</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="2" style="text-align:right">Tổng cộng:</td>
+        <td style="text-align:center">${totalQty}</td>
+        <td colspan="3"></td>
+      </tr>
+    </tfoot>
+  </table>
 
-  <div class="footer">In từ Eup Hardware Management · ${dateStr}</div>
+  ${order.notes ? `<div class="note-box">📝 Ghi chú: ${order.notes}</div>` : ''}
+
+  <!-- Signatures -->
+  <div class="sign-block">
+    <div>
+      <div class="sign-title">Bên giao (A)</div>
+      <div class="sign-note">Ký và ghi rõ họ tên</div>
+      <div class="sign-name">Nhân viên kho EUP</div>
+    </div>
+    <div>
+      <div class="sign-title">Bên nhận (B)</div>
+      <div class="sign-note">Ký và ghi rõ họ tên</div>
+      <div class="sign-name">${recipName || '....................................................'}</div>
+    </div>
+  </div>
+
+  <div style="margin-top:16px;font-size:9px;color:#aaa;text-align:center;border-top:1px solid #eee;padding-top:6px">
+    Biên bản được tạo tự động từ hệ thống EUP Hardware Management · ${dateStr} · ${order.order_code}
+  </div>
 </div>
-<script>window.onload = () => { window.print(); }</script>
+<script>window.onload = () => window.print()</script>
 </body>
 </html>`
 
-  const win = window.open('', '_blank', 'width=500,height=700')
+  const win = window.open('', '_blank', 'width=850,height=1100')
   if (win) { win.document.write(html); win.document.close() }
 }
 
@@ -2363,34 +2493,28 @@ function deviceNamesMatch(orderName: string, crmName: string): boolean {
 }
 
 // ── Kiểm tra kho inline — hiện trong card đơn Chờ xử lý ─────────────────────
+// ── Types cho 2-panel matching ─────────────────────────────────────────────
+interface CrmProduct { productName: string; stockupKind: number; barcodes: string[] }
+
 function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfirmed: () => void }) {
-  const [whcId,         setWhcId]         = useState<number>(2)
-  const [whList,        setWhList]        = useState<WhItem[]>([])
-  const [whId,          setWhId]          = useState<number | null>(null)
-  const [loadingWh,     setLoadingWh]     = useState(false)
-  const [loading,       setLoading]       = useState(false)
-  const [match,         setMatch]         = useState<{ items: OrderItemMatch[] } | null>(null)
-  const [error,         setError]         = useState<string | null>(null)
-  const [confirmed,     setConfirmed]     = useState(false)
-  const [confirming,    setConfirming]    = useState(false)
-  // userPicks: khi có nhiều barcodes hơn cần, nhân viên tự chọn
-  const [userPicks,     setUserPicks]     = useState<Record<string, Set<string>>>({})
+  const [whcId,      setWhcId]      = useState<number>(2)
+  const [whList,     setWhList]     = useState<WhItem[]>([])
+  const [whId,       setWhId]       = useState<number | null>(null)
+  const [loadingWh,  setLoadingWh]  = useState(false)
+  const [loading,    setLoading]    = useState(false)
+  const [error,      setError]      = useState<string | null>(null)
+  const [confirmed,  setConfirmed]  = useState(false)
+  const [confirming, setConfirming] = useState(false)
 
-  function togglePick(itemId: string, bc: string, qty: number) {
-    setUserPicks(prev => {
-      const next = new Map(Object.entries(prev))
-      const cur  = new Set(next.get(itemId) ?? [])
-      if (cur.has(bc)) { cur.delete(bc) } else if (cur.size < qty) { cur.add(bc) }
-      next.set(itemId, cur)
-      return Object.fromEntries(next)
-    })
-  }
+  // CRM data sau khi load
+  const [crmProducts, setCrmProducts] = useState<CrmProduct[]>([])
+  const [crmSearch,   setCrmSearch]   = useState('')
+  const [loaded,      setLoaded]      = useState(false)
 
-  function getSelectedBarcodes(item: OrderItemMatch): string[] {
-    const manual = userPicks[item.itemId]
-    if (manual && manual.size > 0) return Array.from(manual)
-    return item.assigned
-  }
+  // Panel trái: item nào đang được focus để nhận barcode
+  const [focusedItemId, setFocusedItemId] = useState<string | null>(null)
+  // assignments: itemId → barcode[]
+  const [assignments, setAssignments] = useState<Record<string, string[]>>({})
 
   const sortLabels: Record<number, string> = { 1: 'Kho chính', 2: 'Kỹ thuật viên', 3: 'Sales / Customer' }
   const groupedWh = whList.reduce<Record<number, WhItem[]>>((acc, w) => {
@@ -2398,7 +2522,7 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
   }, {})
 
   const loadWarehouses = useCallback(async (wid: number) => {
-    setLoadingWh(true); setWhList([]); setWhId(null); setMatch(null); setError(null)
+    setLoadingWh(true); setWhList([]); setWhId(null); setLoaded(false); setError(null)
     try {
       const r = await fetch(`/api/giao-hang/warehouse-list?whc_id=${wid}`)
       const d = await r.json()
@@ -2407,87 +2531,91 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
         setWhList(list)
         const first = list.find(w => w.whSort === 1) ?? list[0]
         if (first) setWhId(first.whId)
-      } else {
-        setError(d.error ?? 'Không lấy được danh sách kho')
-      }
+      } else { setError(d.error ?? 'Không lấy được kho') }
     } catch (e) { setError(String(e)) }
     finally { setLoadingWh(false) }
   }, [])
 
   useEffect(() => { loadWarehouses(whcId) }, [whcId, loadWarehouses])
 
-  async function doCheck() {
+  // Tất cả barcodes đã được gán (dùng để block ở bảng CRM)
+  const usedBarcodes = new Set(Object.values(assignments).flat())
+
+  // Lấy tên kho đang chọn
+  const selectedWhName = whList.find(w => w.whId === whId)?.whName ?? ''
+
+  async function doLoad() {
     if (!whId) { setError('Chọn kho trước'); return }
-    setLoading(true); setError(null); setMatch(null)
+    setLoading(true); setError(null); setCrmProducts([]); setAssignments({}); setFocusedItemId(null)
     try {
       const r = await fetch(`/api/giao-hang/warehouse-queue?whc_id=${whcId}&wh_id=${whId}`)
       const d = await r.json()
       if (!d.ok) { setError(d.error ?? 'Lỗi CRM'); return }
-      // Chỉ lấy thiết bị trong ngày hôm nay (updateTime)
-      const todayStr = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
-      function isToday(updateTime: string): boolean {
-        if (!updateTime) return true // không có ngày → giữ lại
-        // CRM có thể trả về "YYYY-MM-DD ..." hoặc "DD/MM/YYYY ..."
-        if (updateTime.length >= 10 && updateTime[4] === '-') return updateTime.startsWith(todayStr)
-        if (updateTime.length >= 10 && updateTime[2] === '/') {
-          const [d, m, y] = updateTime.split('/')
-          return `${y?.slice(0,4)}-${m?.padStart(2,'0')}-${d?.padStart(2,'0')}` === todayStr
-        }
-        return true
-      }
-      const rawDevices: WqDevice[] = d.devices ?? []
-      const devices = rawDevices.filter(dev => isToday(dev.updateTime))
 
-      // Build pool: productName (lower) → { barcodes, stockupKind }
-      const pool: Record<string, { barcodes: string[]; stockupKind: number }> = {}
-      for (const dev of devices) {
+      // Gộp theo productName
+      const map: Record<string, CrmProduct> = {}
+      for (const dev of (d.devices ?? []) as WqDevice[]) {
         const bc = dev.barcode || dev.carUnicode
         if (!bc) continue
-        const key = dev.productName.toLowerCase()
-        if (!pool[key]) pool[key] = { barcodes: [], stockupKind: dev.stockupKind }
-        pool[key].barcodes.push(bc)
+        const key = dev.productName
+        if (!map[key]) map[key] = { productName: key, stockupKind: dev.stockupKind, barcodes: [] }
+        map[key].barcodes.push(bc)
       }
+      setCrmProducts(Object.values(map).sort((a, b) => a.productName.localeCompare(b.productName)))
+      setLoaded(true)
 
-      const usedBarcodes = new Set<string>()
-      const items: OrderItemMatch[] = order.giao_hang_don_items.map(item => {
-        // Phụ kiện (cáp, thẻ nhớ, SIM) — không cần IMEI, bỏ qua matching
-        if (isNoImeiAccessory(item.device_name)) {
-          return {
-            itemId: item.id, deviceName: item.device_name, quantity: item.quantity,
-            assigned: [], allBarcodes: [], available: 0, matched: true, stockupKind: -99,
-          }
-        }
-
-        // Tìm TẤT CẢ sản phẩm CRM khớp (VD: "Smart Box H1.5" + "Smart Box H2.0" → cùng khớp "Smartbox")
-        const matchKeys = Object.keys(pool).filter(k => deviceNamesMatch(item.device_name, k))
-        const firstEntry = matchKeys.length > 0 ? pool[matchKeys[0]] : null
-        const sk = firstEntry ? firstEntry.stockupKind : null
-
-        // Gộp TẤT CẢ barcodes từ các product khớp (không lọc usedBarcodes để hiện đủ danh sách)
-        const allBarcodes = matchKeys.flatMap(k => pool[k].barcodes)
-        // Auto-assign: chỉ lấy đủ quantity, tránh dùng lại barcode
-        const available = allBarcodes.filter(b => !usedBarcodes.has(b))
-        const assigned  = available.slice(0, item.quantity)
-        assigned.forEach(b => usedBarcodes.add(b))
-
-        return {
-          itemId: item.id, deviceName: item.device_name, quantity: item.quantity,
-          assigned, allBarcodes,
-          available: available.length,
-          matched: assigned.length === item.quantity || sk === 2 || sk === 3,
-          stockupKind: sk,
-        }
-      })
-      setMatch({ items })
+      // Auto-focus item đầu tiên cần IMEI
+      const first = order.giao_hang_don_items.find(i => !isNoImeiAccessory(i.device_name))
+      if (first) setFocusedItemId(first.id)
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
   }
 
+  // Click barcode ở bảng CRM → gán vào focused item
+  function toggleBarcode(bc: string) {
+    if (!focusedItemId) return
+    const item = order.giao_hang_don_items.find(i => i.id === focusedItemId)
+    if (!item) return
+    const current = assignments[focusedItemId] ?? []
+
+    if (current.includes(bc)) {
+      // Bỏ gán
+      setAssignments(prev => ({ ...prev, [focusedItemId]: current.filter(b => b !== bc) }))
+    } else {
+      if (current.length >= item.quantity) return // đã đủ
+      const next = [...current, bc]
+      setAssignments(prev => ({ ...prev, [focusedItemId]: next }))
+      // Auto-advance khi đủ số lượng
+      if (next.length === item.quantity) {
+        const imeiItems = order.giao_hang_don_items.filter(i => !isNoImeiAccessory(i.device_name))
+        const idx = imeiItems.findIndex(i => i.id === focusedItemId)
+        const nextItem = imeiItems.slice(idx + 1).find(i =>
+          (assignments[i.id]?.length ?? 0) < i.quantity
+        )
+        if (nextItem) setFocusedItemId(nextItem.id)
+      }
+    }
+  }
+
+  // Tìm barcode đang gán cho item nào (để hiện label ở bảng CRM)
+  function barcodeAssignedTo(bc: string): string | null {
+    for (const [iid, bcs] of Object.entries(assignments)) {
+      if (bcs.includes(bc)) return iid
+    }
+    return null
+  }
+
+  // Kiểm tra tất cả item IMEI đã đủ
+  const imeiItems = order.giao_hang_don_items.filter(i => !isNoImeiAccessory(i.device_name))
+  const allDone = imeiItems.every(i => (assignments[i.id]?.length ?? 0) >= i.quantity)
+
   async function confirmInline() {
-    if (!match) return
     setConfirming(true)
     try {
-      const item_serials = match.items.map(i => ({ item_id: i.itemId, serials: getSelectedBarcodes(i) }))
+      const item_serials = order.giao_hang_don_items.map(i => ({
+        item_id: i.id,
+        serials: assignments[i.id] ?? [],
+      }))
       const res = await fetch('/api/giao-hang/don-hang', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2507,88 +2635,192 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
     )
   }
 
+  const filteredCrm = crmSearch
+    ? crmProducts.filter(p => p.productName.toLowerCase().includes(crmSearch.toLowerCase()))
+    : crmProducts
+
   return (
-    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-3">
-      <div className="text-xs font-semibold text-indigo-700">🏭 Chọn kho & kiểm tra IMEI</div>
-      <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
-        <div>
-          <label className="text-[10px] font-medium text-gray-500 block mb-1">Kho tổng · WHC</label>
-          <select value={whcId} onChange={e => setWhcId(Number(e.target.value))}
-            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-indigo-300 focus:outline-none bg-white">
-            {WHC_LIST.map(c => <option key={c.id} value={c.id}>[{c.id}] {c.label}</option>)}
-          </select>
+    <div className="border border-indigo-200 rounded-xl overflow-hidden">
+      {/* ── Header: chọn kho + load ── */}
+      <div className="bg-indigo-50 px-3 py-2.5 flex flex-wrap items-end gap-2 border-b border-indigo-100">
+        <div className="text-xs font-semibold text-indigo-700 shrink-0 self-center">🏭 Ghép IMEI từ kho CRM</div>
+        <div className="flex items-end gap-2 flex-wrap ml-auto">
+          <div>
+            <label className="text-[10px] text-gray-500 block mb-0.5">Kho tổng · WHC</label>
+            <select value={whcId} onChange={e => { setWhcId(Number(e.target.value)); setLoaded(false) }}
+              className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300">
+              {WHC_LIST.map(c => <option key={c.id} value={c.id}>[{c.id}] {c.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-500 block mb-0.5">Kho con{loadingWh && ' (đang tải…)'}</label>
+            <select value={whId ?? ''} onChange={e => { setWhId(Number(e.target.value)); setLoaded(false) }}
+              disabled={loadingWh || whList.length === 0}
+              className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300 disabled:opacity-50">
+              {whList.length === 0 && <option value="">—</option>}
+              {Object.entries(groupedWh).sort(([a],[b]) => Number(a)-Number(b)).map(([sort, wItems]) => (
+                <optgroup key={sort} label={sortLabels[Number(sort)] ?? `Nhóm ${sort}`}>
+                  {wItems.map(w => <option key={w.whId} value={w.whId}>[{w.whId}] {w.whName}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          <button onClick={doLoad} disabled={loading || loadingWh || !whId}
+            className="py-1 px-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
+            {loading ? '⏳' : loaded ? '🔄 Tải lại' : '📦 Tải kho'}
+          </button>
         </div>
-        <div>
-          <label className="text-[10px] font-medium text-gray-500 block mb-1">
-            Kho con{loadingWh && <span className="text-gray-400"> (đang tải…)</span>}
-          </label>
-          <select value={whId ?? ''} onChange={e => setWhId(Number(e.target.value))}
-            disabled={loadingWh || whList.length === 0}
-            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-indigo-300 focus:outline-none bg-white disabled:opacity-50">
-            {whList.length === 0 && <option value="">—</option>}
-            {Object.entries(groupedWh).sort(([a],[b]) => Number(a)-Number(b)).map(([sort, wItems]) => (
-              <optgroup key={sort} label={sortLabels[Number(sort)] ?? `Nhóm ${sort}`}>
-                {wItems.map(w => <option key={w.whId} value={w.whId}>[{w.whId}] {w.whName}</option>)}
-              </optgroup>
-            ))}
-          </select>
-        </div>
-        <button onClick={doCheck} disabled={loading || loadingWh || !whId}
-          className="py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
-          {loading ? '⏳' : '🔍 Kiểm tra'}
-        </button>
       </div>
 
-      {error && <div className="text-xs text-red-600">⚠️ {error}</div>}
+      {error && <div className="px-3 py-2 text-xs text-red-600 bg-red-50">⚠️ {error}</div>}
 
-      {match && (
-        <div className="space-y-2">
-          {match.items.map(item => {
-            const needsManual = item.stockupKind !== -99 && item.stockupKind !== 2 && item.stockupKind !== 3
-                              && item.allBarcodes.length > item.quantity
-            const picks       = userPicks[item.itemId]
-            const pickedCount = picks ? picks.size : 0
-            const selectedBcs = getSelectedBarcodes(item)
+      {!loaded && !loading && (
+        <div className="px-3 py-4 text-xs text-gray-400 text-center">
+          Chọn kho rồi nhấn <strong>Tải kho</strong> để xem danh sách thiết bị đang chờ bàn giao
+        </div>
+      )}
 
-            return (
-              <div key={item.itemId} className="text-xs space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-gray-700">{item.deviceName}</span>
-                  <span className="text-gray-400">× {item.quantity}</span>
-                  {item.stockupKind === -99 ? (
-                    <span className="text-gray-400 italic">Không cần kiểm tra IMEI</span>
-                  ) : item.stockupKind === 2 ? (
-                    <span className="text-blue-500 italic">Phụ kiện - có sẵn trong kho</span>
-                  ) : item.stockupKind === 3 ? (
-                    <span className="text-blue-500 italic">SIM - đi kèm thiết bị</span>
-                  ) : needsManual ? (
-                    <span className="text-amber-600 font-semibold">
-                      ⚠️ Có {item.allBarcodes.length} mã — chọn đúng {item.quantity}
+      {loaded && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-200">
+
+          {/* ══ BẢNG TRÁI: Đơn hàng cần bàn giao ══ */}
+          <div className="p-3 space-y-1">
+            <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              📋 Đơn hàng — click vào thiết bị cần ghép IMEI
+            </div>
+            {order.giao_hang_don_items.map(item => {
+              const isAccessory = isNoImeiAccessory(item.device_name)
+              const assigned    = assignments[item.id] ?? []
+              const needed      = item.quantity
+              const isFocused   = focusedItemId === item.id
+              const isDone      = isAccessory || assigned.length >= needed
+
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => !isAccessory && setFocusedItemId(item.id)}
+                  className={`rounded-lg border px-2.5 py-2 transition-all text-xs ${
+                    isAccessory
+                      ? 'border-gray-100 bg-gray-50 cursor-default opacity-70'
+                      : isFocused
+                        ? 'border-indigo-400 bg-indigo-50 cursor-pointer ring-2 ring-indigo-200'
+                        : isDone
+                          ? 'border-green-200 bg-green-50 cursor-pointer'
+                          : 'border-gray-200 bg-white cursor-pointer hover:border-indigo-200 hover:bg-indigo-50/40'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {/* Status icon */}
+                    <span className="text-sm shrink-0">
+                      {isAccessory ? '📦' : isDone ? '✅' : isFocused ? '👉' : '⬜'}
                     </span>
-                  ) : item.assigned.length === item.quantity ? (
-                    <span className="text-green-600 font-semibold">✅ Đủ {item.quantity} IMEI</span>
-                  ) : item.assigned.length > 0 ? (
-                    <span className="text-amber-600 font-semibold">⚠️ {item.assigned.length}/{item.quantity} IMEI</span>
-                  ) : (
-                    <span className="text-orange-500 italic">⚠ Không tìm thấy trong kho này</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-800 truncate">{item.device_name}</div>
+                      {item.combo_name && (
+                        <div className="text-[10px] text-gray-400">[{item.combo_name}]</div>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      {isAccessory ? (
+                        <span className="text-gray-400">× {needed} · không cần IMEI</span>
+                      ) : (
+                        <span className={`font-bold ${isDone ? 'text-green-600' : isFocused ? 'text-indigo-600' : 'text-gray-500'}`}>
+                          {assigned.length}/{needed}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {/* Barcodes đã gán */}
+                  {assigned.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5 pl-6">
+                      {assigned.map(bc => (
+                        <span key={bc}
+                          onClick={e => { e.stopPropagation(); toggleBarcode(bc) }}
+                          className="font-mono bg-green-100 border border-green-300 text-green-800 rounded px-1.5 py-0.5 text-[10px] cursor-pointer hover:bg-red-50 hover:border-red-300 hover:text-red-700 transition-colors"
+                          title="Click để bỏ gán">
+                          {bc} ×
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Hướng dẫn khi focused và chưa đủ */}
+                  {isFocused && !isDone && (
+                    <div className="mt-1 pl-6 text-[10px] text-indigo-500">
+                      → Chọn {needed - assigned.length} mã từ bảng kho bên phải
+                    </div>
                   )}
                 </div>
+              )
+            })}
 
-                {/* Manual selection khi nhiều barcodes hơn cần */}
-                {needsManual && (
-                  <div className="pl-2 space-y-1">
-                    <div className="text-[10px] text-amber-700 font-medium">
-                      Chọn {item.quantity} mã ({pickedCount}/{item.quantity} đã chọn):
+            {/* Nút xác nhận */}
+            {allDone && (
+              <button onClick={confirmInline} disabled={confirming}
+                className="w-full mt-3 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors">
+                {confirming ? '⏳ Đang xử lý…' : '✅ Xác nhận → Chuyển sang Đang xử lý'}
+              </button>
+            )}
+          </div>
+
+          {/* ══ BẢNG PHẢI: Thiết bị trong kho CRM ══ */}
+          <div className="p-3 space-y-2">
+            <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+              🏭 Kho CRM — {selectedWhName} ({crmProducts.reduce((a, p) => a + p.barcodes.length, 0)} thiết bị)
+            </div>
+            <input
+              value={crmSearch} onChange={e => setCrmSearch(e.target.value)}
+              placeholder="🔍 Lọc theo tên sản phẩm CRM…"
+              className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
+            />
+            {filteredCrm.length === 0 && (
+              <div className="text-xs text-gray-400 text-center py-4">Không có thiết bị trong kho</div>
+            )}
+            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+              {filteredCrm.map(product => {
+                const kindLabel = product.stockupKind === -1 ? 'GPS/Tracker'
+                  : product.stockupKind === 0 ? 'Thiết bị'
+                  : product.stockupKind === 2 ? 'Phụ kiện'
+                  : product.stockupKind === 3 ? 'SIM' : `Kind ${product.stockupKind}`
+                const kindColor = product.stockupKind === -1 ? 'bg-blue-100 text-blue-700'
+                  : product.stockupKind === 0 ? 'bg-purple-100 text-purple-700'
+                  : product.stockupKind === 2 ? 'bg-orange-100 text-orange-700'
+                  : product.stockupKind === 3 ? 'bg-pink-100 text-pink-700'
+                  : 'bg-gray-100 text-gray-600'
+
+                return (
+                  <div key={product.productName} className="bg-white border border-gray-200 rounded-lg p-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${kindColor}`}>{kindLabel}</span>
+                      <span className="text-xs font-semibold text-gray-700 flex-1">{product.productName}</span>
+                      <span className="text-[10px] text-gray-400">{product.barcodes.length} cái</span>
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {item.allBarcodes.map(bc => {
-                        const isChosen = picks?.has(bc) ?? false
+                      {product.barcodes.map(bc => {
+                        const assignedTo  = barcodeAssignedTo(bc)
+                        const isAssigned  = !!assignedTo
+                        const isMine      = assignedTo === focusedItemId
+                        const focusedItem = focusedItemId ? order.giao_hang_don_items.find(i => i.id === focusedItemId) : null
+                        const canPick     = !isAssigned && !!focusedItemId && !isNoImeiAccessory(focusedItem?.device_name ?? '')
+                          && (assignments[focusedItemId ?? '']?.length ?? 0) < (focusedItem?.quantity ?? 0)
+
+                        // Tên item đang chiếm barcode này (hiện tooltip)
+                        const ownerName = isAssigned
+                          ? order.giao_hang_don_items.find(i => i.id === assignedTo)?.device_name ?? ''
+                          : ''
+
                         return (
-                          <button key={bc} onClick={() => togglePick(item.itemId, bc, item.quantity)}
-                            className={`font-mono rounded px-1.5 py-0.5 border transition-colors text-[10px] ${
-                              isChosen
-                                ? 'bg-green-100 border-green-400 text-green-800 font-semibold'
-                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-indigo-300'
+                          <button key={bc}
+                            onClick={() => canPick || isMine ? toggleBarcode(bc) : undefined}
+                            disabled={isAssigned && !isMine}
+                            title={isMine ? 'Click để bỏ gán' : isAssigned ? `Đã gán cho: ${ownerName}` : focusedItemId ? 'Click để gán' : 'Chọn thiết bị bên trái trước'}
+                            className={`font-mono rounded px-1.5 py-0.5 border text-[10px] transition-all ${
+                              isMine
+                                ? 'bg-indigo-100 border-indigo-400 text-indigo-800 font-bold cursor-pointer hover:bg-red-50 hover:border-red-300 hover:text-red-700'
+                                : isAssigned
+                                  ? 'bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed line-through'
+                                  : canPick
+                                    ? 'bg-white border-gray-300 text-gray-700 cursor-pointer hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-700'
+                                    : 'bg-white border-gray-200 text-gray-500 cursor-default'
                             }`}>
                             {bc}
                           </button>
@@ -2596,33 +2828,11 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
                       })}
                     </div>
                   </div>
-                )}
+                )
+              })}
+            </div>
+          </div>
 
-                {/* Auto-assigned barcodes (khi không cần manual) */}
-                {!needsManual && selectedBcs.length > 0 && (
-                  <div className="flex flex-wrap gap-1 pl-2">
-                    {selectedBcs.map(bc => (
-                      <span key={bc} className="font-mono bg-green-50 border border-green-200 text-green-800 rounded px-1.5 py-0.5 text-[10px]">{bc}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-
-          {/* Xác nhận: tất cả items phải matched hoặc đã chọn đủ manual */}
-          {match.items.every(i => {
-            if (i.matched) return true
-            const needsManual = i.stockupKind !== -99 && i.stockupKind !== 2 && i.stockupKind !== 3
-                              && i.allBarcodes.length > i.quantity
-            if (needsManual) return (userPicks[i.itemId]?.size ?? 0) === i.quantity
-            return false
-          }) && (
-            <button onClick={confirmInline} disabled={confirming}
-              className="w-full py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors">
-              {confirming ? '⏳ Đang xử lý…' : '✅ Xác nhận IMEI → Đang xử lý'}
-            </button>
-          )}
         </div>
       )}
     </div>
