@@ -774,7 +774,11 @@ function TabMyOrders({ userEmail, isKho }: { userEmail: string; isKho: boolean }
                 )}
                 <button onClick={() => printLabel(o)}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50">
-                  🖨️ In đơn
+                  🏷️ In nhãn
+                </button>
+                <button onClick={() => printHandover(o)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-indigo-300 text-indigo-600 hover:bg-indigo-50">
+                  📋 Biên bản bàn giao
                 </button>
               </div>
             </div>
@@ -1239,7 +1243,67 @@ function SerialInputModal({ order, onConfirm, onCancel, serialsOnly = false }: {
 // ══════════════════════════════════════════════════════════════════════════════
 // PRINT LABEL — in nhãn đơn hàng
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Nhãn dán thùng (compact) ──────────────────────────────────────────────
 function printLabel(order: DonHang) {
+  const items   = order.giao_hang_don_items
+  const dateStr = new Date().toLocaleDateString('vi-VN')
+  const recipParts = (order.recipient_info ?? '').split('—').map(s => s.trim())
+  const recipName  = recipParts[1] ?? recipParts[0] ?? ''
+  const recipPhone = recipParts[2] ?? ''
+  const recipAddr  = recipParts.slice(3).join(', ').trim()
+
+  const html = `<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8">
+<title>Nhãn – ${order.order_code}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:16px}
+  .label{border:2px solid #111;padding:14px;max-width:400px}
+  .code{font-size:20px;font-weight:bold;letter-spacing:1px;text-align:center}
+  .meta{font-size:10px;color:#666;text-align:center;margin-top:2px}
+  hr{border:none;border-top:1px dashed #ccc;margin:10px 0}
+  .section-title{font-size:10px;font-weight:bold;text-transform:uppercase;color:#666;margin-bottom:3px}
+  .name{font-size:15px;font-weight:bold}
+  .info{font-size:11px;color:#333;line-height:1.6;margin-top:2px}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-top:4px}
+  th{background:#f5f5f5;padding:3px 5px;border:1px solid #ccc;text-align:left}
+  td{padding:3px 5px;border:1px solid #ddd;vertical-align:top}
+  .serial{font-family:monospace;font-size:10px;color:#444}
+  .footer{margin-top:8px;font-size:9px;color:#aaa;text-align:right}
+  @media print{body{padding:0}@page{margin:5mm}}
+</style></head><body>
+<div class="label">
+  <div class="code">${order.order_code}</div>
+  <div class="meta">Người đặt: ${order.orderer_name || order.orderer_email} · VP: ${order.office} · ${dateStr}</div>
+  <hr>
+  <div class="section-title">Người nhận</div>
+  <div class="name">${recipName || '—'}</div>
+  <div class="info">${[recipPhone, recipAddr, order.office].filter(Boolean).join(' · ')}</div>
+  <hr>
+  <div class="section-title">Thiết bị</div>
+  <table>
+    <thead><tr><th>Tên thiết bị</th><th>SL</th><th>Serial/IMEI</th></tr></thead>
+    <tbody>
+      ${items.map(i => `<tr>
+        <td>${i.device_name}</td>
+        <td style="text-align:center">${i.quantity}</td>
+        <td class="serial">${(i.device_serials ?? []).filter(Boolean).join('<br>') || '<span style="color:#ccc">—</span>'}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+  ${order.notes ? `<hr><div class="info" style="font-style:italic">📝 ${order.notes}</div>` : ''}
+  ${order.expected_date ? `<div class="info" style="margin-top:6px">🚚 Ngày giao: ${new Date(order.expected_date).toLocaleDateString('vi-VN')}</div>` : ''}
+  <div class="footer">EUP Hardware · ${dateStr}</div>
+</div>
+<script>window.onload=()=>window.print()</script>
+</body></html>`
+
+  const win = window.open('', '_blank', 'width=480,height=700')
+  if (win) { win.document.write(html); win.document.close() }
+}
+
+// ── Biên bản bàn giao A4 (có chữ ký) ─────────────────────────────────────
+function printHandover(order: DonHang) {
   const items = order.giao_hang_don_items
   const now = new Date()
   const dateStr  = now.toLocaleDateString('vi-VN')
@@ -1757,7 +1821,11 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                         )}
                         <button onClick={() => printLabel(o)}
                           className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-all">
-                          🖨️ In đơn
+                          🏷️ In nhãn
+                        </button>
+                        <button onClick={() => printHandover(o)}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 transition-all">
+                          📋 Biên bản bàn giao
                         </button>
                       </div>
                     </div>
@@ -1771,7 +1839,11 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                       )}
                       <button onClick={() => printLabel(o)}
                         className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50">
-                        🖨️ In đơn
+                        🏷️ In nhãn
+                      </button>
+                      <button onClick={() => printHandover(o)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-indigo-300 text-indigo-600 hover:bg-indigo-50">
+                        📋 Biên bản bàn giao
                       </button>
                     </div>
                   )}
