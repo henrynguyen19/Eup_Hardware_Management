@@ -2571,6 +2571,7 @@ function deviceNamesMatch(orderName: string, crmName: string): boolean {
 // ── Kiểm tra kho inline — hiện trong card đơn Chờ xử lý ─────────────────────
 // ── Types cho 2-panel matching ─────────────────────────────────────────────
 interface CrmProduct { productName: string; stockupKind: number; barcodes: string[] }
+interface CRMComponent { Device_Code: string; QP_ProductKind: number; QP_ProductKindName: string; Device_TypeName: string }
 
 function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfirmed: () => void }) {
   const [whcId,      setWhcId]      = useState<number>(2)
@@ -2591,6 +2592,10 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null)
   // assignments: itemId → barcode[]
   const [assignments, setAssignments] = useState<Record<string, string[]>>({})
+  // barcode → carUnicode (để gọi GetCarList khi assign main device)
+  const [barcodeUnicodeMap, setBarcodeUnicodeMap] = useState<Record<string, string>>({})
+  // trạng thái auto-fill accessories
+  const [autoFilling, setAutoFilling] = useState<string | null>(null) // barcode đang xử lý
 
   const sortLabels: Record<number, string> = { 1: 'Kho chính', 2: 'Kỹ thuật viên', 3: 'Sales / Customer' }
   const groupedWh = whList.reduce<Record<number, WhItem[]>>((acc, w) => {
@@ -2622,22 +2627,25 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
 
   async function doLoad() {
     if (!whId) { setError('Chọn kho trước'); return }
-    setLoading(true); setError(null); setCrmProducts([]); setAssignments({}); setFocusedItemId(null)
+    setLoading(true); setError(null); setCrmProducts([]); setAssignments({}); setFocusedItemId(null); setBarcodeUnicodeMap({})
     try {
       const r = await fetch(`/api/giao-hang/warehouse-queue?whc_id=${whcId}&wh_id=${whId}`)
       const d = await r.json()
       if (!d.ok) { setError(d.error ?? 'Lỗi CRM'); return }
 
-      // Gộp theo productName
+      // Gộp theo productName + lưu barcode→carUnicode map
       const map: Record<string, CrmProduct> = {}
+      const unicodeMap: Record<string, string> = {}
       for (const dev of (d.devices ?? []) as WqDevice[]) {
         const bc = dev.barcode || dev.carUnicode
         if (!bc) continue
         const key = dev.productName
         if (!map[key]) map[key] = { productName: key, stockupKind: dev.stockupKind, barcodes: [] }
         map[key].barcodes.push(bc)
+        if (dev.carUnicode) unicodeMap[bc] = dev.carUnicode
       }
       setCrmProducts(Object.values(map).sort((a, b) => a.productName.localeCompare(b.productName)))
+      setBarcodeUnicodeMap(unicodeMap)
       setLoaded(true)
 
       // Auto-focus item đầu tiên cần assign (bỏ qua dây nguồn/cáp)
@@ -2645,6 +2653,49 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
       if (first) setFocusedItemId(first.id)
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
+  }
+
+  // Sau khi assign main device, tự động lấy accessories từ GetCarList
+  async function autoFillAccessories(mainBarcode: string, carUnicode: string) {
+    if (!carUnicode) return
+    setAutoFilling(mainBarcode)
+    try {
+      const r = await fetch(`/api/giao-hang/crm-check?unicode=${encodeURIComponent(carUnicode)}`)
+      const d = await r.json()
+      if (!d.ok || !Array.isArray(d.components)) return
+
+      const components = d.components as CRMComponent[]
+      setAssignments(prev => {
+        const updated = { ...prev }
+        for (const comp of components) {
+          if (!comp.Device_Code) continue
+          const kind = comp.QP_ProductKind
+          // Chỉ lấy SIM (3) và accessories (2) — thiết bị chính (0/-1) đã assign thủ công
+          if (kind !== 2 && kind !== 3) continue
+
+          // Tìm order item phù hợp còn chỗ trống
+          const matchItem = order.giao_hang_don_items.find(item => {
+            if (!isCrmBarcodedOptional(item.device_name)) return false
+            const slots = updated[item.id] ?? []
+            if (slots.length >= item.quantity) return false
+            if (slots.includes(comp.Device_Code)) return false
+            const n = item.device_name.toLowerCase()
+            if (kind === 3) return /viettel|vinaphone|sim|m2m|3mbipts|data_\d|gps_m2m/.test(n)
+            if (kind === 2) return /thẻ nhớ|microsd|sd card|đầu đọc|ổ cứng|hdd|ssd/.test(n)
+            return false
+          })
+
+          if (matchItem) {
+            const current = updated[matchItem.id] ?? []
+            if (!current.includes(comp.Device_Code) && current.length < matchItem.quantity) {
+              updated[matchItem.id] = [...current, comp.Device_Code]
+            }
+          }
+        }
+        return updated
+      })
+    } catch (e) { console.error('autoFillAccessories error:', e) }
+    finally { setAutoFilling(null) }
   }
 
   // Click barcode ở bảng CRM → gán vào focused item
@@ -2661,9 +2712,16 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
       if (current.length >= item.quantity) return // đã đủ
       const next = [...current, bc]
       setAssignments(prev => ({ ...prev, [focusedItemId]: next }))
+
+      // Nếu là main device (GPS/MDVR/camera), tự động fill accessories từ GetCarList
+      const isMainDevice = !isPhysicalOnlyAccessory(item.device_name) && !isCrmBarcodedOptional(item.device_name)
+      if (isMainDevice) {
+        const carUnicode = barcodeUnicodeMap[bc]
+        if (carUnicode) autoFillAccessories(bc, carUnicode)
+      }
+
       // Auto-advance khi đủ số lượng
       if (next.length === item.quantity) {
-        // Auto-advance sang item tiếp theo chưa đủ (bỏ qua dây nguồn/cáp)
         const assignableItems = order.giao_hang_don_items.filter(i => !isPhysicalOnlyAccessory(i.device_name))
         const idx = assignableItems.findIndex(i => i.id === focusedItemId)
         const nextItem = assignableItems.slice(idx + 1).find(i =>
@@ -2775,6 +2833,7 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
               const needed      = item.quantity
               const isFocused   = focusedItemId === item.id
               const isDone      = isPhysical || assigned.length >= needed
+              const isAutoFill  = autoFilling !== null && isOptional && !isDone
 
               return (
                 <div
@@ -2794,7 +2853,7 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-sm shrink-0">
-                      {isPhysical ? '📦' : isDone ? '✅' : isFocused ? '👉' : isOptional ? '🔖' : '⬜'}
+                      {isPhysical ? '📦' : isDone ? '✅' : isAutoFill ? '⏳' : isFocused ? '👉' : isOptional ? '🔖' : '⬜'}
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-gray-800 truncate">{item.device_name}</div>
@@ -2810,7 +2869,10 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
                           <span className={`font-bold ${isDone ? 'text-green-600' : isFocused ? 'text-indigo-600' : isOptional ? 'text-amber-600' : 'text-gray-500'}`}>
                             {assigned.length}/{needed}
                           </span>
-                          {isOptional && !isDone && (
+                          {isAutoFill && (
+                            <div className="text-[9px] text-blue-400 leading-tight animate-pulse">đang lấy…</div>
+                          )}
+                          {isOptional && !isDone && !isAutoFill && (
                             <div className="text-[9px] text-amber-500 leading-tight">tùy chọn</div>
                           )}
                         </div>
