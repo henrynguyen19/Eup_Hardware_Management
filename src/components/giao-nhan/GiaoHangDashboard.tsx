@@ -1316,50 +1316,43 @@ function printHandover(order: DonHang) {
   const recipPhone  = recipParts[2] ?? ''
   const recipAddr   = recipParts.slice(3).join(', ').trim()
 
-  // Gộp combo items cùng tên lại, tách main device và accessories
-  // Thứ tự: main device (có serial) trước, accessories sau
-  const mainItems   = items.filter(i => i.device_serials !== undefined && !isNoImeiAccessoryName(i.device_name))
-  const accessItems = items.filter(i => isNoImeiAccessoryName(i.device_name))
-  const allRows     = [...mainItems, ...accessItems]
-
-  function isNoImeiAccessoryName(name: string): boolean {
-    const n = name.toLowerCase()
-    return /dây nguồn|cáp nguồn|power cable|thẻ nhớ|microsd|sd card|đầu đọc|viettel|vinaphone|m2m|data_\d|sim/.test(n)
-  }
+  // Tất cả items — combo phụ kiện xếp sau device chính
+  const mainItems   = items.filter(i => !i.combo_name)
+  const comboItems  = items.filter(i =>  i.combo_name)
+  const allRows     = [...mainItems, ...comboItems]
 
   let stt = 0
-  const rows = allRows.map(item => {
+  // Mỗi đơn vị (quantity) = 1 dòng riêng — tất cả đều có ô serial để ghi tay
+  const rows = allRows.flatMap(item => {
     stt++
     const serials = (item.device_serials ?? []).filter(Boolean)
-    const isAccessory = isNoImeiAccessoryName(item.device_name)
+    const qty     = item.quantity
+    const nameCell = `${item.device_name}${item.combo_name ? `<br><span style="font-size:10px;color:#888">[${item.combo_name}]</span>` : ''}`
 
-    // Mỗi serial = 1 dòng nếu có nhiều
-    if (!isAccessory && serials.length > 1) {
-      return serials.map((s, si) => `
-        <tr>
-          ${si === 0 ? `<td rowspan="${serials.length}" style="text-align:center;vertical-align:middle">${stt}</td>
-                        <td rowspan="${serials.length}" style="vertical-align:middle">${item.device_name}${item.combo_name ? `<br><span style="font-size:10px;color:#888">[${item.combo_name}]</span>` : ''}</td>
-                        <td rowspan="${serials.length}" style="text-align:center;vertical-align:middle">${item.quantity}</td>` : ''}
-          <td style="text-align:center">${si + 1}</td>
-          <td class="mono">${s}</td>
-          <td></td>
-        </tr>`).join('')
+    if (qty === 1) {
+      return [`<tr>
+        <td style="text-align:center">${stt}</td>
+        <td>${nameCell}</td>
+        <td style="text-align:center">1</td>
+        <td style="text-align:center">1</td>
+        <td class="mono">${serials[0] ?? ''}</td>
+        <td></td>
+      </tr>`]
     }
 
-    const serialCell = isAccessory
-      ? '<td colspan="2" style="text-align:center;color:#aaa;font-size:10px">Không cần IMEI</td>'
-      : serials.length === 1
-        ? `<td style="text-align:center">1</td><td class="mono">${serials[0]}</td>`
-        : `<td style="text-align:center;color:#ccc">—</td><td style="color:#ccc;font-size:10px">Chưa nhập</td>`
-
-    return `<tr>
-      <td style="text-align:center">${stt}</td>
-      <td>${item.device_name}${item.combo_name ? `<br><span style="font-size:10px;color:#888">[${item.combo_name}]</span>` : ''}</td>
-      <td style="text-align:center">${item.quantity}</td>
-      <td style="text-align:center">—</td>
-      ${serialCell}
-      <td></td>
-    </tr>`
+    // qty > 1: 1 dòng per unit, dùng rowspan cho STT + tên + SL
+    return Array.from({ length: qty }, (_, si) => `
+      <tr>
+        ${si === 0
+          ? `<td rowspan="${qty}" style="text-align:center;vertical-align:middle">${stt}</td>
+             <td rowspan="${qty}" style="vertical-align:middle">${nameCell}</td>
+             <td rowspan="${qty}" style="text-align:center;vertical-align:middle">${qty}</td>`
+          : ''}
+        <td style="text-align:center">${si + 1}</td>
+        <td class="mono">${serials[si] ?? ''}</td>
+        <td></td>
+      </tr>`
+    )
   }).join('')
 
   const totalQty = allRows.reduce((a, i) => a + i.quantity, 0)
@@ -2522,14 +2515,25 @@ interface OrderMatch {
  * Những item này bị loại khỏi bước matching CRM để tránh nhầm lẫn
  * (VD: "Dây nguồn C43" chứa "C43" nhưng không phải camera C43).
  */
-function isNoImeiAccessory(name: string): boolean {
+/** Phụ kiện vật lý thuần (dây nguồn, cáp) — không có barcode trong CRM → auto-skip hoàn toàn */
+function isPhysicalOnlyAccessory(name: string): boolean {
+  const n = name.toLowerCase()
+  return /dây nguồn|cáp nguồn|power cable/.test(n)
+}
+
+/** SIM/thẻ nhớ/đầu đọc — CRM có barcode, cần assign nhưng optional (không block confirm) */
+function isCrmBarcodedOptional(name: string): boolean {
   const n = name.toLowerCase()
   return (
-    /dây nguồn|cáp nguồn|power cable/.test(n) ||   // cáp điện
-    /thẻ nhớ|microsd|sd card/.test(n) ||            // thẻ nhớ kèm MDVR
-    /đầu đọc/.test(n) ||                            // đầu đọc thẻ
-    /viettel|vinaphone|m2m|3mbipts|data_\d|gps_m2m/.test(n) // SIM/data
+    /thẻ nhớ|microsd|sd card/.test(n) ||
+    /đầu đọc/.test(n) ||
+    /viettel|vinaphone|m2m|3mbipts|data_\d|gps_m2m/.test(n)
   )
+}
+
+/** Backward-compat alias — chỉ còn dùng ở bộ phận kho preview */
+function isNoImeiAccessory(name: string): boolean {
+  return isPhysicalOnlyAccessory(name) || isCrmBarcodedOptional(name)
 }
 
 /** So sánh tên device (order) với productName (CRM) — case-insensitive, flexible */
@@ -2636,8 +2640,8 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
       setCrmProducts(Object.values(map).sort((a, b) => a.productName.localeCompare(b.productName)))
       setLoaded(true)
 
-      // Auto-focus item đầu tiên cần IMEI
-      const first = order.giao_hang_don_items.find(i => !isNoImeiAccessory(i.device_name))
+      // Auto-focus item đầu tiên cần assign (bỏ qua dây nguồn/cáp)
+      const first = order.giao_hang_don_items.find(i => !isPhysicalOnlyAccessory(i.device_name))
       if (first) setFocusedItemId(first.id)
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
@@ -2659,9 +2663,10 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
       setAssignments(prev => ({ ...prev, [focusedItemId]: next }))
       // Auto-advance khi đủ số lượng
       if (next.length === item.quantity) {
-        const imeiItems = order.giao_hang_don_items.filter(i => !isNoImeiAccessory(i.device_name))
-        const idx = imeiItems.findIndex(i => i.id === focusedItemId)
-        const nextItem = imeiItems.slice(idx + 1).find(i =>
+        // Auto-advance sang item tiếp theo chưa đủ (bỏ qua dây nguồn/cáp)
+        const assignableItems = order.giao_hang_don_items.filter(i => !isPhysicalOnlyAccessory(i.device_name))
+        const idx = assignableItems.findIndex(i => i.id === focusedItemId)
+        const nextItem = assignableItems.slice(idx + 1).find(i =>
           (assignments[i.id]?.length ?? 0) < i.quantity
         )
         if (nextItem) setFocusedItemId(nextItem.id)
@@ -2677,9 +2682,12 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
     return null
   }
 
-  // Kiểm tra tất cả item IMEI đã đủ
-  const imeiItems = order.giao_hang_don_items.filter(i => !isNoImeiAccessory(i.device_name))
-  const allDone = imeiItems.every(i => (assignments[i.id]?.length ?? 0) >= i.quantity)
+  // Confirm được khi tất cả thiết bị chính (GPS, camera, MDVR…) đã đủ serial
+  // SIM/thẻ nhớ là optional — assign được nhưng không block confirm
+  const requiredItems = order.giao_hang_don_items.filter(
+    i => !isPhysicalOnlyAccessory(i.device_name) && !isCrmBarcodedOptional(i.device_name)
+  )
+  const allDone = requiredItems.every(i => (assignments[i.id]?.length ?? 0) >= i.quantity)
 
   async function confirmInline() {
     setConfirming(true)
@@ -2761,30 +2769,32 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
               📋 Đơn hàng — click vào thiết bị cần ghép IMEI
             </div>
             {order.giao_hang_don_items.map(item => {
-              const isAccessory = isNoImeiAccessory(item.device_name)
+              const isPhysical  = isPhysicalOnlyAccessory(item.device_name) // dây nguồn/cáp — không barcode
+              const isOptional  = isCrmBarcodedOptional(item.device_name)   // SIM/thẻ nhớ — optional
               const assigned    = assignments[item.id] ?? []
               const needed      = item.quantity
               const isFocused   = focusedItemId === item.id
-              const isDone      = isAccessory || assigned.length >= needed
+              const isDone      = isPhysical || assigned.length >= needed
 
               return (
                 <div
                   key={item.id}
-                  onClick={() => !isAccessory && setFocusedItemId(item.id)}
+                  onClick={() => !isPhysical && setFocusedItemId(item.id)}
                   className={`rounded-lg border px-2.5 py-2 transition-all text-xs ${
-                    isAccessory
-                      ? 'border-gray-100 bg-gray-50 cursor-default opacity-70'
+                    isPhysical
+                      ? 'border-gray-100 bg-gray-50 cursor-default opacity-60'
                       : isFocused
                         ? 'border-indigo-400 bg-indigo-50 cursor-pointer ring-2 ring-indigo-200'
                         : isDone
                           ? 'border-green-200 bg-green-50 cursor-pointer'
-                          : 'border-gray-200 bg-white cursor-pointer hover:border-indigo-200 hover:bg-indigo-50/40'
+                          : isOptional
+                            ? 'border-amber-200 bg-amber-50/40 cursor-pointer hover:border-amber-300'
+                            : 'border-gray-200 bg-white cursor-pointer hover:border-indigo-200 hover:bg-indigo-50/40'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    {/* Status icon */}
                     <span className="text-sm shrink-0">
-                      {isAccessory ? '📦' : isDone ? '✅' : isFocused ? '👉' : '⬜'}
+                      {isPhysical ? '📦' : isDone ? '✅' : isFocused ? '👉' : isOptional ? '🔖' : '⬜'}
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-gray-800 truncate">{item.device_name}</div>
@@ -2793,12 +2803,17 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
                       )}
                     </div>
                     <div className="shrink-0 text-right">
-                      {isAccessory ? (
-                        <span className="text-gray-400">× {needed} · không cần IMEI</span>
+                      {isPhysical ? (
+                        <span className="text-gray-400">× {needed}</span>
                       ) : (
-                        <span className={`font-bold ${isDone ? 'text-green-600' : isFocused ? 'text-indigo-600' : 'text-gray-500'}`}>
-                          {assigned.length}/{needed}
-                        </span>
+                        <div className="text-right">
+                          <span className={`font-bold ${isDone ? 'text-green-600' : isFocused ? 'text-indigo-600' : isOptional ? 'text-amber-600' : 'text-gray-500'}`}>
+                            {assigned.length}/{needed}
+                          </span>
+                          {isOptional && !isDone && (
+                            <div className="text-[9px] text-amber-500 leading-tight">tùy chọn</div>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2815,7 +2830,6 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
                       ))}
                     </div>
                   )}
-                  {/* Hướng dẫn khi focused và chưa đủ */}
                   {isFocused && !isDone && (
                     <div className="mt-1 pl-6 text-[10px] text-indigo-500">
                       → Chọn {needed - assigned.length} mã từ bảng kho bên phải
@@ -2872,7 +2886,7 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
                         const isAssigned  = !!assignedTo
                         const isMine      = assignedTo === focusedItemId
                         const focusedItem = focusedItemId ? order.giao_hang_don_items.find(i => i.id === focusedItemId) : null
-                        const canPick     = !isAssigned && !!focusedItemId && !isNoImeiAccessory(focusedItem?.device_name ?? '')
+                        const canPick     = !isAssigned && !!focusedItemId && !isPhysicalOnlyAccessory(focusedItem?.device_name ?? '')
                           && (assignments[focusedItemId ?? '']?.length ?? 0) < (focusedItem?.quantity ?? 0)
 
                         // Tên item đang chiếm barcode này (hiện tooltip)
