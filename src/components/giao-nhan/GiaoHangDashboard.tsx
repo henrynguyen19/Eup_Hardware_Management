@@ -1372,25 +1372,65 @@ async function printHandover(order: DonHang) {
   // Kho chuyển = "Kho EUP Hardware", Kho nhận = văn phòng/người nhận
   const khoNhan = recipName ? `${recipName}${recipOffice ? ` (${recipOffice})` : ''}` : (recipOffice || order.office || '')
 
-  // Tạo rows: mỗi serial = 1 dòng với STT | Tên thiết bị | Mã thiết bị | Kho Chuyển | Kho Nhận | SL
-  let stt = 0
-  const rows = allRows.flatMap(item => {
-    stt++
-    const savedSerials = (item.device_serials ?? []).filter(Boolean)
-    const serials = savedSerials.length > 0 ? savedSerials : (extraSerials[item.id] ?? [])
-    const qty     = item.quantity
-    const itemStt = stt
+  // Hàm lấy serials của 1 item (saved hoặc extraSerials)
+  const getSerials = (item: DonItem) => {
+    const saved = (item.device_serials ?? []).filter(Boolean)
+    return saved.length > 0 ? saved : (extraSerials[item.id] ?? [])
+  }
 
-    return Array.from({ length: qty }, (_, si) => `<tr>
-      <td style="text-align:center">${itemStt}</td>
-      <td>${item.device_name}${item.combo_name ? ` <span style="font-size:10px;color:#666">[${item.combo_name}]</span>` : ''}</td>
-      <td class="mono">${serials[si] ?? ''}</td>
+  // Helper tạo 1 row
+  const makeRow = (stt: number, item: DonItem, si: number) => {
+    const serials = getSerials(item)
+    return `<tr>
+      <td style="text-align:center">${stt}</td>
+      <td>${item.device_name}${item.combo_name ? ` <span style="font-size:10px;color:#777">[${item.combo_name}]</span>` : ''}</td>
+      <td class="mono" style="color:${serials[si] ? '#000' : '#bbb'}">${serials[si] ?? ''}</td>
       <td>Kho EUP Hardware</td>
       <td>${khoNhan}</td>
       <td style="text-align:center">1</td>
-    </tr>`)
-  }).join('')
+    </tr>`
+  }
 
+  // Tạo rows — interleave theo combo group:
+  // Với mỗi unit vị trí i: GPS[i] → SIM[i] → thẻ nhớ[i] → phụ kiện khác[i]
+  // Sắp xếp trong combo: main device (không phải accessory) trước, rồi crmBarcoded, rồi physical
+  const sortComboItems = (its: DonItem[]) => [
+    ...its.filter(i => !isNoImeiAccessory(i.device_name)),
+    ...its.filter(i => isCrmBarcodedOptional(i.device_name)),
+    ...its.filter(i => isPhysicalOnlyAccessory(i.device_name)),
+  ]
+
+  let stt = 0
+  const rowLines: string[] = []
+
+  // Nhóm combo
+  const comboNames = [...new Set(comboItems.map(i => i.combo_name).filter(Boolean))]
+  const standaloneMain = mainItems.filter(i => !i.combo_name)
+
+  // Standalone items (no combo_name)
+  for (const item of standaloneMain) {
+    stt++
+    const s = stt
+    const qty = item.quantity
+    for (let si = 0; si < qty; si++) rowLines.push(makeRow(s, item, si))
+  }
+
+  // Combo groups: interleave by position
+  for (const cn of comboNames) {
+    const groupRaw = items.filter(i => i.combo_name === cn)
+    const group    = sortComboItems(groupRaw)
+    const maxQty   = Math.max(...group.map(i => i.quantity))
+    const itemStts: Record<string, number> = {}
+    for (const item of group) { stt++; itemStts[item.id] = stt }
+
+    for (let si = 0; si < maxQty; si++) {
+      for (const item of group) {
+        if (si < item.quantity) rowLines.push(makeRow(itemStts[item.id], item, si))
+      }
+    }
+  }
+
+  const rows = rowLines.join('')
   const totalQty = allRows.reduce((a, i) => a + i.quantity, 0)
   const handoverDate = order.expected_date
     ? new Date(order.expected_date).toLocaleDateString('vi-VN')
