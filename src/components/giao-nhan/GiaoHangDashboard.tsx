@@ -1369,42 +1369,32 @@ async function printHandover(order: DonHang) {
     } catch { /* in bình thường nếu lỗi */ }
   }
 
+  // Kho chuyển = "Kho EUP Hardware", Kho nhận = văn phòng/người nhận
+  const khoNhan = recipName ? `${recipName}${recipOffice ? ` (${recipOffice})` : ''}` : (recipOffice || order.office || '')
+
+  // Tạo rows: mỗi serial = 1 dòng với STT | Tên thiết bị | Mã thiết bị | Kho Chuyển | Kho Nhận | SL
   let stt = 0
-  // Mỗi đơn vị (quantity) = 1 dòng riêng — tất cả đều có ô serial để ghi tay
   const rows = allRows.flatMap(item => {
     stt++
     const savedSerials = (item.device_serials ?? []).filter(Boolean)
     const serials = savedSerials.length > 0 ? savedSerials : (extraSerials[item.id] ?? [])
     const qty     = item.quantity
-    const nameCell = `${item.device_name}${item.combo_name ? `<br><span style="font-size:10px;color:#888">[${item.combo_name}]</span>` : ''}`
+    const itemStt = stt
 
-    if (qty === 1) {
-      return [`<tr>
-        <td style="text-align:center">${stt}</td>
-        <td>${nameCell}</td>
-        <td style="text-align:center">1</td>
-        <td style="text-align:center">1</td>
-        <td class="mono">${serials[0] ?? ''}</td>
-        <td></td>
-      </tr>`]
-    }
-
-    // qty > 1: 1 dòng per unit, dùng rowspan cho STT + tên + SL
-    return Array.from({ length: qty }, (_, si) => `
-      <tr>
-        ${si === 0
-          ? `<td rowspan="${qty}" style="text-align:center;vertical-align:middle">${stt}</td>
-             <td rowspan="${qty}" style="vertical-align:middle">${nameCell}</td>
-             <td rowspan="${qty}" style="text-align:center;vertical-align:middle">${qty}</td>`
-          : ''}
-        <td style="text-align:center">${si + 1}</td>
-        <td class="mono">${serials[si] ?? ''}</td>
-        <td></td>
-      </tr>`
-    )
+    return Array.from({ length: qty }, (_, si) => `<tr>
+      <td style="text-align:center">${itemStt}</td>
+      <td>${item.device_name}${item.combo_name ? ` <span style="font-size:10px;color:#666">[${item.combo_name}]</span>` : ''}</td>
+      <td class="mono">${serials[si] ?? ''}</td>
+      <td>Kho EUP Hardware</td>
+      <td>${khoNhan}</td>
+      <td style="text-align:center">1</td>
+    </tr>`)
   }).join('')
 
   const totalQty = allRows.reduce((a, i) => a + i.quantity, 0)
+  const handoverDate = order.expected_date
+    ? new Date(order.expected_date).toLocaleDateString('vi-VN')
+    : dateStr
 
   const html = `<!DOCTYPE html>
 <html lang="vi">
@@ -1414,30 +1404,29 @@ async function printHandover(order: DonHang) {
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 12px; color: #111; background: #fff; }
-  .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 15mm 15mm 20mm; }
-  .company { font-size: 10px; color: #555; line-height: 1.5; }
-  .company strong { font-size: 13px; color: #111; display: block; }
-  .title-block { text-align: center; margin: 12px 0 8px; }
-  .title { font-size: 17px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
-  .subtitle { font-size: 11px; color: #555; margin-top: 3px; }
-  .order-code { font-size: 12px; font-weight: bold; margin-top: 4px; }
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; margin: 12px 0; font-size: 11.5px; line-height: 1.7; }
-  .info-label { color: #555; }
-  .info-value { font-weight: 600; }
-  .dotline { border-bottom: 1px dotted #aaa; display: inline-block; min-width: 120px; }
-  table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 8px 0; }
-  th { background: #f0f0f0; border: 1px solid #999; padding: 5px 6px; text-align: center; font-weight: bold; }
-  td { border: 1px solid #bbb; padding: 4px 6px; vertical-align: middle; }
-  .mono { font-family: 'Courier New', monospace; font-size: 10.5px; letter-spacing: 0.5px; }
-  tfoot td { font-weight: bold; background: #f9f9f9; }
-  .sign-block { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 28px; text-align: center; }
-  .sign-title { font-weight: bold; font-size: 12px; }
-  .sign-note { font-size: 10px; color: #888; margin: 2px 0 50px; }
-  .sign-name { font-size: 11px; border-top: 1px solid #555; padding-top: 4px; }
-  .note-box { background: #fffbe6; border: 1px solid #e0c060; border-radius: 4px; padding: 6px 10px; font-size: 11px; margin-top: 8px; }
+  .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 12mm 15mm 15mm; }
+  .header-state { text-align: center; line-height: 1.6; margin-bottom: 4px; }
+  .header-state .bold { font-weight: bold; font-size: 13px; }
+  .header-state .italic { font-style: italic; font-size: 11.5px; }
+  .title-wrap { display: flex; justify-content: space-between; align-items: flex-start; margin: 10px 0 6px; }
+  .title-center { flex: 1; text-align: center; }
+  .title { font-size: 15px; font-weight: bold; text-transform: uppercase; }
+  .subtitle { font-size: 11.5px; }
+  .date-right { font-size: 11px; white-space: nowrap; }
+  .parties { margin: 8px 0 6px; font-size: 12px; line-height: 1.8; }
+  .parties b { font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+  th { border: 1px solid #333; padding: 5px 4px; text-align: center; font-weight: bold; background: #f5f5f5; }
+  td { border: 1px solid #555; padding: 4px 4px; vertical-align: middle; }
+  .mono { font-family: 'Courier New', monospace; font-size: 10px; }
+  .footer-note { font-size: 10.5px; margin-top: 10px; line-height: 1.7; }
+  .footer-note li { margin-left: 16px; }
+  .sign-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; text-align: center; font-size: 12px; }
+  .sign-title { font-weight: bold; }
+  .sign-space { height: 55px; }
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .page { padding: 10mm 12mm 15mm; }
+    .page { padding: 8mm 12mm 10mm; }
     @page { size: A4; margin: 0; }
   }
 </style>
@@ -1445,102 +1434,77 @@ async function printHandover(order: DonHang) {
 <body>
 <div class="page">
 
-  <!-- Header -->
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px">
-    <div class="company">
-      <strong>CÔNG TY TNHH EUPSOLUTION VIỆT NAM</strong>
-      Bộ phận Phần cứng – Hardware Division<br>
-      ĐT: (028) 3636 5599 &nbsp;|&nbsp; www.eupsolution.vn
-    </div>
-    <div style="text-align:right;font-size:10px;color:#555">
-      Mã đơn: <strong>${order.order_code}</strong><br>
-      Ngày in: ${dateStr}
-    </div>
+  <!-- Quốc hiệu -->
+  <div class="header-state">
+    <div class="bold">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+    <div class="italic">Độc lập – Tự do – Hạnh phúc</div>
+    <div style="font-size:10px;margin-top:1px">───────────────</div>
   </div>
 
-  <!-- Title -->
-  <div class="title-block">
-    <div class="title">Biên bản bàn giao thiết bị</div>
-    <div class="subtitle">Device Handover Record</div>
+  <!-- Tiêu đề + ngày -->
+  <div class="title-wrap">
+    <div style="width:80px"></div>
+    <div class="title-center">
+      <div class="title">Biên bản bàn giao thiết bị</div>
+      <div class="subtitle">(Nội bộ)</div>
+    </div>
+    <div class="date-right">${handoverDate}</div>
   </div>
 
-  <!-- Parties -->
-  <div class="info-grid">
-    <div>
-      <span class="info-label">Bên giao (A): </span>
-      <span class="info-value">Bộ phận Kho – EUP Hardware</span>
-    </div>
-    <div>
-      <span class="info-label">Ngày bàn giao: </span>
-      <span class="info-value dotline">${order.expected_date ? new Date(order.expected_date).toLocaleDateString('vi-VN') : dateISO}</span>
-    </div>
-    <div>
-      <span class="info-label">Bên nhận (B): </span>
-      <span class="info-value">${recipName || '<span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'}</span>
-    </div>
-    <div>
-      <span class="info-label">VP / Đơn vị: </span>
-      <span class="info-value">${recipOffice || order.office}</span>
-    </div>
-    <div>
-      <span class="info-label">Địa chỉ nhận: </span>
-      <span class="info-value">${recipAddr || '<span class="dotline" style="min-width:200px">&nbsp;</span>'}</span>
-    </div>
-    <div>
-      <span class="info-label">Số điện thoại: </span>
-      <span class="info-value">${recipPhone || '<span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'}</span>
-    </div>
-    <div>
-      <span class="info-label">Người đặt hàng: </span>
-      <span class="info-value">${order.orderer_name || order.orderer_email}</span>
-    </div>
-    <div>
-      <span class="info-label">Mã vận đơn: </span>
-      <span class="info-value">${order.tracking_code || '<span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'}</span>
-    </div>
+  <!-- Bên giao / Bên nhận -->
+  <div class="parties">
+    <div><b>BÊN GIAO:</b> ${order.orderer_name || order.orderer_email || 'Nhân viên kho EUP'}</div>
+    <div><b>BÊN NHẬN:</b> ${khoNhan || recipName || '...................................'}</div>
   </div>
 
-  <!-- Device table -->
+  <!-- Bảng thiết bị -->
   <table>
     <thead>
       <tr>
-        <th style="width:30px">STT</th>
-        <th style="text-align:left">Tên thiết bị / Phụ kiện</th>
-        <th style="width:35px">SL</th>
-        <th style="width:35px">Số<br>thứ tự</th>
-        <th style="width:140px">Mã Serial / IMEI</th>
-        <th style="width:80px">Ghi chú</th>
+        <th style="width:32px">STT</th>
+        <th style="text-align:left">Tên thiết bị</th>
+        <th style="width:140px">Mã thiết bị</th>
+        <th style="width:100px">Kho Chuyển</th>
+        <th style="width:130px">Kho Nhận</th>
+        <th style="width:38px">Số lượng</th>
       </tr>
     </thead>
     <tbody>
       ${rows}
+      ${Array.from({ length: Math.max(0, 20 - totalQty) }, () =>
+        `<tr><td>&nbsp;</td><td></td><td class="mono"></td><td></td><td></td><td></td></tr>`
+      ).join('')}
     </tbody>
-    <tfoot>
-      <tr>
-        <td colspan="2" style="text-align:right">Tổng cộng:</td>
-        <td style="text-align:center">${totalQty}</td>
-        <td colspan="3"></td>
-      </tr>
-    </tfoot>
   </table>
 
-  ${order.notes ? `<div class="note-box">📝 Ghi chú: ${order.notes}</div>` : ''}
+  <!-- Ghi chú pháp lý -->
+  <div class="footer-note">
+    Người nhận bàn giao có trách nhiệm quản lý, sử dụng thiết bị đúng mục đích:
+    <ul>
+      <li>Thiết bị dự phòng quá 2 tháng không sử dụng cần gửi trả công ty.</li>
+      <li>Thiết bị cũ sau khi bảo hành cần gửi về công ty trong vòng 14 ngày kể từ ngày tháo xuống.</li>
+      <li>Nếu xảy ra mất thiết bị thì phải bồi thường tổn thất cho công ty tương ứng với mức sau:</li>
+      <li>Nhân viên kinh doanh, kỹ thuật của công ty bồi thường ½ giá bán tiêu chuẩn.</li>
+      <li>Kỹ thuật thuê ngoài bồi thường 100% giá bán tiêu chuẩn.</li>
+    </ul>
+    Biên bản được lập thành 02 bản, mỗi bên giữ 01 bản.
+  </div>
 
-  <!-- Signatures -->
-  <div class="sign-block">
+  <!-- Ký tên -->
+  <div class="sign-wrap">
     <div>
-      <div class="sign-title">Bên giao (A)</div>
-      <div class="sign-note">Ký và ghi rõ họ tên</div>
-      <div class="sign-name">Nhân viên kho EUP</div>
+      <div class="sign-title">BÊN BÀN GIAO</div>
+      <div class="sign-space"></div>
+      <div>${order.orderer_name || ''}</div>
     </div>
     <div>
-      <div class="sign-title">Bên nhận (B)</div>
-      <div class="sign-note">Ký và ghi rõ họ tên</div>
-      <div class="sign-name">${recipName || '....................................................'}</div>
+      <div class="sign-title">BÊN NHẬN</div>
+      <div class="sign-space"></div>
+      <div>${recipName || ''}</div>
     </div>
   </div>
 
-  <div style="margin-top:16px;font-size:9px;color:#aaa;text-align:center;border-top:1px solid #eee;padding-top:6px">
+  <div style="margin-top:10px;font-size:8px;color:#bbb;text-align:center">
     Biên bản được tạo tự động từ hệ thống EUP Hardware Management · ${dateStr} · ${order.order_code}
   </div>
 </div>
