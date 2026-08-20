@@ -776,7 +776,7 @@ function TabMyOrders({ userEmail, isKho }: { userEmail: string; isKho: boolean }
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50">
                   🏷️ In nhãn
                 </button>
-                <button onClick={() => printHandover(o)}
+                <button onClick={() => { void printHandover(o) }}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-indigo-300 text-indigo-600 hover:bg-indigo-50">
                   📋 Biên bản bàn giao
                 </button>
@@ -1303,7 +1303,7 @@ function printLabel(order: DonHang) {
 }
 
 // ── Biên bản bàn giao A4 (có chữ ký) ─────────────────────────────────────
-function printHandover(order: DonHang) {
+async function printHandover(order: DonHang) {
   const items = order.giao_hang_don_items
   const now = new Date()
   const dateStr  = now.toLocaleDateString('vi-VN')
@@ -1321,11 +1321,60 @@ function printHandover(order: DonHang) {
   const comboItems  = items.filter(i =>  i.combo_name)
   const allRows     = [...mainItems, ...comboItems]
 
+  // ── Tự động lấy SIM/thẻ nhớ serials từ GetCarList nếu chưa có ──────────
+  // Tìm main device items có serials (GPS/MDVR)
+  const mainDeviceItems = mainItems.filter(i =>
+    !isNoImeiAccessory(i.device_name) &&
+    Array.isArray(i.device_serials) && i.device_serials.length > 0
+  )
+  // Tìm combo items thiếu serials (SIM, thẻ nhớ, ổ cứng)
+  const missingAccessories = comboItems.filter(i =>
+    isCrmBarcodedOptional(i.device_name) &&
+    (!i.device_serials || i.device_serials.filter(Boolean).length === 0)
+  )
+
+  // Bản đồ bổ sung: itemId → serials lấy từ GetCarList
+  const extraSerials: Record<string, string[]> = {}
+
+  if (mainDeviceItems.length > 0 && missingAccessories.length > 0) {
+    try {
+      // Gộp tất cả GPS/MDVR barcodes để gọi 1 lần
+      const allBarcodes = mainDeviceItems.flatMap(i => (i.device_serials ?? []).filter(Boolean))
+      if (allBarcodes.length > 0) {
+        const res = await fetch('/api/giao-hang/car-accessories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ barcodes: allBarcodes, stockupKind: '0' }),
+        })
+        if (res.ok) {
+          const data = await res.json() as { ok: boolean; results: Array<{ barcode: string; byKind: Record<number, Array<{ code: string }>> }> }
+          if (data.ok) {
+            // Với mỗi GPS barcode[i], gán SIM byKind[3][i] vào missingAccessory SIM item
+            for (const acc of missingAccessories) {
+              const isSimItem  = /viettel|vinaphone|sim|m2m|3mbipts|data_\d|gps_m2m/.test(acc.device_name.toLowerCase())
+              const isMemItem  = /thẻ nhớ|microsd|sd card|đầu đọc|ổ cứng|hdd|ssd/.test(acc.device_name.toLowerCase())
+              const kind       = isSimItem ? 3 : isMemItem ? 2 : -1
+              if (kind === -1) continue
+
+              const codes: string[] = []
+              for (const r of data.results) {
+                const entries = r.byKind[kind] ?? []
+                if (entries.length > 0) codes.push(entries[0].code)
+              }
+              if (codes.length > 0) extraSerials[acc.id] = codes
+            }
+          }
+        }
+      }
+    } catch { /* in bình thường nếu lỗi */ }
+  }
+
   let stt = 0
   // Mỗi đơn vị (quantity) = 1 dòng riêng — tất cả đều có ô serial để ghi tay
   const rows = allRows.flatMap(item => {
     stt++
-    const serials = (item.device_serials ?? []).filter(Boolean)
+    const savedSerials = (item.device_serials ?? []).filter(Boolean)
+    const serials = savedSerials.length > 0 ? savedSerials : (extraSerials[item.id] ?? [])
     const qty     = item.quantity
     const nameCell = `${item.device_name}${item.combo_name ? `<br><span style="font-size:10px;color:#888">[${item.combo_name}]</span>` : ''}`
 
@@ -1816,7 +1865,7 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                           className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-all">
                           🏷️ In nhãn
                         </button>
-                        <button onClick={() => printHandover(o)}
+                        <button onClick={() => { void printHandover(o) }}
                           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium border-2 border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 transition-all">
                           📋 Biên bản bàn giao
                         </button>
@@ -1834,7 +1883,7 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                         className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50">
                         🏷️ In nhãn
                       </button>
-                      <button onClick={() => printHandover(o)}
+                      <button onClick={() => { void printHandover(o) }}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-indigo-300 text-indigo-600 hover:bg-indigo-50">
                         📋 Biên bản bàn giao
                       </button>
