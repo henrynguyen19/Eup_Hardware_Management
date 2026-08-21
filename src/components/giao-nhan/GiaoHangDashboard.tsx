@@ -1739,45 +1739,55 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
         <div className="text-center py-8 text-gray-400">Không có đơn hàng</div>
       ) : (
         <div className="space-y-2">
-          {orders.map(o => (
-            <div key={o.id} className={`bg-white border border-gray-200 rounded-xl overflow-hidden ${STATUS_BORDER_STYLE[o.status] ?? ''}`}>
-              <button className="w-full grid grid-cols-[auto_1fr_1fr_1fr_auto_auto] items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50"
-                onClick={() => setExpanded(expanded === o.id ? null : o.id)}>
-                {/* Mã đơn */}
-                <div className="font-mono text-sm font-semibold text-indigo-700 whitespace-nowrap">{o.order_code}</div>
-                {/* Người đặt + VP */}
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-gray-800 truncate">{o.orderer_name || o.orderer_email}</div>
-                  <div className="text-xs text-gray-400 truncate">{o.office}</div>
+          {orders.map(o => {
+            const recipParts = (o.recipient_info ?? '').split('—').map(s => s.trim())
+            const recipName  = recipParts[1] ?? ''
+            const recipOffice = recipParts[0] ?? o.office
+            const khoNhan = recipName || recipOffice
+            const comboNames = [...new Set(o.giao_hang_don_items.filter(i => i.combo_name).map(i => i.combo_name!))]
+            const standalone  = o.giao_hang_don_items.filter(i => !i.combo_name)
+            const totalQty    = o.giao_hang_don_items.reduce((s, i) => s + i.quantity, 0)
+            return (
+            <div key={o.id} className={`bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm ${STATUS_BORDER_STYLE[o.status] ?? ''}`}>
+              {/* Card header — click mở chi tiết inline (hoặc dùng nút ↗ để mở tab mới) */}
+              <div className="px-4 py-3">
+                {/* Row 1: mã đơn + status + nút mở */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="font-mono text-sm font-bold text-indigo-700">{o.order_code}</span>
+                  <StatusBadge status={o.status} />
+                  <span className="text-xs text-gray-400 ml-1">{o.orderer_name || o.orderer_email} · {new Date(o.created_at).toLocaleDateString('vi-VN')}</span>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    {o.expected_ship_date && <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">🚚 {o.expected_ship_date}</span>}
+                    <a href={`/giao-nhan/don/${o.id}`} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition-colors"
+                      title="Mở chi tiết đơn trong tab mới">
+                      ↗ Mở
+                    </a>
+                    <button onClick={() => setExpanded(expanded === o.id ? null : o.id)}
+                      className="px-2 py-1 rounded-lg text-xs text-gray-400 hover:bg-gray-100 transition-colors">
+                      {expanded === o.id ? '▲' : '▼'}
+                    </button>
+                  </div>
                 </div>
-                {/* Ngày tạo + ngày gửi */}
-                <div className="min-w-0">
-                  <div className="text-xs text-gray-500 whitespace-nowrap">📅 {new Date(o.created_at).toLocaleDateString('vi-VN')}</div>
-                  {o.expected_ship_date && <div className="text-xs text-amber-600 whitespace-nowrap">🚚 {o.expected_ship_date}</div>}
+                {/* Row 2: device types nổi bật + kho nhận */}
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 flex flex-wrap gap-1.5 min-w-0">
+                    {comboNames.map(cn => (
+                      <span key={cn} className="text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg px-2 py-0.5 truncate max-w-[180px]">📦 {cn}</span>
+                    ))}
+                    {standalone.length > 0 && (
+                      <span className="text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200 rounded-lg px-2 py-0.5">
+                        {standalone.map(i => i.device_name).join(', ')} ×{standalone.reduce((s,i)=>s+i.quantity,0)}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-gray-400 self-center">({totalQty} thiết bị)</span>
+                  </div>
+                  {/* Kho nhận — nổi bật */}
+                  <div className="shrink-0 text-right">
+                    <div className="text-xs font-semibold text-gray-700 bg-green-50 border border-green-200 rounded-lg px-2 py-0.5">📍 {khoNhan}</div>
+                  </div>
                 </div>
-                {/* Nội dung đơn — tóm tắt */}
-                <div className="min-w-0">
-                  {(() => {
-                    const comboNames = [...new Set(o.giao_hang_don_items.filter(i => i.combo_name).map(i => i.combo_name!))]
-                    const standalone = o.giao_hang_don_items.filter(i => !i.combo_name)
-                    return (
-                      <div className="flex flex-wrap gap-1">
-                        {comboNames.map(cn => (
-                          <span key={cn} className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5 truncate max-w-[120px]">📦 {cn}</span>
-                        ))}
-                        {standalone.length > 0 && (
-                          <span className="text-[10px] bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{standalone.reduce((s,i)=>s+i.quantity,0)} thiết bị lẻ</span>
-                        )}
-                      </div>
-                    )
-                  })()}
-                  {o.recipient_info && <div className="text-[10px] text-gray-400 mt-0.5 truncate">👤 {o.recipient_info.split('—')[0].trim()}</div>}
-                </div>
-                {/* Status badge */}
-                <StatusBadge status={o.status} />
-                {/* Expand */}
-                <span className="text-gray-400 text-xs">{expanded === o.id ? '▲' : '▼'}</span>
-              </button>
+              </div>
               {expanded === o.id && (
                 <div className="border-t p-3 space-y-2">
                   {(() => {
@@ -1896,7 +1906,8 @@ function TabAllOrders({ isKho }: { isKho: boolean }) {
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
