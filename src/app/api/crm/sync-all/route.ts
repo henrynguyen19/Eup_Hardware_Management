@@ -160,8 +160,7 @@ export async function POST(req: NextRequest) {
       const key            = `crm:${t.CS_ID}`
       const crmUpdateTime  = parseCRMTime(t.CS_UpdateTime)
       const existing       = existMap.get(key)
-      const handler        = extractHandlerFromMemo(t.CS_Memo ?? '')
-      if (!handler) { skippedCount++; continue }
+      const handler        = extractHandlerFromMemo(t.CS_Memo ?? '') ?? 'Unknown'
 
       if (existing) {
         const dbMs  = existing.cs_update_time ? new Date(existing.cs_update_time).getTime() : 0

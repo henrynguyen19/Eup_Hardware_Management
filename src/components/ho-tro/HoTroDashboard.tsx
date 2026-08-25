@@ -1935,6 +1935,61 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               for (const [k,v] of Object.entries(d.byChannel))  byChTotal[k]     = (byChTotal[k]??0)+v
             }
 
+            // ── Monthly trend data với MoM % change ──────────────────────────
+            const monthMap = new Map<string, { label: string; total: number }>()
+            for (const d of days) {
+              const mk = d.sortKey.slice(0, 7)
+              const [, mm] = mk.split('-')
+              const label = `T${parseInt(mm)}/${d.sortKey.slice(2, 4)}`
+              if (!monthMap.has(mk)) monthMap.set(mk, { label, total: 0 })
+              monthMap.get(mk)!.total += d.total
+            }
+            const monthTrendData = Array.from(monthMap.entries())
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([, v], i, arr) => {
+                const prev = i > 0 ? arr[i - 1][1].total : null
+                const pct  = prev ? +((v.total - prev) / prev * 100).toFixed(1) : null
+                return { label: v.label, total: v.total, pct, pctLabel: pct === null ? '' : pct >= 0 ? `+${pct}%` : `${pct}%` }
+              })
+
+            // ── Weekly error type trend (key errors) ──────────────────────────
+            const KEY_ERRORS = ['No Connect', 'RFID', 'ACC', 'PW', 'Support', 'GPS', 'GSM']
+            const weekErrMap = new Map<string, Record<string, number> & { weekLabel: string }>()
+            for (const d of days) {
+              const wk = getISOWeekKey(d.sortKey)
+              const wNum = wk.split('-W')[1]
+              if (!weekErrMap.has(wk)) weekErrMap.set(wk, { weekLabel: `W${wNum}` } as Record<string, number> & { weekLabel: string })
+              const row = weekErrMap.get(wk)!
+              for (const e of KEY_ERRORS) {
+                (row as Record<string, number>)[e] = ((row as Record<string, number>)[e] ?? 0) + (d.byError[e] ?? 0)
+              }
+            }
+            const weekErrData = Array.from(weekErrMap.entries())
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([, v]) => v)
+
+            // ── Error × Device matrix ─────────────────────────────────────────
+            const errDevMatrix: Record<string, Record<string, number>> = {}
+            for (const tk of statsTickets) {
+              const memo = (tk.reply ?? '') as string
+              const errors = parseMemoErrors(memo)
+              const device = parseMemoDevice(memo)
+              if (!device || errors.length === 0) continue
+              for (const e of errors) {
+                if (!errDevMatrix[e]) errDevMatrix[e] = {}
+                errDevMatrix[e][device] = (errDevMatrix[e][device] ?? 0) + 1
+              }
+            }
+            // Lấy top devices xuất hiện trong ma trận
+            const matrixDevices = Array.from(
+              new Set(Object.values(errDevMatrix).flatMap(m => Object.keys(m)))
+            ).slice(0, 6)
+
+            const ERR_COLORS: Record<string, string> = {
+              'No Connect': '#ef4444', 'RFID': '#8b5cf6', 'ACC': '#f59e0b',
+              'PW': '#f97316', 'Support': '#3b82f6', 'GPS': '#10b981', 'GSM': '#06b6d4',
+            }
+
             const activeStaffCount = Object.keys(byStaffTotal).length
             const periodLabel = periodMode === 'ngay'
               ? `Ngày ${selectedDay.split('-').reverse().join('/')}`
@@ -2178,6 +2233,121 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     ) : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagError}</p>}
                   </div>
                 </div>
+
+                {/* Row 3 — Monthly trend + Error trend */}
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+
+                  {/* Chart A: Monthly trend với MoM % change */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Xu hướng tổng yêu cầu theo tháng</p>
+                    <p className="text-xs text-gray-400 mb-2">Cột = tổng YC · nhãn = tăng/giảm so với tháng trước</p>
+                    {monthTrendData.length >= 2 ? (
+                      <ResponsiveContainer width="100%" height={200}>
+                        <ComposedChart data={monthTrendData} margin={{ top: 20, right: 16, bottom: 0, left: -10 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                          <YAxis yAxisId="left" tick={{ fontSize: 9 }} />
+                          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9 }} unit="%" hide />
+                          <Tooltip
+                            formatter={(v: number, name: string) =>
+                              name === 'total' ? [`${v} yêu cầu`, 'Tổng YC'] : [`${v}%`, 'So tháng trước']
+                            }
+                          />
+                          <Legend wrapperStyle={{ fontSize: 9 }} formatter={(v) => v === 'total' ? 'Tổng YC' : 'So tháng trước (%)'} />
+                          <Bar yAxisId="left" dataKey="total" fill="#60a5fa" radius={[4, 4, 0, 0]} name="total">
+                            {monthTrendData.map((entry, i) => (
+                              <Cell key={i} fill={
+                                entry.pct === null ? '#60a5fa'
+                                : entry.pct > 0 ? '#34d399'
+                                : entry.pct < 0 ? '#f87171'
+                                : '#60a5fa'
+                              } />
+                            ))}
+                          </Bar>
+                          <Line yAxisId="right" type="monotone" dataKey="pct" stroke="#f59e0b"
+                            strokeWidth={2} dot={{ r: 4, fill: '#f59e0b' }}
+                            name="pct"
+                            label={{ position: 'top', fontSize: 10, fontWeight: 600, fill: '#92400e',
+                              formatter: (v: number | null) => v === null ? '' : v >= 0 ? `+${v}%` : `${v}%` }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-xs text-gray-400 text-center py-16">Cần ít nhất 2 tháng dữ liệu để so sánh</p>
+                    )}
+                  </div>
+
+                  {/* Chart B: Error type trend theo tuần */}
+                  <div className={C8}>
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Xu hướng lỗi nổi bật theo tuần</p>
+                    <p className="text-xs text-gray-400 mb-2">Theo dõi sự bất thường của từng loại lỗi qua từng tuần</p>
+                    {weekErrData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={200}>
+                        <LineChart data={weekErrData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="weekLabel" tick={{ fontSize: 9 }} />
+                          <YAxis tick={{ fontSize: 9 }} />
+                          <Tooltip />
+                          <Legend wrapperStyle={{ fontSize: 9 }} />
+                          {KEY_ERRORS.filter(e => Object.keys(byErrorTotal).includes(e)).map(e => (
+                            <Line key={e} type="monotone" dataKey={e}
+                              stroke={ERR_COLORS[e] ?? '#6b7280'}
+                              strokeWidth={2} dot={{ r: 3 }}
+                              connectNulls />
+                          ))}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-xs text-gray-400 text-center py-16">Chưa có dữ liệu lỗi (#nc, #rfid, #acc...)</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Row 4 — Error × Device matrix */}
+                {Object.keys(errDevMatrix).length > 0 && matrixDevices.length > 0 && (
+                  <div className={`${C8} mb-4`}>
+                    <p className="text-xs font-semibold text-gray-600 mb-1">Phân bổ lỗi theo thiết bị</p>
+                    <p className="text-xs text-gray-400 mb-3">Số yêu cầu theo từng loại lỗi × thiết bị — phát hiện bất thường sớm</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr>
+                            <th className="text-left py-2 px-3 bg-gray-50 border border-gray-200 font-semibold text-gray-600 w-28">Lỗi \ Thiết bị</th>
+                            {matrixDevices.map(dev => (
+                              <th key={dev} className="py-2 px-3 bg-gray-50 border border-gray-200 font-semibold text-gray-600 text-center whitespace-nowrap">{dev}</th>
+                            ))}
+                            <th className="py-2 px-3 bg-gray-50 border border-gray-200 font-semibold text-gray-700 text-center">Tổng</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {KEY_ERRORS.filter(e => errDevMatrix[e]).map(errType => {
+                            const devMap = errDevMatrix[errType] ?? {}
+                            const rowTotal = Object.values(devMap).reduce((s, v) => s + v, 0)
+                            const maxVal   = Math.max(...matrixDevices.map(d => devMap[d] ?? 0), 1)
+                            return (
+                              <tr key={errType} className="hover:bg-gray-50">
+                                <td className="py-2 px-3 border border-gray-200 font-semibold whitespace-nowrap" style={{ color: ERR_COLORS[errType] ?? '#374151' }}>
+                                  {errType}
+                                </td>
+                                {matrixDevices.map(dev => {
+                                  const val = devMap[dev] ?? 0
+                                  const intensity = maxVal > 0 ? val / maxVal : 0
+                                  const bg = val === 0 ? '' : `rgba(${errType === 'No Connect' ? '239,68,68' : errType === 'RFID' ? '139,92,246' : errType === 'ACC' ? '245,158,11' : '59,130,246'},${0.08 + intensity * 0.42})`
+                                  return (
+                                    <td key={dev} className="py-2 px-3 border border-gray-200 text-center font-medium"
+                                      style={{ background: bg, color: val > 0 ? '#111' : '#d1d5db' }}>
+                                      {val > 0 ? val : '—'}
+                                    </td>
+                                  )
+                                })}
+                                <td className="py-2 px-3 border border-gray-200 text-center font-bold text-gray-700">{rowTotal}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
                 {/* Daily table */}
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
