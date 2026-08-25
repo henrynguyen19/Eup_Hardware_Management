@@ -11,7 +11,6 @@
 
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient }                     from '@supabase/supabase-js'
-import Anthropic                            from '@anthropic-ai/sdk'
 import { sendText, sendButtons, sendGroupText, verifyZaloSignature, type ZaloEvent } from '@/lib/zalo-api'
 
 // Vercel: giữ function sống sau khi response đã trả về
@@ -277,22 +276,30 @@ async function getAIAnswer(question: string): Promise<string> {
   }
 
   try {
-    const client   = new Anthropic({ apiKey })
-    const response = await client.messages.create({
-      model:      'claude-haiku-4-5-20251001',
-      max_tokens: 400,
-      system:
-        'Bạn là trợ lý kỹ thuật của EUP Hardware — công ty chuyên cung cấp và lắp đặt thiết bị GPS, ' +
-        'MDVR (camera hành trình), và phụ kiện cho xe tải/xe khách tại Việt Nam. ' +
-        'Trả lời ngắn gọn, thực tế, bằng tiếng Việt. ' +
-        'Nếu không biết, hãy đề nghị khách tạo ticket hỗ trợ kỹ thuật.',
-      messages: [{ role: 'user', content: question }],
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':      'application/json',
+        'x-api-key':         apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        system:
+          'Bạn là trợ lý kỹ thuật của EUP Hardware — công ty chuyên cung cấp và lắp đặt thiết bị GPS, ' +
+          'MDVR (camera hành trình), và phụ kiện cho xe tải/xe khách tại Việt Nam. ' +
+          'Trả lời ngắn gọn, thực tế, bằng tiếng Việt. ' +
+          'Nếu không biết, hãy đề nghị khách tạo ticket hỗ trợ kỹ thuật.',
+        messages: [{ role: 'user', content: question }],
+      }),
+      signal: AbortSignal.timeout(15_000),
     })
 
-    const content = response.content[0]
-    if (content.type === 'text') return content.text
-
-    return 'Xin lỗi, tôi không thể trả lời lúc này. Vui lòng nhắn "hỗ trợ" để tạo ticket.'
+    const json = await res.json() as { content?: { type: string; text: string }[]; error?: { message: string } }
+    if (json.error) throw new Error(json.error.message)
+    const text = json.content?.find(c => c.type === 'text')?.text
+    return text ?? 'Xin lỗi, tôi không thể trả lời lúc này. Vui lòng nhắn "hỗ trợ" để tạo ticket.'
   } catch (e) {
     console.error('[zalo-webhook] AI error:', e)
     return 'Xin lỗi, có lỗi xảy ra. Vui lòng thử lại sau hoặc nhắn "hỗ trợ" để tạo ticket.'
