@@ -1,5 +1,9 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import {
+  LineChart, Line, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts'
 
 type Lang = 'vi' | 'en'
 function useLang() {
@@ -61,6 +65,24 @@ interface HashtagEntry {
   statuses: Record<string, number>
   topProducts: { product_name: string; count: number }[]
 }
+interface HashtagData {
+  tags: HashtagEntry[]
+  totalWithNotes: number
+  topTags: string[]
+  topDevices: string[]
+  weeklyTrends: Record<string, string | number>[]
+  monthlyTrends: Record<string, string | number>[]
+  weeklyDeviceTrends: Record<string, string | number>[]
+  monthlyDeviceTrends: Record<string, string | number>[]
+}
+
+const TAG_PALETTE = [
+  '#6366f1','#f59e0b','#10b981','#ef4444','#3b82f6',
+  '#8b5cf6','#06b6d4','#f97316','#84cc16','#ec4899',
+]
+const DEV_PALETTE = [
+  '#0ea5e9','#f43f5e','#a3e635','#fb923c','#818cf8','#34d399',
+]
 interface StatusCounts { cho_gui: number; da_gui: number; da_sua_xong: number; old_device: number; scrap: number; supplier: number }
 
 const STATUS_LABEL_VI: Record<RepairStatus, string> = { cho_gui:'Chờ gửi sửa', da_gui:'Đã gửi sửa', da_sua_xong:'Đã sửa xong' }
@@ -872,10 +894,13 @@ function RepairRow({ item, onAction, onSynced, t }: { item:RepairItem; onAction:
   )
 }
 
+type TrendView = 'cloud' | 'weekly_tag' | 'monthly_tag' | 'weekly_device' | 'monthly_device'
+
 function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void }) {
-  const [data, setData]         = useState<{ tags: HashtagEntry[]; totalWithNotes: number }|null>(null)
+  const [data, setData]         = useState<HashtagData|null>(null)
   const [loading, setLoading]   = useState(true)
   const [selected, setSelected] = useState<string|null>(null)
+  const [view, setView]         = useState<TrendView>('cloud')
 
   useEffect(() => {
     fetch('/api/repair-tracking/hashtags').then(r=>r.json()).then(d=>{setData(d);setLoading(false)}).catch(()=>setLoading(false))
@@ -893,69 +918,145 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
   const maxCount = data.tags[0]?.count ?? 1
   const selectedEntry = selected ? data.tags.find(x=>x.tag===selected) : null
 
+  const VIEWS: { key: TrendView; label: string }[] = [
+    { key: 'cloud',          label: t('Tổng quan','Overview') },
+    { key: 'weekly_tag',     label: t('Tuần / Lỗi','Week / Tag') },
+    { key: 'monthly_tag',    label: t('Tháng / Lỗi','Month / Tag') },
+    { key: 'weekly_device',  label: t('Tuần / TB','Week / Device') },
+    { key: 'monthly_device', label: t('Tháng / TB','Month / Device') },
+  ]
+
+  const trendData = view === 'weekly_tag'     ? data.weeklyTrends
+                  : view === 'monthly_tag'    ? data.monthlyTrends
+                  : view === 'weekly_device'  ? data.weeklyDeviceTrends
+                  : view === 'monthly_device' ? data.monthlyDeviceTrends
+                  : null
+
+  const trendKeys  = (view === 'weekly_device' || view === 'monthly_device')
+    ? data.topDevices : data.topTags
+  const palette    = (view === 'weekly_device' || view === 'monthly_device')
+    ? DEV_PALETTE : TAG_PALETTE
+
+  // Format X-axis label: "2026-W35" → "W35", "2026-08" → "T8"
+  const fmtPeriod = (p: string) => {
+    if (/W\d+$/.test(p)) return p.split('-')[1]          // W35
+    const [, m] = p.split('-')
+    return `T${parseInt(m)}`                              // T8
+  }
+
   return (
     <div className="space-y-4">
+      {/* Header + view tabs */}
       <div className="bg-white border border-indigo-200 rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-700">🏷 {t('Phân tích lỗi theo hashtag','Error Analysis by Hashtag')}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {data.tags.length} {t('loại lỗi','error types')} · {data.totalWithNotes.toLocaleString()} {t('thiết bị có ghi chú','records with notes')}
-          </p>
-        </div>
-        <div className="p-5">
-          <div className="flex flex-wrap gap-2">
-            {data.tags.map(entry => {
-              const size = 0.75 + (entry.count / maxCount) * 0.5
-              const isActive = selected === entry.tag
-              return (
-                <button key={entry.tag} onClick={() => { setSelected(isActive ? null : entry.tag) }}
-                  style={{ fontSize: `${size}rem` }}
-                  className={`px-2 py-0.5 rounded-lg border transition-all ${isActive?'bg-indigo-600 text-white border-indigo-600 shadow-md':'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
-                  #{entry.tag}<span className="ml-1 text-xs opacity-70">{entry.count}</span>
-                </button>
-              )
-            })}
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">🏷 {t('Phân tích lỗi theo hashtag','Error Analysis by Hashtag')}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {data.tags.length} {t('loại lỗi','error types')} · {data.totalWithNotes.toLocaleString()} {t('thiết bị có ghi chú','records with notes')}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {VIEWS.map(v => (
+              <button key={v.key} onClick={() => { setView(v.key); setSelected(null) }}
+                className={`text-xs px-3 py-1 rounded-lg border transition-all ${view===v.key?'bg-indigo-600 text-white border-indigo-600':'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}>
+                {v.label}
+              </button>
+            ))}
           </div>
         </div>
-        {selectedEntry && (
-          <div className="border-t border-gray-100 bg-indigo-50 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <span className="text-sm font-bold text-indigo-800">#{selectedEntry.tag}</span>
-                <span className="text-xs text-indigo-600 ml-2">{selectedEntry.count} {t('lần','occurrences')} · {selectedEntry.deviceCount} {t('thiết bị','devices')}</span>
-              </div>
-              <button onClick={() => { onFilterByTag(selectedEntry.tag); setSelected(null) }}
-                className="text-xs px-3 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
-                🔍 {t('Lọc danh sách','Filter list')}
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs font-medium text-gray-600 mb-2">{t('Thiết bị hay gặp','Devices most affected')}</p>
-                <div className="space-y-1">
-                  {selectedEntry.topProducts.map(p=>(
-                    <div key={p.product_name} className="flex justify-between text-xs">
-                      <span className="text-gray-700 truncate">{p.product_name}</span>
-                      <span className="text-indigo-600 font-medium ml-2">{p.count}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-gray-600 mb-2">{t('Trạng thái sửa chữa','Repair Status')}</p>
-                <div className="space-y-1">
-                  {Object.entries(selectedEntry.statuses).map(([s, cnt])=>(
-                    <div key={s} className="flex justify-between text-xs">
-                      <span className="text-gray-700">{STATUS_LABEL_VI[s as RepairStatus] ?? s}</span>
-                      <span className="text-gray-600 font-medium">{cnt}</span>
-                    </div>
-                  ))}
-                </div>
+
+        {/* Tag cloud view */}
+        {view === 'cloud' && (
+          <>
+            <div className="p-5">
+              <div className="flex flex-wrap gap-2">
+                {data.tags.map(entry => {
+                  const size = 0.75 + (entry.count / maxCount) * 0.5
+                  const isActive = selected === entry.tag
+                  return (
+                    <button key={entry.tag} onClick={() => { setSelected(isActive ? null : entry.tag) }}
+                      style={{ fontSize: `${size}rem` }}
+                      className={`px-2 py-0.5 rounded-lg border transition-all ${isActive?'bg-indigo-600 text-white border-indigo-600 shadow-md':'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
+                      #{entry.tag}<span className="ml-1 text-xs opacity-70">{entry.count}</span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
+            {selectedEntry && (
+              <div className="border-t border-gray-100 bg-indigo-50 p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <span className="text-sm font-bold text-indigo-800">#{selectedEntry.tag}</span>
+                    <span className="text-xs text-indigo-600 ml-2">{selectedEntry.count} {t('lần','occurrences')} · {selectedEntry.deviceCount} {t('thiết bị','devices')}</span>
+                  </div>
+                  <button onClick={() => { onFilterByTag(selectedEntry.tag); setSelected(null) }}
+                    className="text-xs px-3 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                    🔍 {t('Lọc danh sách','Filter list')}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-600 mb-2">{t('Thiết bị hay gặp','Devices most affected')}</p>
+                    <div className="space-y-1">
+                      {selectedEntry.topProducts.map(p=>(
+                        <div key={p.product_name} className="flex justify-between text-xs">
+                          <span className="text-gray-700 truncate">{p.product_name}</span>
+                          <span className="text-indigo-600 font-medium ml-2">{p.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-600 mb-2">{t('Trạng thái sửa chữa','Repair Status')}</p>
+                    <div className="space-y-1">
+                      {Object.entries(selectedEntry.statuses).map(([s, cnt])=>(
+                        <div key={s} className="flex justify-between text-xs">
+                          <span className="text-gray-700">{STATUS_LABEL_VI[s as RepairStatus] ?? s}</span>
+                          <span className="text-gray-600 font-medium">{cnt}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Trend chart views */}
+        {trendData && trendData.length > 0 && (
+          <div className="p-5">
+            <p className="text-xs text-gray-400 mb-3">
+              {view.startsWith('weekly') ? t('Số lỗi theo tuần','Error count by week') : t('Số lỗi theo tháng','Error count by month')}
+              {' — '}
+              {view.endsWith('tag') ? t('phân theo loại lỗi','broken down by tag') : t('phân theo thiết bị','broken down by device')}
+            </p>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={trendData} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="period" tickFormatter={fmtPeriod} tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <Tooltip
+                  formatter={(val: number, name: string) => [val, `#${name}`]}
+                  labelFormatter={(l: string) => view.startsWith('weekly') ? `Tuần ${l}` : `Tháng ${l}`}
+                />
+                <Legend formatter={(v: string) => `#${v}`} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                {trendKeys.map((key, i) => (
+                  <Line key={key} type="monotone" dataKey={key}
+                    stroke={palette[i % palette.length]}
+                    dot={false} strokeWidth={2} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         )}
+        {trendData && trendData.length === 0 && (
+          <div className="p-5 text-center text-sm text-gray-400">{t('Chưa có dữ liệu xu hướng','No trend data yet')}</div>
+        )}
       </div>
+
+      {/* Top 10 bar chart (always shown) */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5">
         <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">{t('Top 10 lỗi phổ biến','Top 10 Common Errors')}</h4>
         <div className="space-y-2">
@@ -971,6 +1072,27 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
           ))}
         </div>
       </div>
+
+      {/* Monthly bar chart for top devices */}
+      {data.monthlyDeviceTrends.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <h4 className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">{t('Lỗi theo thiết bị từng tháng','Errors by Device per Month')}</h4>
+          <p className="text-xs text-gray-400 mb-3">{t('Top 6 thiết bị hay gặp lỗi nhất','Top 6 most error-prone devices')}</p>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={data.monthlyDeviceTrends} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="period" tickFormatter={fmtPeriod} tick={{ fontSize: 11 }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <Tooltip labelFormatter={(l: string) => `Tháng ${l}`} />
+              <Legend iconType="square" wrapperStyle={{ fontSize: 11 }} />
+              {data.topDevices.map((dev, i) => (
+                <Bar key={dev} dataKey={dev} stackId="a"
+                  fill={DEV_PALETTE[i % DEV_PALETTE.length]} />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   )
 }
