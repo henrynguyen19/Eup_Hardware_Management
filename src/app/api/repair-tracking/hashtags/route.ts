@@ -220,6 +220,31 @@ export async function GET() {
       return row
     })
 
+  // ── Serialize device×tag weekly/monthly breakdown ────────────────────────
+  // deviceWeeklyTagTrends[deviceName] = [{ period, tag1: n, tag2: n, ... }]
+  const deviceWeeklyTagTrends: Record<string, Array<Record<string, string | number>>> = {}
+  const deviceMonthlyTagTrends: Record<string, Array<Record<string, string | number>>> = {}
+
+  for (const dev of topDevices) {
+    const wSeries: Array<Record<string, string | number>> = []
+    for (const [weekKey, devMap] of Array.from(weekDeviceMap.entries()).sort(([a],[b]) => a.localeCompare(b))) {
+      const tagCounts = devMap.get(dev)
+      const row: Record<string, string | number> = { period: weekKey }
+      for (const tag of topTags) row[tag] = tagCounts?.get(tag) ?? 0
+      wSeries.push(row)
+    }
+    deviceWeeklyTagTrends[dev] = wSeries
+
+    const mSeries: Array<Record<string, string | number>> = []
+    for (const [monthKey, devMap] of Array.from(monthDeviceMap.entries()).sort(([a],[b]) => a.localeCompare(b))) {
+      const tagCounts = devMap.get(dev)
+      const row: Record<string, string | number> = { period: monthKey }
+      for (const tag of topTags) row[tag] = tagCounts?.get(tag) ?? 0
+      mSeries.push(row)
+    }
+    deviceMonthlyTagTrends[dev] = mSeries
+  }
+
   return NextResponse.json({
     tags,
     totalWithNotes: items.length,
@@ -229,5 +254,7 @@ export async function GET() {
     monthlyTrends,
     weeklyDeviceTrends,
     monthlyDeviceTrends,
+    deviceWeeklyTagTrends,
+    deviceMonthlyTagTrends,
   })
 }

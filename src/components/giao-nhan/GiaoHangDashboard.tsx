@@ -2658,6 +2658,8 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
   const [assignments, setAssignments] = useState<Record<string, string[]>>({})
   // barcode → carUnicode (để gọi GetCarList khi assign main device)
   const [barcodeUnicodeMap, setBarcodeUnicodeMap] = useState<Record<string, string>>({})
+  // barcode → updateTime (để nhóm theo lô thời gian)
+  const [barcodeTimeMap, setBarcodeTimeMap] = useState<Record<string, string>>({})
   // trạng thái auto-fill accessories
   const [autoFilling, setAutoFilling] = useState<string | null>(null) // barcode đang xử lý
 
@@ -2691,15 +2693,16 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
 
   async function doLoad() {
     if (!whId) { setError('Chọn kho trước'); return }
-    setLoading(true); setError(null); setCrmProducts([]); setAssignments({}); setFocusedItemId(null); setBarcodeUnicodeMap({})
+    setLoading(true); setError(null); setCrmProducts([]); setAssignments({}); setFocusedItemId(null); setBarcodeUnicodeMap({}); setBarcodeTimeMap({})
     try {
       const r = await fetch(`/api/giao-hang/warehouse-queue?whc_id=${whcId}&wh_id=${whId}`)
       const d = await r.json()
       if (!d.ok) { setError(d.error ?? 'Lỗi CRM'); return }
 
-      // Gộp theo productName + lưu barcode→carUnicode map
+      // Gộp theo productName + lưu barcode→carUnicode map + barcode→updateTime map
       const map: Record<string, CrmProduct> = {}
       const unicodeMap: Record<string, string> = {}
+      const timeMap: Record<string, string> = {}
       for (const dev of (d.devices ?? []) as WqDevice[]) {
         const bc = dev.barcode || dev.carUnicode
         if (!bc) continue
@@ -2707,9 +2710,11 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
         if (!map[key]) map[key] = { productName: key, stockupKind: dev.stockupKind, barcodes: [] }
         map[key].barcodes.push(bc)
         if (dev.carUnicode) unicodeMap[bc] = dev.carUnicode
+        if (dev.updateTime) timeMap[bc] = dev.updateTime
       }
       setCrmProducts(Object.values(map).sort((a, b) => a.productName.localeCompare(b.productName)))
       setBarcodeUnicodeMap(unicodeMap)
+      setBarcodeTimeMap(timeMap)
       setLoaded(true)
 
       // Auto-focus item đầu tiên cần assign (bỏ qua dây nguồn/cáp)
@@ -2802,6 +2807,80 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
       if (bcs.includes(bc)) return iid
     }
     return null
+  }
+
+  // ── Nhóm barcodes theo lô thời gian (gap > 4h = nhóm mới) ─────────────────
+  function parseCrmTime(t: string): number {
+    if (!t) return 0
+    // Hỗ trợ "YYYY-MM-DD HH:MM:SS", "DD/MM/YYYY HH:MM:SS", "DD/MM/YYYY HH:MM"
+    const s = t.trim()
+    // Try ISO-like: 4-digit year first
+    const isoM = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/)
+    if (isoM) {
+      return new Date(parseInt(isoM[1]), parseInt(isoM[2])-1, parseInt(isoM[3]),
+                      parseInt(isoM[4]), parseInt(isoM[5])).getTime()
+    }
+    // Try DD/MM/YYYY HH:MM
+    const viM = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[T ](\d{2}):(\d{2})/)
+    if (viM) {
+      return new Date(parseInt(viM[3]), parseInt(viM[2])-1, parseInt(viM[1]),
+                      parseInt(viM[4]), parseInt(viM[5])).getTime()
+    }
+    return 0
+  }
+
+  interface BatchGroup { label: string; earliest: number; barcodes: string[] }
+
+  function groupByTimeBatch(barcodes: string[]): BatchGroup[] {
+    if (!barcodes.length) return []
+    const GAP_MS = 4 * 60 * 60 * 1000  // 4 giờ
+
+    // Barcodes không có thời gian → nhóm riêng cuối
+    const withTime    = barcodes.filter(bc => parseCrmTime(barcodeTimeMap[bc] ?? '') > 0)
+    const withoutTime = barcodes.filter(bc => parseCrmTime(barcodeTimeMap[bc] ?? '') === 0)
+
+    const sorted = [...withTime].sort((a, b) =>
+      parseCrmTime(barcodeTimeMap[a] ?? '') - parseCrmTime(barcodeTimeMap[b] ?? '')
+    )
+
+    const groups: BatchGroup[] = []
+    for (const bc of sorted) {
+      const t = parseCrmTime(barcodeTimeMap[bc] ?? '')
+      const last = groups[groups.length - 1]
+      if (!last || t - last.earliest > GAP_MS) {
+        // tính label từ timestamp đầu tiên trong nhóm
+        const d = new Date(t)
+        const today = new Date(); today.setHours(0,0,0,0)
+        const isToday = d.getTime() >= today.getTime()
+        const label = isToday
+          ? `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+          : `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+        groups.push({ label, earliest: t, barcodes: [bc] })
+      } else {
+        last.barcodes.push(bc)
+      }
+    }
+
+    if (withoutTime.length > 0) {
+      groups.push({ label: '—', earliest: 0, barcodes: withoutTime })
+    }
+    return groups
+  }
+
+  // Chọn tất cả barcodes trong batch vào item đang focus
+  function selectBatch(barcodes: string[]) {
+    if (!focusedItemId) return
+    const focusedItem = order.giao_hang_don_items.find(i => i.id === focusedItemId)
+    if (!focusedItem || isPhysicalOnlyAccessory(focusedItem.device_name)) return
+    const needed = focusedItem.quantity
+    const current = assignments[focusedItemId] ?? []
+    const available = barcodes.filter(bc => !barcodeAssignedTo(bc))
+    const toAdd = available.slice(0, Math.max(0, needed - current.length))
+    if (toAdd.length === 0) return
+    setAssignments(prev => ({
+      ...prev,
+      [focusedItemId]: [...(prev[focusedItemId] ?? []), ...toAdd],
+    }))
   }
 
   // Confirm được khi tất cả thiết bị chính (GPS, camera, MDVR…) đã đủ serial
@@ -2987,7 +3066,7 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
             {filteredCrm.length === 0 && (
               <div className="text-xs text-gray-400 text-center py-4">Không có thiết bị trong kho</div>
             )}
-            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
               {filteredCrm.map(product => {
                 const kindLabel = product.stockupKind === -1 ? 'GPS/Tracker'
                   : product.stockupKind === 0 ? 'Thiết bị'
@@ -2999,43 +3078,99 @@ function InlineWarehouseCheck({ order, onConfirmed }: { order: DonHang; onConfir
                   : product.stockupKind === 3 ? 'bg-pink-100 text-pink-700'
                   : 'bg-gray-100 text-gray-600'
 
+                // Số lượng đang được chọn cho product này (từ item đang focus)
+                const focusedItem = focusedItemId ? order.giao_hang_don_items.find(i => i.id === focusedItemId) : null
+                const myAssigned  = focusedItemId ? (assignments[focusedItemId] ?? []).filter(bc => product.barcodes.includes(bc)) : []
+                const needed      = focusedItem?.quantity ?? 0
+                const totalAssigned = Object.values(assignments).flat().filter(bc => product.barcodes.includes(bc)).length
+                const isMatch     = focusedItemId && myAssigned.length > 0 && myAssigned.length === needed
+
+                const batches = groupByTimeBatch(product.barcodes)
+
                 return (
                   <div key={product.productName} className="bg-white border border-gray-200 rounded-lg p-2">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${kindColor}`}>{kindLabel}</span>
-                      <span className="text-xs font-semibold text-gray-700 flex-1">{product.productName}</span>
-                      <span className="text-[10px] text-gray-400">{product.barcodes.length} cái</span>
+                    {/* Product header */}
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${kindColor}`}>{kindLabel}</span>
+                      <span className="text-xs font-semibold text-gray-700 flex-1 min-w-0 truncate">{product.productName}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Số đã chọn / cần */}
+                        {focusedItemId && myAssigned.length > 0 && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                            isMatch
+                              ? 'bg-green-100 text-green-700 border-green-300'
+                              : myAssigned.length > needed
+                                ? 'bg-red-100 text-red-700 border-red-300'
+                                : 'bg-indigo-100 text-indigo-700 border-indigo-300'
+                          }`}>
+                            {myAssigned.length}/{needed} {isMatch ? '✓' : ''}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-gray-400">{product.barcodes.length - totalAssigned} còn lại</span>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-1">
-                      {product.barcodes.map(bc => {
-                        const assignedTo  = barcodeAssignedTo(bc)
-                        const isAssigned  = !!assignedTo
-                        const isMine      = assignedTo === focusedItemId
-                        const focusedItem = focusedItemId ? order.giao_hang_don_items.find(i => i.id === focusedItemId) : null
-                        const canPick     = !isAssigned && !!focusedItemId && !isPhysicalOnlyAccessory(focusedItem?.device_name ?? '')
-                          && (assignments[focusedItemId ?? '']?.length ?? 0) < (focusedItem?.quantity ?? 0)
 
-                        // Tên item đang chiếm barcode này (hiện tooltip)
-                        const ownerName = isAssigned
-                          ? order.giao_hang_don_items.find(i => i.id === assignedTo)?.device_name ?? ''
-                          : ''
+                    {/* Batch groups */}
+                    <div className="space-y-1.5">
+                      {batches.map((batch, bi) => {
+                        const batchAssignedCount = batch.barcodes.filter(bc => barcodeAssignedTo(bc) === focusedItemId).length
+                        const batchAvailable = batch.barcodes.filter(bc => !barcodeAssignedTo(bc)).length
+                        const canSelectAll = !!focusedItemId && batchAvailable > 0
+                          && !isPhysicalOnlyAccessory(focusedItem?.device_name ?? '')
+                          && (assignments[focusedItemId]?.length ?? 0) < needed
 
                         return (
-                          <button key={bc}
-                            onClick={() => canPick || isMine ? toggleBarcode(bc) : undefined}
-                            disabled={isAssigned && !isMine}
-                            title={isMine ? 'Click để bỏ gán' : isAssigned ? `Đã gán cho: ${ownerName}` : focusedItemId ? 'Click để gán' : 'Chọn thiết bị bên trái trước'}
-                            className={`font-mono rounded px-1.5 py-0.5 border text-[10px] transition-all ${
-                              isMine
-                                ? 'bg-indigo-100 border-indigo-400 text-indigo-800 font-bold cursor-pointer hover:bg-red-50 hover:border-red-300 hover:text-red-700'
-                                : isAssigned
-                                  ? 'bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed line-through'
-                                  : canPick
-                                    ? 'bg-white border-gray-300 text-gray-700 cursor-pointer hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-700'
-                                    : 'bg-white border-gray-200 text-gray-500 cursor-default'
-                            }`}>
-                            {bc}
-                          </button>
+                          <div key={bi} className="border border-gray-100 rounded-md p-1.5">
+                            {/* Batch header */}
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <span className="text-[9px] text-gray-400 font-mono">🕐 {batch.label}</span>
+                              <span className="text-[9px] text-gray-300">{batch.barcodes.length} thiết bị</span>
+                              <div className="flex-1" />
+                              {batchAssignedCount > 0 && (
+                                <span className="text-[9px] text-indigo-600 font-medium">
+                                  đã chọn {batchAssignedCount}
+                                </span>
+                              )}
+                              {canSelectAll && (
+                                <button
+                                  onClick={() => selectBatch(batch.barcodes)}
+                                  className="text-[9px] px-1.5 py-0.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-medium transition-colors">
+                                  Chọn tất cả
+                                </button>
+                              )}
+                            </div>
+                            {/* Barcodes */}
+                            <div className="flex flex-wrap gap-1">
+                              {batch.barcodes.map(bc => {
+                                const assignedTo  = barcodeAssignedTo(bc)
+                                const isAssigned  = !!assignedTo
+                                const isMine      = assignedTo === focusedItemId
+                                const canPick     = !isAssigned && !!focusedItemId
+                                  && !isPhysicalOnlyAccessory(focusedItem?.device_name ?? '')
+                                  && (assignments[focusedItemId ?? '']?.length ?? 0) < needed
+                                const ownerName = isAssigned
+                                  ? order.giao_hang_don_items.find(i => i.id === assignedTo)?.device_name ?? ''
+                                  : ''
+                                return (
+                                  <button key={bc}
+                                    onClick={() => canPick || isMine ? toggleBarcode(bc) : undefined}
+                                    disabled={isAssigned && !isMine}
+                                    title={isMine ? 'Click để bỏ gán' : isAssigned ? `Đã gán cho: ${ownerName}` : focusedItemId ? 'Click để gán' : 'Chọn thiết bị bên trái trước'}
+                                    className={`font-mono rounded px-1.5 py-0.5 border text-[10px] transition-all ${
+                                      isMine
+                                        ? 'bg-indigo-100 border-indigo-400 text-indigo-800 font-bold cursor-pointer hover:bg-red-50 hover:border-red-300 hover:text-red-700'
+                                        : isAssigned
+                                          ? 'bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed line-through'
+                                          : canPick
+                                            ? 'bg-white border-gray-300 text-gray-700 cursor-pointer hover:bg-indigo-50 hover:border-indigo-400 hover:text-indigo-700'
+                                            : 'bg-white border-gray-200 text-gray-500 cursor-default'
+                                    }`}>
+                                    {bc}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
                         )
                       })}
                     </div>

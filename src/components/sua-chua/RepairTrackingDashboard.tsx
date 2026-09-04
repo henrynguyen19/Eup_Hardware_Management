@@ -74,6 +74,8 @@ interface HashtagData {
   monthlyTrends: Record<string, string | number>[]
   weeklyDeviceTrends: Record<string, string | number>[]
   monthlyDeviceTrends: Record<string, string | number>[]
+  deviceWeeklyTagTrends: Record<string, Array<Record<string, string | number>>>
+  deviceMonthlyTagTrends: Record<string, Array<Record<string, string | number>>>
 }
 
 const TAG_PALETTE = [
@@ -894,13 +896,14 @@ function RepairRow({ item, onAction, onSynced, t }: { item:RepairItem; onAction:
   )
 }
 
-type TrendView = 'cloud' | 'weekly_tag' | 'monthly_tag' | 'weekly_device' | 'monthly_device'
+type TrendView = 'cloud' | 'weekly_tag' | 'monthly_tag' | 'weekly_device' | 'monthly_device' | 'device_week' | 'device_month'
 
 function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void }) {
-  const [data, setData]         = useState<HashtagData|null>(null)
-  const [loading, setLoading]   = useState(true)
-  const [selected, setSelected] = useState<string|null>(null)
-  const [view, setView]         = useState<TrendView>('cloud')
+  const [data, setData]           = useState<HashtagData|null>(null)
+  const [loading, setLoading]     = useState(true)
+  const [selected, setSelected]   = useState<string|null>(null)
+  const [view, setView]           = useState<TrendView>('cloud')
+  const [selDevice, setSelDevice] = useState<string>('')
 
   useEffect(() => {
     fetch('/api/repair-tracking/hashtags').then(r=>r.json()).then(d=>{setData(d);setLoading(false)}).catch(()=>setLoading(false))
@@ -920,21 +923,30 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
 
   const VIEWS: { key: TrendView; label: string }[] = [
     { key: 'cloud',          label: t('Tổng quan','Overview') },
-    { key: 'weekly_tag',     label: t('Tuần / Lỗi','Week / Tag') },
-    { key: 'monthly_tag',    label: t('Tháng / Lỗi','Month / Tag') },
-    { key: 'weekly_device',  label: t('Tuần / TB','Week / Device') },
-    { key: 'monthly_device', label: t('Tháng / TB','Month / Device') },
+    { key: 'weekly_tag',     label: t('Tuần / Lỗi','Week / Lỗi') },
+    { key: 'monthly_tag',    label: t('Tháng / Lỗi','Month / Lỗi') },
+    { key: 'device_week',    label: t('TB / Tuần','TB / Tuần') },
+    { key: 'device_month',   label: t('TB / Tháng','TB / Tháng') },
+    { key: 'weekly_device',  label: t('Tổng TB / Tuần','TB tổng / Tuần') },
+    { key: 'monthly_device', label: t('Tổng TB / Tháng','TB tổng / Tháng') },
   ]
+
+  // Device×tag views use a selected device
+  const isDeviceTagView = view === 'device_week' || view === 'device_month'
+  const activeDevice = selDevice || (data.topDevices[0] ?? '')
 
   const trendData = view === 'weekly_tag'     ? data.weeklyTrends
                   : view === 'monthly_tag'    ? data.monthlyTrends
                   : view === 'weekly_device'  ? data.weeklyDeviceTrends
                   : view === 'monthly_device' ? data.monthlyDeviceTrends
+                  : view === 'device_week'    ? (data.deviceWeeklyTagTrends[activeDevice] ?? [])
+                  : view === 'device_month'   ? (data.deviceMonthlyTagTrends[activeDevice] ?? [])
                   : null
 
-  const trendKeys  = (view === 'weekly_device' || view === 'monthly_device')
-    ? data.topDevices : data.topTags
-  const palette    = (view === 'weekly_device' || view === 'monthly_device')
+  const trendKeys = (view === 'weekly_device' || view === 'monthly_device')
+    ? data.topDevices
+    : data.topTags
+  const palette = (view === 'weekly_device' || view === 'monthly_device')
     ? DEV_PALETTE : TAG_PALETTE
 
   // Format X-axis label: "2026-W35" → "W35", "2026-08" → "T8"
@@ -1027,10 +1039,34 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
         {/* Trend chart views */}
         {trendData && trendData.length > 0 && (
           <div className="p-5">
+            {/* Device selector for device×tag views */}
+            {isDeviceTagView && (
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xs text-gray-500">{t('Thiết bị:','Device:')}</span>
+                <div className="flex flex-wrap gap-1">
+                  {data.topDevices.map(dev => (
+                    <button key={dev}
+                      onClick={() => setSelDevice(dev)}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all truncate max-w-[160px] ${
+                        (selDevice || data.topDevices[0]) === dev
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                      }`}>
+                      {dev}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <p className="text-xs text-gray-400 mb-3">
-              {view.startsWith('weekly') ? t('Số lỗi theo tuần','Error count by week') : t('Số lỗi theo tháng','Error count by month')}
-              {' — '}
-              {view.endsWith('tag') ? t('phân theo loại lỗi','broken down by tag') : t('phân theo thiết bị','broken down by device')}
+              {isDeviceTagView
+                ? <><strong className="text-indigo-600">{activeDevice}</strong>{' — '}{view === 'device_week' ? t('lỗi theo tuần','errors by week') : t('lỗi theo tháng','errors by month')}</>
+                : <>
+                    {(view === 'weekly_tag' || view === 'weekly_device') ? t('Theo tuần','By week') : t('Theo tháng','By month')}
+                    {' — '}
+                    {(view === 'weekly_tag' || view === 'monthly_tag') ? t('phân theo loại lỗi','by error tag') : t('phân theo thiết bị','by device')}
+                  </>
+              }
             </p>
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={trendData} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
@@ -1039,7 +1075,7 @@ function HashtagSection({ t, onFilterByTag }: { t:(vi:string,en:string)=>string;
                 <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                 <Tooltip
                   formatter={(val: number, name: string) => [val, `#${name}`]}
-                  labelFormatter={(l: string) => view.startsWith('weekly') ? `Tuần ${l}` : `Tháng ${l}`}
+                  labelFormatter={(l: string) => (view === 'weekly_tag' || view === 'weekly_device' || view === 'device_week') ? `Tuần ${l}` : `Tháng ${l}`}
                 />
                 <Legend formatter={(v: string) => `#${v}`} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
                 {trendKeys.map((key, i) => (
