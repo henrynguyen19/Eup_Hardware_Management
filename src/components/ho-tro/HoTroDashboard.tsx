@@ -1060,9 +1060,11 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   // ── Stats from CRM ──
   const [statsTickets, setStatsTickets] = useState<CRMTicketRow[]>([])
   const [statsLoading, setStatsLoading] = useState(false)
+  const [statsError, setStatsError]     = useState<string | null>(null)
 
   async function fetchStatsData() {
     setStatsLoading(true)
+    setStatsError(null)
     try {
       const dateRange = getTicketDateRange()
 
@@ -1109,8 +1111,9 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       }
 
       setStatsTickets(all)
-    } catch (_e) { /* ignore */ }
-    finally { setStatsLoading(false) }
+    } catch (e) {
+      setStatsError(String(e))
+    } finally { setStatsLoading(false) }
   }
 
   // Helpers
@@ -1678,10 +1681,30 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
 
                 {statsLoading ? (
                   <div className="text-center py-16 text-gray-400">⏳ Đang tải dữ liệu nhóm...</div>
+                ) : statsError ? (
+                  <div className="text-center py-16">
+                    <p className="text-red-500 text-sm font-medium mb-1">⚠️ Lỗi tải dữ liệu</p>
+                    <p className="text-xs text-gray-400 mb-3">{statsError}</p>
+                    <button onClick={fetchStatsData}
+                      className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                      Thử lại
+                    </button>
+                  </div>
                 ) : grandTotal === 0 ? (
                   <div className="text-center py-16 text-gray-400">
-                    Chưa có dữ liệu cho kỳ này
-                    {dateRange && <p className="text-xs mt-1">{dateRange.dateFrom} → {dateRange.dateTo}</p>}
+                    <p className="text-base mb-1">Chưa có dữ liệu cho kỳ này</p>
+                    {dateRange && <p className="text-xs mb-3">{dateRange.dateFrom} → {dateRange.dateTo}</p>}
+                    {periodMode === 'tuan' && (
+                      <div className="flex flex-col items-center gap-2">
+                        <p className="text-xs text-gray-300">Tuần mới bắt đầu hoặc chưa đồng bộ CRM?</p>
+                        <button
+                          onClick={() => { const idx = allWeekKeys.indexOf(selectedWeekKey ?? ''); if (idx > 0) setSelectedWeekKey(allWeekKeys[idx - 1]) }}
+                          disabled={allWeekKeys.indexOf(selectedWeekKey ?? '') <= 0}
+                          className="text-xs px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 disabled:opacity-40">
+                          ‹ Xem tuần trước
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <>
