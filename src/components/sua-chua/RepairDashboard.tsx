@@ -463,7 +463,7 @@ function AnalyticsSection({
                         <Tooltip
                           formatter={(v: unknown) => {
                             const n = Number(v)
-                            return [`${n} (${pctOf(n, faultTotal)})`, 'So luong']
+                            return [`${n} (${pctOf(n, faultTotal)})`, t.suaChua.quantity]
                           }}
                         />
                         <Bar dataKey="qty" fill={stInfo.color} radius={3}
@@ -496,18 +496,18 @@ function AnalyticsSection({
               return hDevices.length > 0 && hFaults.length > 0 ? (
                 <div className="mt-5">
                   <p className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">
-                    Ma trận lỗi theo thiết bị <span className="font-normal text-gray-400">· Fault Matrix by Device</span>
-                    <span className="font-normal normal-case text-gray-400 ml-2">({tabTotal} trường hợp · cases)</span>
+                    {t.suaChua.faultMatrix}
+                    <span className="font-normal normal-case text-gray-400 ml-2">({tabTotal} {t.suaChua.cases})</span>
                   </p>
                   <div className="overflow-x-auto">
                     <table className="text-xs border-collapse w-full">
                       <thead>
                         <tr>
-                          <th className="px-3 py-2 text-left text-gray-500 font-semibold bg-gray-50 sticky left-0 z-10 border border-gray-100 min-w-[80px]">Thiết bị · Device</th>
+                          <th className="px-3 py-2 text-left text-gray-500 font-semibold bg-gray-50 sticky left-0 z-10 border border-gray-100 min-w-[80px]">{t.suaChua.deviceColHeader}</th>
                           {hFaults.map(ft => (
                             <th key={ft} className="px-2 py-2 text-center text-gray-500 font-medium bg-gray-50 border border-gray-100 min-w-[56px] whitespace-nowrap">{ft}</th>
                           ))}
-                          <th className="px-3 py-2 text-right text-gray-600 font-bold bg-gray-50 border border-gray-100">Tổng · Total</th>
+                          <th className="px-3 py-2 text-right text-gray-600 font-bold bg-gray-50 border border-gray-100">{t.suaChua.colTotal}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -535,7 +535,7 @@ function AnalyticsSection({
                           )
                         })}
                         <tr className="bg-gray-50">
-                          <td className="px-3 py-2 font-bold sticky left-0 bg-gray-50 z-10 border border-gray-100 text-gray-600">Tổng · Total</td>
+                          <td className="px-3 py-2 font-bold sticky left-0 bg-gray-50 z-10 border border-gray-100 text-gray-600">{t.suaChua.colTotal}</td>
                           {hFaults.map(ft => {
                             const colTotal = hDevices.reduce((a, dt) => a + cellVal(dt, ft), 0)
                             return <td key={ft} className="px-2 py-2 text-center font-bold border border-gray-100 text-gray-700">{colTotal}</td>
@@ -550,13 +550,55 @@ function AnalyticsSection({
             })()}
           </>
         )}
-        {/* Hỏng hẳn → fault × device matrix */}
+        {/* Hỏng hẳn → bar charts + fault × device matrix */}
         {tab === 'hong_han' && (
           hhTotal === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">{t.suaChua.noBrokenDevices}</p>
           ) : (
-            <div className="overflow-x-auto">
-              <p className="text-xs text-gray-500 mb-3">Tổng <strong className="text-red-600">{hhTotal}</strong> thiết bị hỏng hẳn</p>
+            <div>
+              {/* Bar charts — same layout as other tabs */}
+              <div className={`grid gap-6 mb-5 ${hhDevices.length > 0 ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
+                {hhDevices.length > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">
+                      {t.suaChua.byDeviceType} <span className="font-normal normal-case text-gray-400">({hhTotal} {t.suaChua.cases})</span>
+                    </p>
+                    <ResponsiveContainer width="100%" height={Math.max(180, hhDevices.length * 44)}>
+                      <BarChart data={hhDevices.map(dt => ({ name: dt, qty: hhStats.filter(s => s.device_type === dt).reduce((a,s)=>a+s.quantity,0) }))} layout="vertical" margin={{ top:0, right:60, bottom:0, left:70 }}>
+                        <XAxis type="number" tick={{ fontSize: 13 }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 13 }} width={70} axisLine={false} tickLine={false} />
+                        <Tooltip formatter={(v: unknown) => [`${Number(v)} (${pctOf(Number(v), hhTotal)})`, t.suaChua.quantity]} />
+                        <Bar dataKey="qty" fill="#f87171" radius={3}
+                          label={{ position: 'right', fontSize: 12, fill: '#6b7280', formatter: (v: number) => pctOf(v, hhTotal) }}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                {hhFaults.length > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">
+                      {t.suaChua.byFaultType} <span className="font-normal normal-case text-gray-400">({hhTotal} {t.suaChua.cases})</span>
+                    </p>
+                    <ResponsiveContainer width="100%" height={Math.max(180, hhFaults.length * 44)}>
+                      <BarChart data={hhFaults.map(ft => ({ name: ft, qty: hhStats.filter(s => s.fault_type === ft).reduce((a,s)=>a+s.quantity,0) }))} layout="vertical" margin={{ top:0, right:60, bottom:0, left:90 }}>
+                        <XAxis type="number" tick={{ fontSize: 13 }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 13 }} width={90} axisLine={false} tickLine={false} />
+                        <Tooltip formatter={(v: unknown) => [`${Number(v)} (${pctOf(Number(v), hhTotal)})`, t.suaChua.quantity]} />
+                        <Bar dataKey="qty" fill="#f87171" radius={3}
+                          label={{ position: 'right', fontSize: 12, fill: '#6b7280', formatter: (v: number) => pctOf(v, hhTotal) }}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+              {/* Matrix table */}
+              <p className="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wide">
+                {t.suaChua.faultMatrix}
+                <span className="font-normal normal-case text-gray-400 ml-2">({hhTotal} {t.suaChua.cases})</span>
+              </p>
+              <div className="overflow-x-auto">
               <table className="text-xs border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
@@ -601,6 +643,7 @@ function AnalyticsSection({
                   </tr>
                 </tfoot>
               </table>
+              </div>
             </div>
           )
         )}

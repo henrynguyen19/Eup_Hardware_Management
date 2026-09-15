@@ -240,19 +240,11 @@ export async function POST(req: NextRequest) {
     if (records.length > 0) {
       // records đã được deduped theo device_id (giữ FIRST occurrence) trong callGetDeviceMaintenanceChunked
       const rows = records.map(r => ({
-        device_id:       r.Device_ID,
-        device_code:     (r.Device_Code || '').trim() || null,
-        product_name:    getProductName(r),
-        vendor_name:     r.Device_VendorName || null,
-        imported_date:   getImportedDate(r),    // Device_Date = ngày nhập kho thực tế
-        source_stock:    r.Device_SourceStockName || null,
-        dest_stock:      r.Device_DestStockName || null,
-        transfer_action: r.Device_TransferActionName || null,
-        firmware_ver:    r.Device_FirewareVer || null,
-        hardware_memo:   r.Device_HardwareMemo || null,
-        memo:            r.Device_Memo || null,
-        // crm_raw bị bỏ để giảm payload (48MB+ với tháng lớn → timeout)
-        synced_at:       new Date().toISOString(),
+        device_id:     r.Device_ID,
+        device_code:   (r.Device_Code || '').trim() || null,
+        product_name:  getProductName(r),
+        imported_date: getImportedDate(r),  // Device_Date = ngày nhập kho thực tế
+        synced_at:     new Date().toISOString(),
       }))
       console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} records`)
 
