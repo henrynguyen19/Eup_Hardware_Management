@@ -1485,6 +1485,203 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
 
 
 
+// ─── Report Modal — full-screen clean view for screenshot ─────────────────────
+function ReportModal({ stats, from, to, t, onClose }: {
+  stats: StatsData
+  from: string
+  to: string
+  t: (vi: string, en: string) => string
+  onClose: () => void
+}) {
+  const today = new Date().toLocaleDateString('vi-VN')
+  const dateRange = from && to
+    ? `${new Date(from).toLocaleDateString('vi-VN')} – ${new Date(to).toLocaleDateString('vi-VN')}`
+    : from ? `${t('Từ','From')} ${new Date(from).toLocaleDateString('vi-VN')}`
+    : to   ? `${t('Đến','To')} ${new Date(to).toLocaleDateString('vi-VN')}`
+    : t('Toàn bộ dữ liệu', 'All data')
+
+  const completed = stats.repaired + stats.supplier + stats.noFault + stats.scrap
+  const rate = (n: number) => completed > 0 ? Math.round(n / completed * 100) : 0
+
+  const categories = [
+    { label: t('Đã sửa', 'Repaired'),       count: stats.repaired, rate: rate(stats.repaired), color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
+    { label: t('Gửi bảo hành', 'Warranty'), count: stats.supplier, rate: rate(stats.supplier), color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+    { label: t('Không lỗi', 'No Fault'),    count: stats.noFault,  rate: rate(stats.noFault),  color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
+    { label: t('Báo phế', 'Written Off'),   count: stats.scrap,    rate: rate(stats.scrap),    color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
+  ]
+
+  // Top fault tags combined
+  const allTags = new Map<string, number>()
+  ;(['repaired','warranty','noFault','broken'] as const).forEach(k => {
+    ;(stats.faultTypeByCategory?.[k] ?? []).forEach(({ tag, count }) => {
+      allTags.set(tag, (allTags.get(tag) ?? 0) + count)
+    })
+  })
+  const topTags = Array.from(allTags.entries()).sort((a,b)=>b[1]-a[1]).slice(0,8)
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto py-6">
+      <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl mx-4" id="report-content">
+        {/* Control bar — ẩn khi in */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 print:hidden">
+          <span className="text-xs text-gray-400">{t('Chụp màn hình vùng bên dưới để lấy báo cáo', 'Screenshot the area below for the report')}</span>
+          <div className="flex gap-2">
+            <button onClick={() => window.print()}
+              className="px-3 py-1.5 text-xs bg-gray-800 text-white rounded-lg hover:bg-gray-700">
+              🖨 {t('In', 'Print')}
+            </button>
+            <button onClick={onClose}
+              className="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">
+              ✕ {t('Đóng', 'Close')}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Report body ── */}
+        <div className="p-8 space-y-6">
+
+          {/* Header */}
+          <div className="flex items-start justify-between border-b border-gray-200 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-2xl">🔧</span>
+                <h1 className="text-xl font-bold text-gray-900">
+                  {t('BÁO CÁO SỬA CHỮA THIẾT BỊ', 'DEVICE REPAIR REPORT')}
+                </h1>
+              </div>
+              <p className="text-sm text-gray-500">EUP Hardware — {dateRange}</p>
+            </div>
+            <div className="text-right text-xs text-gray-400">
+              <p>{t('Xuất ngày', 'Generated')}: {today}</p>
+              <p>{t('Tổng tiếp nhận', 'Total received')}: <strong className="text-gray-700">{stats.total}</strong></p>
+              <p>{t('Thiết bị riêng', 'Unique devices')}: <strong className="text-gray-700">{stats.uniqueDevices}</strong></p>
+            </div>
+          </div>
+
+          {/* Summary cards */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+              {t('KẾT QUẢ XỬ LÝ', 'OUTCOME SUMMARY')} — {completed} {t('hoàn thành', 'completed')} / {stats.total} {t('tiếp nhận', 'received')}
+            </p>
+            <div className="grid grid-cols-4 gap-3">
+              {categories.map(c => (
+                <div key={c.label} className="rounded-xl border p-4 text-center"
+                  style={{ background: c.bg, borderColor: c.border }}>
+                  <p className="text-3xl font-bold" style={{ color: c.color }}>{c.count}</p>
+                  <p className="text-xs font-semibold text-gray-600 mt-1">{c.label}</p>
+                  <p className="text-lg font-bold mt-1" style={{ color: c.color }}>{c.rate}%</p>
+                </div>
+              ))}
+            </div>
+            {/* Stacked bar */}
+            <div className="mt-3 h-4 rounded-full overflow-hidden flex gap-px bg-gray-100">
+              {categories.map(c => (
+                <div key={c.label} className="h-full transition-all" title={`${c.label}: ${c.rate}%`}
+                  style={{ width: `${c.rate}%`, background: c.color }} />
+              ))}
+            </div>
+            <div className="flex gap-4 mt-1.5 text-[10px] text-gray-500">
+              {categories.map(c => (
+                <span key={c.label}>
+                  <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: c.color }} />
+                  {c.label} {c.rate}%
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* By product table */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+              {t('THỐNG KÊ THEO LOẠI THIẾT BỊ', 'BY DEVICE TYPE')}
+            </p>
+            <div className="overflow-x-auto rounded-xl border border-gray-100">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-2.5 text-left font-semibold">{t('Loại thiết bị', 'Device Type')}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">{t('Tổng', 'Total')}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold text-emerald-600">{t('Đã sửa', 'Repaired')}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold text-amber-600">{t('Bảo hành', 'Warranty')}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold text-blue-600">{t('Không lỗi', 'No Fault')}</th>
+                    <th className="px-3 py-2.5 text-right font-semibold text-red-500">{t('Báo phế', 'Written Off')}</th>
+                    <th className="px-4 py-2.5 text-left font-semibold w-32">{t('Phân bổ', 'Breakdown')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.byProduct.filter(p => p.total > 0).map((p, i) => {
+                    const done = p.repaired + p.supplier + p.noFault + p.scrap
+                    return (
+                      <tr key={p.product_name} className={`border-t border-gray-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
+                        <td className="px-4 py-2 font-medium text-gray-800">{p.product_name}</td>
+                        <td className="px-3 py-2 text-right font-bold text-gray-700">{p.total}</td>
+                        <td className="px-3 py-2 text-right text-emerald-700 font-medium">{p.repaired || '—'}</td>
+                        <td className="px-3 py-2 text-right text-amber-600">{p.supplier || '—'}</td>
+                        <td className="px-3 py-2 text-right text-blue-600">{p.noFault || '—'}</td>
+                        <td className="px-3 py-2 text-right text-red-500">{p.scrap || '—'}</td>
+                        <td className="px-4 py-2">
+                          {done > 0 && (
+                            <div className="flex h-2 rounded-full overflow-hidden gap-px bg-gray-100 w-28">
+                              <div className="bg-emerald-500" style={{ width: `${p.repaired/done*100}%` }} />
+                              <div className="bg-amber-400"   style={{ width: `${p.supplier/done*100}%` }} />
+                              <div className="bg-blue-400"    style={{ width: `${p.noFault/done*100}%` }} />
+                              <div className="bg-red-400"     style={{ width: `${p.scrap/done*100}%` }} />
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-200 bg-gray-50 font-bold">
+                    <td className="px-4 py-2 text-gray-800">{t('Tổng cộng', 'Total')}</td>
+                    <td className="px-3 py-2 text-right text-gray-800">{stats.total}</td>
+                    <td className="px-3 py-2 text-right text-emerald-700">{stats.repaired}</td>
+                    <td className="px-3 py-2 text-right text-amber-600">{stats.supplier}</td>
+                    <td className="px-3 py-2 text-right text-blue-600">{stats.noFault}</td>
+                    <td className="px-3 py-2 text-right text-red-500">{stats.scrap}</td>
+                    <td className="px-4 py-2" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {/* Top fault tags */}
+          {topTags.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+                {t('TOP LỖI HAY GẶP', 'TOP FAULT TAGS')}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {topTags.map(([tag, count]) => {
+                  const maxCount = topTags[0][1]
+                  return (
+                    <div key={tag} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                      <span className="text-xs font-mono font-bold text-blue-700 w-24 shrink-0">#{tag}</span>
+                      <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-500 rounded-full" style={{ width: `${count/maxCount*100}%` }} />
+                      </div>
+                      <span className="text-xs font-bold text-gray-700 w-6 text-right shrink-0">{count}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="border-t border-gray-100 pt-4 flex justify-between text-[10px] text-gray-300">
+            <span>EUP Hardware Management System</span>
+            <span>{today}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Detailed Analysis Panel — 2 cột: theo thiết bị + theo loại lỗi ──────────
 type CatKey2 = 'repaired'|'warranty'|'noFault'|'broken'
 
@@ -1612,6 +1809,7 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
   const [from, setFrom]       = useState('')
   const [to, setTo]           = useState('')
   const [statsLoaded, setStatsLoaded] = useState(false)
+  const [showReport,  setShowReport]  = useState(false)
   const loadStats = useCallback(async()=>{
     setLoadingS(true)
     const params = new URLSearchParams()
@@ -1671,6 +1869,9 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
         : !stats  ? <div className="py-12 text-center text-sm text-red-400">{t('Lỗi tải dữ liệu','Load error')}</div>
         : (
           <div className="space-y-5">
+            {showReport && stats && (
+              <ReportModal stats={stats} from={from} to={to} t={t} onClose={()=>setShowReport(false)} />
+            )}
             <div className="flex flex-wrap gap-3 items-end bg-gray-50 border border-gray-200 rounded-xl p-3">
               <div><label className="block text-xs font-medium text-gray-600 mb-1">{t('Từ ngày nhận','From date')}</label>
                 <input type="date" value={from} onChange={e=>setFrom(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200" /></div>
@@ -1678,6 +1879,10 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
                 <input type="date" value={to} onChange={e=>setTo(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200" /></div>
               <button onClick={loadStats} className="px-4 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 bg-white">🔄 {t('Cập nhật','Update')}</button>
               {(from||to) && <button onClick={()=>{setFrom('');setTo('')}} className="px-3 py-1.5 text-xs text-gray-400">{t('Xoá lọc','Clear')}</button>}
+              <button onClick={()=>setShowReport(true)}
+                className="ml-auto px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-sm">
+                📊 {t('Báo cáo','Report')}
+              </button>
             </div>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {[
