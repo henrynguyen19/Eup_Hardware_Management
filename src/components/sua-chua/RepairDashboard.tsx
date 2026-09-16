@@ -331,16 +331,159 @@ function SingleWeekView({
     </div>
   )
 }
+// ── Analytics Detail Report Modal ─────────────────────────────
+function AnalyticsDetailModal({ stats, selectedDevice, periodLabel, t, bi, onClose }: {
+  stats: RepairStat[]
+  selectedDevice: string
+  periodLabel: string
+  t: ReturnType<typeof useLanguage>['t']
+  bi: (vi: string, en: string) => string
+  onClose: () => void
+}) {
+  const today = new Date().toLocaleDateString('vi-VN')
+
+  const statusSections = STATUS_TYPES.filter(st => st.key !== 'cho_sua').map(st => {
+    const stStats = stats.filter(s => s.status_type === st.key)
+    const total   = stStats.reduce((a, s) => a + s.quantity, 0)
+
+    const byDevice = DEVICE_TYPES
+      .map(dt => ({ name: dt, qty: stStats.filter(s => s.device_type === dt).reduce((a, s) => a + s.quantity, 0), color: DEVICE_COLORS[dt] ?? '#6b7280' }))
+      .filter(d => d.qty > 0)
+      .sort((a, b) => b.qty - a.qty)
+
+    const byFault = Object.entries(
+      stStats.reduce((acc, s) => { acc[s.fault_type] = (acc[s.fault_type] ?? 0) + s.quantity; return acc }, {} as Record<string, number>)
+    ).filter(([, q]) => q > 0).sort(([, a], [, b]) => b - a).slice(0, 8)
+
+    return { st, total, byDevice, byFault }
+  }).filter(s => s.total > 0)
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto py-6">
+      <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl mx-4">
+        {/* Control bar */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
+          <span className="text-xs text-gray-400">{bi('Chụp màn hình để gửi báo cáo','Screenshot to share this report')}</span>
+          <div className="flex gap-2">
+            <button onClick={() => window.print()} className="px-3 py-1.5 text-xs bg-gray-800 text-white rounded-lg hover:bg-gray-700">
+              🖨 {bi('In','Print')}
+            </button>
+            <button onClick={onClose} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">
+              ✕ {bi('Đóng','Close')}
+            </button>
+          </div>
+        </div>
+
+        <div className="p-8 space-y-6">
+          {/* Header */}
+          <div className="border-b border-gray-200 pb-5">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-2xl">🔧</span>
+              <h1 className="text-xl font-bold text-gray-900">{bi('BÁO CÁO CHI TIẾT LỖI THIẾT BỊ','DETAILED FAULT ANALYSIS REPORT')}</h1>
+            </div>
+            <p className="text-sm text-gray-500">
+              EUP Hardware — {periodLabel}{selectedDevice !== 'all' ? ` · ${selectedDevice}` : ''}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">{bi('Xuất ngày','Generated')}: {today}</p>
+          </div>
+
+          {/* Per-status sections */}
+          {statusSections.map(({ st, total, byDevice, byFault }) => (
+            <div key={st.key} className="rounded-xl border overflow-hidden" style={{ borderColor: st.color + '44' }}>
+              {/* Section header */}
+              <div className="px-5 py-3 flex items-center gap-3" style={{ background: st.color + '12' }}>
+                <span className="w-3 h-3 rounded-full shrink-0" style={{ background: st.color }} />
+                <span className="font-bold text-gray-800" style={{ color: st.color }}>{getStatusLabel(st.key, t)}</span>
+                <span className="text-sm font-bold text-gray-600">{total} {bi('thiết bị','devices')}</span>
+              </div>
+
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* By device */}
+                {byDevice.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                      {bi('Theo loại thiết bị','By Device')}
+                    </p>
+                    <div className="space-y-1.5">
+                      {byDevice.map(d => {
+                        const pct = total > 0 ? Math.round(d.qty / total * 100) : 0
+                        return (
+                          <div key={d.name} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 w-20 shrink-0 text-right">{d.name}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden relative">
+                              <div className="absolute inset-y-0 left-0 rounded-full flex items-center justify-end"
+                                style={{ width: `${Math.max(pct, 4)}%`, background: d.color }}>
+                                {pct >= 10 && <span className="text-white text-[10px] font-bold pr-1.5">{pct}%</span>}
+                              </div>
+                            </div>
+                            {pct < 10 && <span className="text-[10px] text-gray-500 w-6">{pct}%</span>}
+                            <span className="text-xs font-bold text-gray-700 w-5 text-right">{d.qty}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* By fault type */}
+                {byFault.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                      {bi('Theo loại lỗi','By Fault Type')}
+                    </p>
+                    <div className="space-y-1.5">
+                      {byFault.map(([fault, qty]) => {
+                        const pct = total > 0 ? Math.round(qty / total * 100) : 0
+                        return (
+                          <div key={fault} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 w-24 shrink-0 text-right truncate" title={fault}>{fault}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden relative">
+                              <div className="absolute inset-y-0 left-0 rounded-full flex items-center justify-end"
+                                style={{ width: `${Math.max(pct, 4)}%`, background: st.color }}>
+                                {pct >= 10 && <span className="text-white text-[10px] font-bold pr-1.5">{pct}%</span>}
+                              </div>
+                            </div>
+                            {pct < 10 && <span className="text-[10px] text-gray-500 w-6">{pct}%</span>}
+                            <span className="text-xs font-bold text-gray-700 w-5 text-right">{qty}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {statusSections.length === 0 && (
+            <p className="text-center text-gray-400 text-sm py-8">{bi('Không có dữ liệu','No data')}</p>
+          )}
+
+          {/* Footer */}
+          <div className="border-t border-gray-100 pt-4 flex justify-between text-[10px] text-gray-300">
+            <span>EUP Hardware Management System</span>
+            <span>{today}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Analytics: status breakdown by device & fault type ────────
 function AnalyticsSection({
   stats,
   selectedDevice,
+  periodLabel = '',
 }: {
   stats: RepairStat[]
   selectedDevice: string
+  periodLabel?: string
 }) {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
+  const bi = (vi: string, en: string) => lang === 'vi' ? vi : en
   const [tab, setTab] = useState('da_sua')
+  const [showModal, setShowModal] = useState(false)
   // Apply device filter
   const devStats = selectedDevice === 'all' ? stats : stats.filter(s => s.device_type === selectedDevice)
   const grandTotal = devStats.reduce((a, s) => a + s.quantity, 0)
@@ -378,6 +521,16 @@ function AnalyticsSection({
   const pctOf = (n: number, base: number) => base > 0 ? `${Math.round(n / base * 100)}%` : '—'
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {showModal && (
+        <AnalyticsDetailModal
+          stats={devStats}
+          selectedDevice={selectedDevice}
+          periodLabel={periodLabel}
+          t={t}
+          bi={bi}
+          onClose={() => setShowModal(false)}
+        />
+      )}
       <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
         <h3 className="text-base font-semibold text-gray-700">{t.suaChua.detailAnalysis}</h3>
         {selectedDevice !== 'all' && (
@@ -386,6 +539,10 @@ function AnalyticsSection({
             {selectedDevice}
           </span>
         )}
+        <button onClick={() => setShowModal(true)}
+          className="ml-auto px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+          📊 {bi('Báo cáo','Report')}
+        </button>
       </div>
       {/* Status tabs */}
       <div className="flex border-b border-gray-100 overflow-x-auto">
@@ -1136,7 +1293,7 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
       )}
       {/* ── Analytics section (always shown when data exists) ── */}
       {!loading && dataReady && filteredWeeks.length > 0 && (
-        <AnalyticsSection stats={filteredStats} selectedDevice={selectedDevice} />
+        <AnalyticsSection stats={filteredStats} selectedDevice={selectedDevice} periodLabel={periodLabel} />
       )}
     </div>
   )
@@ -1917,7 +2074,8 @@ function RepairOverviewModal({ stats, selectedDevice, periodLabel, onClose }: {
   periodLabel: string
   onClose: () => void
 }) {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
+  const bi = (vi: string, en: string) => lang === 'vi' ? vi : en
   const today = new Date().toLocaleDateString('vi-VN')
 
   const devStats = selectedDevice === 'all' ? stats : stats.filter(s => s.device_type === selectedDevice)
@@ -1958,15 +2116,15 @@ function RepairOverviewModal({ stats, selectedDevice, periodLabel, onClose }: {
       <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl mx-4">
         {/* Control bar */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
-          <span className="text-xs text-gray-400">Chụp màn hình vùng bên dưới để lấy báo cáo</span>
+          <span className="text-xs text-gray-400">{bi('Chụp màn hình vùng bên dưới để lấy báo cáo','Screenshot the area below for the report')}</span>
           <div className="flex gap-2">
             <button onClick={() => window.print()}
               className="px-3 py-1.5 text-xs bg-gray-800 text-white rounded-lg hover:bg-gray-700">
-              🖨 In
+              🖨 {bi('In','Print')}
             </button>
             <button onClick={onClose}
               className="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">
-              ✕ Đóng
+              ✕ {bi('Đóng','Close')}
             </button>
           </div>
         </div>
@@ -1977,21 +2135,21 @@ function RepairOverviewModal({ stats, selectedDevice, periodLabel, onClose }: {
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-2xl">🔧</span>
-                <h1 className="text-xl font-bold text-gray-900">BÁO CÁO SỬA CHỮA THIẾT BỊ</h1>
+                <h1 className="text-xl font-bold text-gray-900">{bi('BÁO CÁO SỬA CHỮA THIẾT BỊ','DEVICE REPAIR REPORT')}</h1>
               </div>
               <p className="text-sm text-gray-500">EUP Hardware — {periodLabel}{selectedDevice !== 'all' ? ` · ${selectedDevice}` : ''}</p>
             </div>
             <div className="text-right text-xs text-gray-400">
-              <p>Xuất ngày: {today}</p>
-              <p>Bàn giao: <strong className="text-gray-700">{banGiao}</strong></p>
-              {choSua > 0 && <p>Chờ sửa: <strong className="text-gray-700">{choSua}</strong></p>}
+              <p>{bi('Xuất ngày','Generated')}: {today}</p>
+              <p>{bi('Bàn giao','Delivered')}: <strong className="text-gray-700">{banGiao}</strong></p>
+              {choSua > 0 && <p>{bi('Chờ sửa','Pending')}: <strong className="text-gray-700">{choSua}</strong></p>}
             </div>
           </div>
 
           {/* Summary cards */}
           <div>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
-              KẾT QUẢ XỬ LÝ — {banGiao} bàn giao
+              {bi('KẾT QUẢ XỬ LÝ','OUTCOME SUMMARY')} — {banGiao} {bi('bàn giao','delivered')}
             </p>
             <div className="grid grid-cols-4 gap-3">
               {cats.map(c => (
@@ -2024,18 +2182,18 @@ function RepairOverviewModal({ stats, selectedDevice, periodLabel, onClose }: {
           {byDevice.length > 0 && (
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
-                THỐNG KÊ THEO LOẠI THIẾT BỊ
+                {bi('THỐNG KÊ THEO LOẠI THIẾT BỊ','BY DEVICE TYPE')}
               </p>
               <div className="overflow-x-auto rounded-xl border border-gray-100">
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide">
-                      <th className="px-4 py-2.5 text-left font-semibold">Loại thiết bị</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Bàn giao</th>
-                      <th className="px-3 py-2.5 text-right font-semibold text-green-700">Đã sửa</th>
-                      <th className="px-3 py-2.5 text-right font-semibold text-amber-600">Bảo hành</th>
-                      <th className="px-3 py-2.5 text-right font-semibold text-blue-600">Không lỗi</th>
-                      <th className="px-3 py-2.5 text-right font-semibold text-red-500">Hỏng hẳn</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">{bi('Loại thiết bị','Device Type')}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">{bi('Bàn giao','Delivered')}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-green-700">{t.suaChua.statusDaSua}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-amber-600">{t.suaChua.statusGuiBaoHanh}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-blue-600">{t.suaChua.statusKhongLoi}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-red-500">{t.suaChua.statusHongHan}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2052,7 +2210,7 @@ function RepairOverviewModal({ stats, selectedDevice, periodLabel, onClose }: {
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-gray-200 bg-gray-50 font-bold">
-                      <td className="px-4 py-2 text-gray-800">Tổng cộng</td>
+                      <td className="px-4 py-2 text-gray-800">{bi('Tổng cộng','Total')}</td>
                       <td className="px-3 py-2 text-right text-gray-800">{banGiao}</td>
                       <td className="px-3 py-2 text-right text-green-700">{daSua}</td>
                       <td className="px-3 py-2 text-right text-amber-600">{guiBH}</td>
