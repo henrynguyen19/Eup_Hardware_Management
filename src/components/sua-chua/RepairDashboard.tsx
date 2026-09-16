@@ -668,6 +668,7 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
   const [nam, setNam] = useState(now.getFullYear())
   // ── Device filter ──
   const [selectedDevice, setSelectedDevice] = useState<string>('all')
+  const [showRepModal, setShowRepModal]     = useState(false)
   // ── Chart state (multi-week) ──
   const [chartMode, setChartMode] = useState<'table' | 'line' | 'bar'>('table')
   const [selectedDevices, setSelectedDevices] = useState<string[]>(['4G', '4GH', 'GO', 'SBOX'])
@@ -952,13 +953,21 @@ function DashboardTab({ refreshKey = 0 }: { refreshKey?: number }) {
         {/* Export/print button */}
         <div className="mt-3 pt-3 border-t border-gray-100 flex justify-end">
           <button
-            onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition print:hidden"
-            title="In / chụp màn hình để đưa vào Word"
+            onClick={() => setShowRepModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 border border-blue-600 rounded-lg transition"
+            title="Xem báo cáo để chụp màn hình"
           >
-            🖨️ Xuất báo cáo
+            📊 Xuất báo cáo
           </button>
         </div>
+        {showRepModal && (
+          <RepairOverviewModal
+            stats={filteredStats}
+            selectedDevice={selectedDevice}
+            periodLabel={periodLabel}
+            onClose={() => setShowRepModal(false)}
+          />
+        )}
       </div>
       {/* ── Loading ── */}
       {(loading || !dataReady) && <LoadingSpinner />}
@@ -1901,6 +1910,172 @@ function EmptyState({ msg }: { msg: string }) {
     </div>
   )
 }
+// ── Repair Overview Report Modal ───────────────────────────────
+function RepairOverviewModal({ stats, selectedDevice, periodLabel, onClose }: {
+  stats: RepairStat[]
+  selectedDevice: string
+  periodLabel: string
+  onClose: () => void
+}) {
+  const { t } = useLanguage()
+  const today = new Date().toLocaleDateString('vi-VN')
+
+  const devStats = selectedDevice === 'all' ? stats : stats.filter(s => s.device_type === selectedDevice)
+
+  const sum = (key: string) => devStats.filter(s => s.status_type === key).reduce((a, s) => a + s.quantity, 0)
+  const daSua    = sum('da_sua')
+  const guiBH    = sum('gui_bao_hanh')
+  const khongLoi = sum('khong_loi')
+  const hongHan  = sum('hong_han')
+  const choSua   = sum('cho_sua')
+  const banGiao  = daSua + guiBH + khongLoi + hongHan
+
+  const cats = [
+    { label: t.suaChua.statusDaSua,       count: daSua,    color: '#00AF50', bg: '#f0fdf4', border: '#bbf7d0' },
+    { label: t.suaChua.statusGuiBaoHanh,  count: guiBH,    color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+    { label: t.suaChua.statusKhongLoi,    count: khongLoi, color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
+    { label: t.suaChua.statusHongHan,     count: hongHan,  color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
+  ]
+
+  // By device breakdown
+  const byDevice = DEVICE_TYPES.map(dt => {
+    const ds = devStats.filter(s => s.device_type === dt)
+    return {
+      name: dt,
+      daSua:    ds.filter(s => s.status_type === 'da_sua').reduce((a,s) => a+s.quantity, 0),
+      guiBH:    ds.filter(s => s.status_type === 'gui_bao_hanh').reduce((a,s) => a+s.quantity, 0),
+      khongLoi: ds.filter(s => s.status_type === 'khong_loi').reduce((a,s) => a+s.quantity, 0),
+      hongHan:  ds.filter(s => s.status_type === 'hong_han').reduce((a,s) => a+s.quantity, 0),
+    }
+  }).map(d => ({ ...d, total: d.daSua + d.guiBH + d.khongLoi + d.hongHan }))
+    .filter(d => d.total > 0)
+    .sort((a,b) => b.total - a.total)
+
+  const rate = (n: number) => banGiao > 0 ? Math.round(n/banGiao*100) : 0
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto py-6">
+      <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl mx-4">
+        {/* Control bar */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
+          <span className="text-xs text-gray-400">Chụp màn hình vùng bên dưới để lấy báo cáo</span>
+          <div className="flex gap-2">
+            <button onClick={() => window.print()}
+              className="px-3 py-1.5 text-xs bg-gray-800 text-white rounded-lg hover:bg-gray-700">
+              🖨 In
+            </button>
+            <button onClick={onClose}
+              className="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">
+              ✕ Đóng
+            </button>
+          </div>
+        </div>
+
+        <div className="p-8 space-y-6">
+          {/* Header */}
+          <div className="flex items-start justify-between border-b border-gray-200 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-2xl">🔧</span>
+                <h1 className="text-xl font-bold text-gray-900">BÁO CÁO SỬA CHỮA THIẾT BỊ</h1>
+              </div>
+              <p className="text-sm text-gray-500">EUP Hardware — {periodLabel}{selectedDevice !== 'all' ? ` · ${selectedDevice}` : ''}</p>
+            </div>
+            <div className="text-right text-xs text-gray-400">
+              <p>Xuất ngày: {today}</p>
+              <p>Bàn giao: <strong className="text-gray-700">{banGiao}</strong></p>
+              {choSua > 0 && <p>Chờ sửa: <strong className="text-gray-700">{choSua}</strong></p>}
+            </div>
+          </div>
+
+          {/* Summary cards */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+              KẾT QUẢ XỬ LÝ — {banGiao} bàn giao
+            </p>
+            <div className="grid grid-cols-4 gap-3">
+              {cats.map(c => (
+                <div key={c.label} className="rounded-xl border p-4 text-center"
+                  style={{ background: c.bg, borderColor: c.border }}>
+                  <p className="text-3xl font-bold" style={{ color: c.color }}>{c.count}</p>
+                  <p className="text-xs font-semibold text-gray-600 mt-1">{c.label}</p>
+                  <p className="text-lg font-bold mt-1" style={{ color: c.color }}>{rate(c.count)}%</p>
+                </div>
+              ))}
+            </div>
+            {/* Stacked bar */}
+            <div className="mt-3 h-4 rounded-full overflow-hidden flex gap-px bg-gray-100">
+              {cats.map(c => (
+                <div key={c.label} className="h-full" title={`${c.label}: ${rate(c.count)}%`}
+                  style={{ width: `${rate(c.count)}%`, background: c.color }} />
+              ))}
+            </div>
+            <div className="flex gap-4 mt-1.5 text-[10px] text-gray-500">
+              {cats.map(c => (
+                <span key={c.label}>
+                  <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: c.color }} />
+                  {c.label} {rate(c.count)}%
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* By device table */}
+          {byDevice.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+                THỐNG KÊ THEO LOẠI THIẾT BỊ
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide">
+                      <th className="px-4 py-2.5 text-left font-semibold">Loại thiết bị</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">Bàn giao</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-green-700">Đã sửa</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-amber-600">Bảo hành</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-blue-600">Không lỗi</th>
+                      <th className="px-3 py-2.5 text-right font-semibold text-red-500">Hỏng hẳn</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byDevice.map((d, i) => (
+                      <tr key={d.name} className={`border-t border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                        <td className="px-4 py-2 font-medium text-gray-800">{d.name}</td>
+                        <td className="px-3 py-2 text-right font-bold text-gray-700">{d.total}</td>
+                        <td className="px-3 py-2 text-right text-green-700 font-medium">{d.daSua||'—'}</td>
+                        <td className="px-3 py-2 text-right text-amber-600">{d.guiBH||'—'}</td>
+                        <td className="px-3 py-2 text-right text-blue-600">{d.khongLoi||'—'}</td>
+                        <td className="px-3 py-2 text-right text-red-500">{d.hongHan||'—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-200 bg-gray-50 font-bold">
+                      <td className="px-4 py-2 text-gray-800">Tổng cộng</td>
+                      <td className="px-3 py-2 text-right text-gray-800">{banGiao}</td>
+                      <td className="px-3 py-2 text-right text-green-700">{daSua}</td>
+                      <td className="px-3 py-2 text-right text-amber-600">{guiBH}</td>
+                      <td className="px-3 py-2 text-right text-blue-600">{khongLoi}</td>
+                      <td className="px-3 py-2 text-right text-red-500">{hongHan}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="border-t border-gray-100 pt-4 flex justify-between text-[10px] text-gray-300">
+            <span>EUP Hardware Management System</span>
+            <span>{today}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main ───────────────────────────────────────────────────────
 export default function RepairDashboard({ userEmail = '', permissions = [] }: { userEmail?: string; permissions?: string[] }) {
   const { t, lang } = useLanguage()
