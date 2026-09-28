@@ -176,114 +176,6 @@ function HorizBar({ data, total, color = 'bg-blue-500', maxBars = 6 }: {
   )
 }
 
-// ── DrillDownModal — popup hiển thị chi tiết khi click biểu đồ ──────
-type DrillType = 'device' | 'location' | 'error'
-interface DrillState { type: DrillType; name: string }
-
-function DrillDownModal({
-  drill, pairSum, dataRows, onClose,
-}: {
-  drill: DrillState
-  pairSum: Record<string, number>
-  dataRows: DailyRecord[]
-  onClose: () => void
-}) {
-  // ── Tính dữ liệu chi tiết ───────────────────────────────────────
-  let title = ''
-  let subtitle = ''
-  let items: { name: string; value: number; color: string }[] = []
-  let total = 0
-
-  if (drill.type === 'device') {
-    // Click thiết bị → show các lỗi của thiết bị đó
-    title = `🔧 Phân tích lỗi — ${drill.name}`
-    subtitle = 'Các loại lỗi hay gặp trên thiết bị này'
-    const prefix = drill.name + '×'
-    const raw = Object.entries(pairSum)
-      .filter(([k]) => k.startsWith(prefix))
-      .map(([k, v]) => ({ name: k.slice(prefix.length), value: v }))
-      .sort((a, b) => b.value - a.value)
-    total = raw.reduce((s, e) => s + e.value, 0)
-    const ECOLS = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#06b6d4','#ec4899','#10b981','#f97316','#6366f1','#14b8a6']
-    items = raw.map((e, i) => ({ ...e, color: ECOLS[i % ECOLS.length] }))
-
-  } else if (drill.type === 'error') {
-    // Click loại lỗi → show các thiết bị gặp lỗi đó
-    title = `🚨 Thiết bị gặp lỗi — ${drill.name}`
-    subtitle = 'Các thiết bị hay gặp loại lỗi này nhất'
-    const suffix = '×' + drill.name
-    const raw = Object.entries(pairSum)
-      .filter(([k]) => k.endsWith(suffix))
-      .map(([k, v]) => ({ name: k.slice(0, k.length - suffix.length), value: v }))
-      .sort((a, b) => b.value - a.value)
-    total = raw.reduce((s, e) => s + e.value, 0)
-    const DCOLS = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#10b981','#f97316','#6366f1']
-    items = raw.map((e, i) => ({ ...e, color: DCOLS[i % DCOLS.length] }))
-
-  } else {
-    // Click văn phòng → show phân bổ ngày và thiết bị/lỗi nhiều nhất
-    title = `🏢 Yêu cầu từ văn phòng — ${drill.name}`
-    subtitle = 'Số lượng yêu cầu theo từng ngày'
-    const raw = dataRows
-      .map(r => ({ name: r.date.slice(0, 5), value: r.locations[drill.name] ?? 0 }))
-      .filter(d => d.value > 0)
-    total = raw.reduce((s, d) => s + d.value, 0)
-    items = raw.map(d => ({ ...d, color: '#0891b2' }))
-  }
-
-  const max = items[0]?.value ?? 1
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center overflow-y-auto py-8"
-      onClick={onClose}>
-      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl mx-4"
-        onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div>
-            <h2 className="text-sm font-bold text-gray-800">{title}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{subtitle} · Tổng: <strong>{total}</strong></p>
-          </div>
-          <button onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-500 text-sm font-bold transition">
-            ✕
-          </button>
-        </div>
-        {/* Body */}
-        <div className="p-5">
-          {items.length === 0 ? (
-            <p className="text-center text-gray-400 text-sm py-8">Không có dữ liệu chi tiết</p>
-          ) : (
-            <div className="space-y-2.5">
-              {items.map((item, i) => {
-                const pctVal = total > 0 ? Math.round(item.value / total * 100) : 0
-                const barW   = max > 0 ? (item.value / max) * 100 : 0
-                return (
-                  <div key={i} className="flex items-center gap-3">
-                    <span className="text-xs text-gray-600 w-28 shrink-0 text-right truncate font-medium" title={item.name}>
-                      {item.name}
-                    </span>
-                    <div className="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden relative">
-                      <div className="absolute inset-y-0 left-0 rounded-full flex items-center justify-end transition-all"
-                        style={{ width: `${Math.max(barW, 4)}%`, background: item.color }}>
-                        {pctVal >= 10 && (
-                          <span className="text-white text-[10px] font-bold pr-2">{pctVal}%</span>
-                        )}
-                      </div>
-                    </div>
-                    {pctVal < 10 && <span className="text-[10px] text-gray-500 w-7">{pctVal}%</span>}
-                    <span className="text-xs font-bold text-gray-700 w-5 text-right shrink-0">{item.value}</span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Summary Dashboard (Tổng quan) ─────────────────────────────────
 function SummaryView({
   staffMap, allStaff, month, yearShort, loading,
@@ -300,6 +192,10 @@ function SummaryView({
   const [showPendingPanel, setShowPendingPanel] = useState(false)
   const [pendingTickets, setPendingTickets] = useState<Record<string, unknown>[]>([])
   const [pendingLoading, setPendingLoading] = useState(false)
+  // Chi tiết inline khi click biểu đồ
+  const [selectedDevice, setSelectedDevice]   = useState<string | null>(null)
+  const [selectedLocation, setSelectedLocation] = useState<string | null>(null)
+  const [selectedError, setSelectedError]     = useState<string | null>(null)
 
   async function fetchPendingTickets() {
     setPendingLoading(true)
@@ -336,7 +232,6 @@ function SummaryView({
   const errorSum     = sumObj(dataRows, 'errors')
   const pmTypeSum    = sumObj(dataRows, 'pm_types')
   const pairSum      = sumObj(dataRows, 'device_error_pairs')
-  const [drillDown, setDrillDown] = useState<DrillState | null>(null)
   const avgResolution = Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / dataRows.length) || 0
   const totalPending  = dataRows.reduce((s, r) => s + (r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0), 0)
   const resolveFast   = dataRows.reduce((s, r) => s + (r.resolution['Fast'] ?? 0), 0)
@@ -519,79 +414,160 @@ function SummaryView({
         </div>
       </div>
 
-      {/* DrillDown Modal */}
-      {drillDown && (
-        <DrillDownModal
-          drill={drillDown}
-          pairSum={pairSum}
-          dataRows={dataRows}
-          onClose={() => setDrillDown(null)}
-        />
-      )}
-
       {/* Row 2 — Phân tích yêu cầu: pie thiết bị + bar văn phòng (full width, prominent) */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-gray-700">Phân tích yêu cầu hỗ trợ kỹ thuật</h3>
-          <span className="text-[10px] text-gray-400 italic">👆 Click vào biểu đồ để xem chi tiết</span>
-        </div>
+        <h3 className="text-sm font-bold text-gray-700 mb-4">Phân tích yêu cầu hỗ trợ kỹ thuật</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Device pie */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
               Tỷ lệ lỗi theo thiết bị
-              <span className="ml-2 text-[10px] font-normal text-blue-400 normal-case">· click để xem loại lỗi</span>
+              {selectedDevice && (
+                <button onClick={() => setSelectedDevice(null)}
+                  className="ml-2 text-[10px] font-normal text-gray-400 hover:text-red-500 normal-case">
+                  ✕ bỏ chọn
+                </button>
+              )}
             </p>
-            <ResponsiveContainer width="100%" height={340}>
+            <ResponsiveContainer width="100%" height={selectedDevice ? 240 : 340}>
               <PieChart>
                 <Pie
                   data={devicePie}
                   cx="50%" cy="42%"
-                  outerRadius={120}
+                  outerRadius={selectedDevice ? 90 : 120}
                   dataKey="value"
                   label={({ name, percent }) => percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''}
                   labelLine
                   cursor="pointer"
-                  onClick={(data: { name: string }) => setDrillDown({ type: 'device', name: data.name })}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  onClick={(data: any) => setSelectedDevice(prev => prev === data.name ? null : data.name)}
                 >
-                  {devicePie.map((_, i) => <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]} />)}
+                  {devicePie.map((entry, i) => (
+                    <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]}
+                      fillOpacity={selectedDevice && selectedDevice !== entry.name ? 0.25 : 1}
+                      stroke={selectedDevice === entry.name ? '#1e293b' : 'none'}
+                      strokeWidth={selectedDevice === entry.name ? 2 : 0}
+                    />
+                  ))}
                 </Pie>
                 <Tooltip formatter={(v: number, name: string) => {
                   const total = devicePie.reduce((s, d) => s + d.value, 0)
-                  const pct = total > 0 ? Math.round(v / total * 100) : 0
-                  return [`${v} thiết bị (${pct}%)`, name]
+                  const p = total > 0 ? Math.round(v / total * 100) : 0
+                  return [`${v} thiết bị (${p}%)`, name]
                 }} />
-                <Legend
-                  wrapperStyle={{ fontSize: 12, paddingTop: 12 }}
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
                   formatter={(value, entry: any) => {
                     const total = devicePie.reduce((s, d) => s + d.value, 0)
-                    const pct = total > 0 ? Math.round((entry.payload?.value ?? 0) / total * 100) : 0
-                    return `${value} (${pct}%)`
+                    const p = total > 0 ? Math.round((entry.payload?.value ?? 0) / total * 100) : 0
+                    return `${value} (${p}%)`
                   }}
                 />
               </PieChart>
             </ResponsiveContainer>
+
+            {/* Inline detail: lỗi của thiết bị được chọn */}
+            {selectedDevice && (() => {
+              const prefix = selectedDevice + '×'
+              const errors = Object.entries(pairSum)
+                .filter(([k]) => k.startsWith(prefix))
+                .map(([k, v]) => ({ name: k.slice(prefix.length), value: v }))
+                .sort((a, b) => b.value - a.value)
+              const total = errors.reduce((s, e) => s + e.value, 0)
+              const max = errors[0]?.value ?? 1
+              const ECOLS = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#06b6d4','#ec4899','#10b981','#f97316','#6366f1']
+              return (
+                <div className="mt-3 bg-blue-50 border border-blue-100 rounded-xl p-4">
+                  <p className="text-xs font-bold text-blue-700 mb-3">
+                    🔧 Loại lỗi của <span className="underline">{selectedDevice}</span> ({total} yêu cầu)
+                  </p>
+                  {errors.length === 0
+                    ? <p className="text-xs text-gray-400">Không có dữ liệu lỗi chi tiết</p>
+                    : <div className="space-y-2">
+                        {errors.map((e, i) => {
+                          const p = total > 0 ? Math.round(e.value / total * 100) : 0
+                          return (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-700 w-24 shrink-0 text-right font-medium truncate" title={e.name}>{e.name}</span>
+                              <div className="flex-1 bg-white rounded-full h-5 overflow-hidden relative">
+                                <div className="absolute inset-y-0 left-0 rounded-full flex items-center justify-end"
+                                  style={{ width: `${Math.max(e.value / max * 100, 4)}%`, background: ECOLS[i % ECOLS.length] }}>
+                                  {p >= 12 && <span className="text-white text-[10px] font-bold pr-1.5">{p}%</span>}
+                                </div>
+                              </div>
+                              {p < 12 && <span className="text-[10px] text-gray-500 w-6">{p}%</span>}
+                              <span className="text-xs font-bold text-gray-700 w-5 text-right">{e.value}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                  }
+                </div>
+              )
+            })()}
           </div>
 
           {/* Location bar */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
               Yêu cầu theo văn phòng
-              <span className="ml-2 text-[10px] font-normal text-blue-400 normal-case">· click để xem theo ngày</span>
+              {selectedLocation && (
+                <button onClick={() => setSelectedLocation(null)}
+                  className="ml-2 text-[10px] font-normal text-gray-400 hover:text-red-500 normal-case">
+                  ✕ bỏ chọn
+                </button>
+              )}
             </p>
-            <ResponsiveContainer width="100%" height={340}>
-              <BarChart data={locationData} margin={{ top: 28, right: 20, bottom: 10, left: -10 }}>
+            <ResponsiveContainer width="100%" height={selectedLocation ? 200 : 340}>
+              <BarChart data={locationData} margin={{ top: 20, right: 20, bottom: 10, left: -10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 13 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Bar dataKey="value" name="Số yêu cầu" fill="#0891b2" radius={[5, 5, 0, 0]}
+                <Bar dataKey="value" name="Số yêu cầu" radius={[5, 5, 0, 0]}
                   cursor="pointer"
-                  onClick={(data: { name: string }) => setDrillDown({ type: 'location', name: data.name })}>
-                  <LabelList dataKey="value" position="top" style={{ fontSize: 14, fill: '#1e293b', fontWeight: 700 }} />
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  onClick={(data: any) => setSelectedLocation(prev => prev === data.name ? null : data.name)}>
+                  {locationData.map((entry, i) => (
+                    <Cell key={i}
+                      fill={selectedLocation && selectedLocation !== entry.name ? '#cbd5e1' : '#0891b2'}
+                      fillOpacity={selectedLocation && selectedLocation !== entry.name ? 0.5 : 1}
+                    />
+                  ))}
+                  <LabelList dataKey="value" position="top" style={{ fontSize: 13, fill: '#1e293b', fontWeight: 700 }} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+
+            {/* Inline detail: từng ngày của văn phòng được chọn */}
+            {selectedLocation && (() => {
+              const daily = dataRows
+                .map(r => ({ date: r.date.slice(0, 5), value: r.locations[selectedLocation] ?? 0 }))
+                .filter(d => d.value > 0)
+              const locTotal = daily.reduce((s, d) => s + d.value, 0)
+              const locMax = Math.max(...daily.map(d => d.value), 1)
+              return (
+                <div className="mt-3 bg-cyan-50 border border-cyan-100 rounded-xl p-4">
+                  <p className="text-xs font-bold text-cyan-700 mb-3">
+                    🏢 <span className="underline">{selectedLocation}</span> — {locTotal} yêu cầu theo ngày
+                  </p>
+                  {daily.length === 0
+                    ? <p className="text-xs text-gray-400">Không có dữ liệu</p>
+                    : <div className="space-y-1.5">
+                        {daily.map((d, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 w-12 shrink-0 text-right">{d.date}</span>
+                            <div className="flex-1 bg-white rounded-full h-4 overflow-hidden">
+                              <div className="h-4 rounded-full bg-cyan-500 transition-all"
+                                style={{ width: `${d.value / locMax * 100}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-cyan-700 w-4 text-right">{d.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                  }
+                </div>
+              )
+            })()}
           </div>
         </div>
       </div>
@@ -619,26 +595,77 @@ function SummaryView({
         <div className={C}>
           <h3 className="text-xs font-semibold text-gray-600 mb-2">
             Tỷ lệ loại lỗi trong tuần
-            <span className="ml-2 text-[10px] font-normal text-blue-400 normal-case">· click để xem thiết bị</span>
+            {selectedError && (
+              <button onClick={() => setSelectedError(null)}
+                className="ml-2 text-[10px] font-normal text-gray-400 hover:text-red-500 normal-case">
+                ✕ bỏ chọn
+              </button>
+            )}
           </h3>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
               <Pie
                 data={errorPie}
                 cx="50%" cy="50%"
-                innerRadius={38} outerRadius={72}
+                innerRadius={selectedError ? 28 : 38}
+                outerRadius={selectedError ? 56 : 72}
                 dataKey="value"
                 label={({ name, percent }) => percent > 0.04 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
                 labelLine={false}
                 fontSize={8}
                 cursor="pointer"
-                onClick={(data: { name: string }) => setDrillDown({ type: 'error', name: data.name })}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                onClick={(data: any) => setSelectedError(prev => prev === data.name ? null : data.name)}
               >
-                {errorPie.map((_, i) => <Cell key={i} fill={ERROR_COLORS[i % ERROR_COLORS.length]} />)}
+                {errorPie.map((entry, i) => (
+                  <Cell key={i} fill={ERROR_COLORS[i % ERROR_COLORS.length]}
+                    fillOpacity={selectedError && selectedError !== entry.name ? 0.25 : 1}
+                    stroke={selectedError === entry.name ? '#1e293b' : 'none'}
+                    strokeWidth={selectedError === entry.name ? 2 : 0}
+                  />
+                ))}
               </Pie>
               <Tooltip />
             </PieChart>
           </ResponsiveContainer>
+
+          {/* Inline detail: thiết bị gặp loại lỗi này */}
+          {selectedError && (() => {
+            const suffix = '×' + selectedError
+            const devices = Object.entries(pairSum)
+              .filter(([k]) => k.endsWith(suffix))
+              .map(([k, v]) => ({ name: k.slice(0, k.length - suffix.length), value: v }))
+              .sort((a, b) => b.value - a.value)
+            const total = devices.reduce((s, d) => s + d.value, 0)
+            const maxVal = devices[0]?.value ?? 1
+            const DCOLS = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#10b981']
+            return (
+              <div className="mt-3 bg-orange-50 border border-orange-100 rounded-xl p-4">
+                <p className="text-xs font-bold text-orange-700 mb-3">
+                  🚨 Thiết bị gặp lỗi <span className="underline">{selectedError}</span> ({total} yêu cầu)
+                </p>
+                {devices.length === 0
+                  ? <p className="text-xs text-gray-400">Không có dữ liệu</p>
+                  : <div className="space-y-1.5">
+                      {devices.map((d, i) => {
+                        const p = total > 0 ? Math.round(d.value / total * 100) : 0
+                        return (
+                          <div key={i} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-700 w-20 shrink-0 text-right font-medium">{d.name}</span>
+                            <div className="flex-1 bg-white rounded-full h-4 overflow-hidden">
+                              <div className="h-4 rounded-full transition-all"
+                                style={{ width: `${d.value / maxVal * 100}%`, background: DCOLS[i % DCOLS.length] }} />
+                            </div>
+                            <span className="text-[10px] text-gray-500 w-6">{p}%</span>
+                            <span className="text-xs font-bold text-gray-700 w-4 text-right">{d.value}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                }
+              </div>
+            )
+          })()}
         </div>
       </div>
 
