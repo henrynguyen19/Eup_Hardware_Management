@@ -429,20 +429,15 @@ function SummaryView({
                 </button>
               )}
             </p>
-            <ResponsiveContainer width="100%" height={selectedDevice ? 240 : 340}>
-              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              <PieChart onClick={(data: any) => {
-                const name = data?.activePayload?.[0]?.payload?.name
-                if (name) setSelectedDevice((prev: string | null) => prev === name ? null : name)
-              }}>
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
                 <Pie
                   data={devicePie}
-                  cx="50%" cy="42%"
-                  outerRadius={selectedDevice ? 90 : 120}
+                  cx="50%" cy="50%"
+                  outerRadius={90}
                   dataKey="value"
-                  label={({ name, percent }) => percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''}
+                  label={({ percent }) => percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''}
                   labelLine
-                  cursor="pointer"
                 >
                   {devicePie.map((entry, i) => (
                     <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]}
@@ -452,20 +447,26 @@ function SummaryView({
                     />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: number, name: string) => {
-                  const total = devicePie.reduce((s, d) => s + d.value, 0)
-                  const p = total > 0 ? Math.round(v / total * 100) : 0
-                  return [`${v} thiết bị (${p}%)`, name]
-                }} />
-                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                  formatter={(value, entry: any) => {
-                    const total = devicePie.reduce((s, d) => s + d.value, 0)
-                    const p = total > 0 ? Math.round((entry.payload?.value ?? 0) / total * 100) : 0
-                    return `${value} (${p}%)`
-                  }}
-                />
+                <Tooltip />
               </PieChart>
             </ResponsiveContainer>
+            {/* Clickable legend buttons */}
+            <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
+              {devicePie.map((entry, i) => {
+                const total = devicePie.reduce((s, d) => s + d.value, 0)
+                const p = total > 0 ? Math.round(entry.value / total * 100) : 0
+                const active = selectedDevice === entry.name
+                return (
+                  <button key={i}
+                    onClick={() => setSelectedDevice(prev => prev === entry.name ? null : entry.name)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-all ${active ? 'ring-2 ring-offset-1 shadow-sm' : 'opacity-70 hover:opacity-100'}`}
+                    style={{ borderColor: DEVICE_COLORS[i % DEVICE_COLORS.length], background: active ? DEVICE_COLORS[i % DEVICE_COLORS.length] + '22' : 'white', color: '#374151' }}>
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: DEVICE_COLORS[i % DEVICE_COLORS.length] }} />
+                    {entry.name} <span className="text-gray-400 font-normal">({p}%)</span>
+                  </button>
+                )
+              })}
+            </div>
 
             {/* Inline detail: lỗi của thiết bị được chọn */}
             {selectedDevice && (() => {
@@ -519,18 +520,13 @@ function SummaryView({
                 </button>
               )}
             </p>
-            <ResponsiveContainer width="100%" height={selectedLocation ? 200 : 340}>
-              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              <BarChart data={locationData} margin={{ top: 20, right: 20, bottom: 10, left: -10 }}
-                onClick={(data: any) => {
-                  const name = data?.activeLabel
-                  if (name) setSelectedLocation((prev: string | null) => prev === name ? null : name)
-                }}>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={locationData} margin={{ top: 20, right: 20, bottom: 10, left: -10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 13 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Bar dataKey="value" name="Số yêu cầu" radius={[5, 5, 0, 0]} cursor="pointer">
+                <Bar dataKey="value" name="Số yêu cầu" radius={[5, 5, 0, 0]}>
                   {locationData.map((entry, i) => (
                     <Cell key={i}
                       fill={selectedLocation && selectedLocation !== entry.name ? '#cbd5e1' : '#0891b2'}
@@ -541,6 +537,21 @@ function SummaryView({
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            {/* Clickable legend buttons */}
+            <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
+              {locationData.map((entry, i) => {
+                const active = selectedLocation === entry.name
+                return (
+                  <button key={i}
+                    onClick={() => setSelectedLocation(prev => prev === entry.name ? null : entry.name)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-all ${active ? 'ring-2 ring-offset-1 shadow-sm' : 'opacity-70 hover:opacity-100'}`}
+                    style={{ borderColor: '#0891b2', background: active ? '#0891b222' : 'white', color: '#374151' }}>
+                    <span className="w-2 h-2 rounded-full shrink-0 bg-cyan-600" />
+                    {entry.name} <span className="text-gray-400 font-normal">({entry.value})</span>
+                  </button>
+                )
+              })}
+            </div>
 
             {/* Inline detail: từng ngày của văn phòng được chọn */}
             {selectedLocation && (() => {
@@ -606,22 +617,17 @@ function SummaryView({
               </button>
             )}
           </h3>
-          <ResponsiveContainer width="100%" height={180}>
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <PieChart onClick={(data: any) => {
-              const name = data?.activePayload?.[0]?.payload?.name
-              if (name) setSelectedError((prev: string | null) => prev === name ? null : name)
-            }}>
+          <ResponsiveContainer width="100%" height={160}>
+            <PieChart>
               <Pie
                 data={errorPie}
                 cx="50%" cy="50%"
-                innerRadius={selectedError ? 28 : 38}
-                outerRadius={selectedError ? 56 : 72}
+                innerRadius={36}
+                outerRadius={64}
                 dataKey="value"
-                label={({ name, percent }) => percent > 0.04 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
+                label={({ name, percent }) => percent > 0.06 ? `${(percent * 100).toFixed(0)}%` : ''}
                 labelLine={false}
                 fontSize={8}
-                cursor="pointer"
               >
                 {errorPie.map((entry, i) => (
                   <Cell key={i} fill={ERROR_COLORS[i % ERROR_COLORS.length]}
@@ -634,6 +640,23 @@ function SummaryView({
               <Tooltip />
             </PieChart>
           </ResponsiveContainer>
+          {/* Clickable legend buttons */}
+          <div className="flex flex-wrap gap-1.5 mt-1 mb-1">
+            {errorPie.map((entry, i) => {
+              const total = errorPie.reduce((s, d) => s + d.value, 0)
+              const p = total > 0 ? Math.round(entry.value / total * 100) : 0
+              const active = selectedError === entry.name
+              return (
+                <button key={i}
+                  onClick={() => setSelectedError(prev => prev === entry.name ? null : entry.name)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-all ${active ? 'ring-2 ring-offset-1 shadow-sm' : 'opacity-70 hover:opacity-100'}`}
+                  style={{ borderColor: ERROR_COLORS[i % ERROR_COLORS.length], background: active ? ERROR_COLORS[i % ERROR_COLORS.length] + '22' : 'white', color: '#374151' }}>
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: ERROR_COLORS[i % ERROR_COLORS.length] }} />
+                  {entry.name} <span className="text-gray-400 font-normal">({p}%)</span>
+                </button>
+              )
+            })}
+          </div>
 
           {/* Inline detail: thiết bị gặp loại lỗi này */}
           {selectedError && (() => {
