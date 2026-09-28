@@ -176,6 +176,114 @@ function HorizBar({ data, total, color = 'bg-blue-500', maxBars = 6 }: {
   )
 }
 
+// ── DrillDownModal — popup hiển thị chi tiết khi click biểu đồ ──────
+type DrillType = 'device' | 'location' | 'error'
+interface DrillState { type: DrillType; name: string }
+
+function DrillDownModal({
+  drill, pairSum, dataRows, onClose,
+}: {
+  drill: DrillState
+  pairSum: Record<string, number>
+  dataRows: DailyRecord[]
+  onClose: () => void
+}) {
+  // ── Tính dữ liệu chi tiết ───────────────────────────────────────
+  let title = ''
+  let subtitle = ''
+  let items: { name: string; value: number; color: string }[] = []
+  let total = 0
+
+  if (drill.type === 'device') {
+    // Click thiết bị → show các lỗi của thiết bị đó
+    title = `🔧 Phân tích lỗi — ${drill.name}`
+    subtitle = 'Các loại lỗi hay gặp trên thiết bị này'
+    const prefix = drill.name + '×'
+    const raw = Object.entries(pairSum)
+      .filter(([k]) => k.startsWith(prefix))
+      .map(([k, v]) => ({ name: k.slice(prefix.length), value: v }))
+      .sort((a, b) => b.value - a.value)
+    total = raw.reduce((s, e) => s + e.value, 0)
+    const ECOLS = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#06b6d4','#ec4899','#10b981','#f97316','#6366f1','#14b8a6']
+    items = raw.map((e, i) => ({ ...e, color: ECOLS[i % ECOLS.length] }))
+
+  } else if (drill.type === 'error') {
+    // Click loại lỗi → show các thiết bị gặp lỗi đó
+    title = `🚨 Thiết bị gặp lỗi — ${drill.name}`
+    subtitle = 'Các thiết bị hay gặp loại lỗi này nhất'
+    const suffix = '×' + drill.name
+    const raw = Object.entries(pairSum)
+      .filter(([k]) => k.endsWith(suffix))
+      .map(([k, v]) => ({ name: k.slice(0, k.length - suffix.length), value: v }))
+      .sort((a, b) => b.value - a.value)
+    total = raw.reduce((s, e) => s + e.value, 0)
+    const DCOLS = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#10b981','#f97316','#6366f1']
+    items = raw.map((e, i) => ({ ...e, color: DCOLS[i % DCOLS.length] }))
+
+  } else {
+    // Click văn phòng → show phân bổ ngày và thiết bị/lỗi nhiều nhất
+    title = `🏢 Yêu cầu từ văn phòng — ${drill.name}`
+    subtitle = 'Số lượng yêu cầu theo từng ngày'
+    const raw = dataRows
+      .map(r => ({ name: r.date.slice(0, 5), value: r.locations[drill.name] ?? 0 }))
+      .filter(d => d.value > 0)
+    total = raw.reduce((s, d) => s + d.value, 0)
+    items = raw.map(d => ({ ...d, color: '#0891b2' }))
+  }
+
+  const max = items[0]?.value ?? 1
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center overflow-y-auto py-8"
+      onClick={onClose}>
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl mx-4"
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-sm font-bold text-gray-800">{title}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{subtitle} · Tổng: <strong>{total}</strong></p>
+          </div>
+          <button onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-500 text-sm font-bold transition">
+            ✕
+          </button>
+        </div>
+        {/* Body */}
+        <div className="p-5">
+          {items.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm py-8">Không có dữ liệu chi tiết</p>
+          ) : (
+            <div className="space-y-2.5">
+              {items.map((item, i) => {
+                const pctVal = total > 0 ? Math.round(item.value / total * 100) : 0
+                const barW   = max > 0 ? (item.value / max) * 100 : 0
+                return (
+                  <div key={i} className="flex items-center gap-3">
+                    <span className="text-xs text-gray-600 w-28 shrink-0 text-right truncate font-medium" title={item.name}>
+                      {item.name}
+                    </span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden relative">
+                      <div className="absolute inset-y-0 left-0 rounded-full flex items-center justify-end transition-all"
+                        style={{ width: `${Math.max(barW, 4)}%`, background: item.color }}>
+                        {pctVal >= 10 && (
+                          <span className="text-white text-[10px] font-bold pr-2">{pctVal}%</span>
+                        )}
+                      </div>
+                    </div>
+                    {pctVal < 10 && <span className="text-[10px] text-gray-500 w-7">{pctVal}%</span>}
+                    <span className="text-xs font-bold text-gray-700 w-5 text-right shrink-0">{item.value}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Summary Dashboard (Tổng quan) ─────────────────────────────────
 function SummaryView({
   staffMap, allStaff, month, yearShort, loading,
@@ -228,6 +336,7 @@ function SummaryView({
   const errorSum     = sumObj(dataRows, 'errors')
   const pmTypeSum    = sumObj(dataRows, 'pm_types')
   const pairSum      = sumObj(dataRows, 'device_error_pairs')
+  const [drillDown, setDrillDown] = useState<DrillState | null>(null)
   const avgResolution = Math.round(dataRows.reduce((s, r) => s + r.avg_time, 0) / dataRows.length) || 0
   const totalPending  = dataRows.reduce((s, r) => s + (r.resolution['Hen'] ?? 0) + (r.resolution['Mai bao lai'] ?? 0), 0)
   const resolveFast   = dataRows.reduce((s, r) => s + (r.resolution['Fast'] ?? 0), 0)
@@ -410,13 +519,29 @@ function SummaryView({
         </div>
       </div>
 
+      {/* DrillDown Modal */}
+      {drillDown && (
+        <DrillDownModal
+          drill={drillDown}
+          pairSum={pairSum}
+          dataRows={dataRows}
+          onClose={() => setDrillDown(null)}
+        />
+      )}
+
       {/* Row 2 — Phân tích yêu cầu: pie thiết bị + bar văn phòng (full width, prominent) */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
-        <h3 className="text-sm font-bold text-gray-700 mb-4">Phân tích yêu cầu hỗ trợ kỹ thuật</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-bold text-gray-700">Phân tích yêu cầu hỗ trợ kỹ thuật</h3>
+          <span className="text-[10px] text-gray-400 italic">👆 Click vào biểu đồ để xem chi tiết</span>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Device pie */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tỷ lệ lỗi theo thiết bị</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Tỷ lệ lỗi theo thiết bị
+              <span className="ml-2 text-[10px] font-normal text-blue-400 normal-case">· click để xem loại lỗi</span>
+            </p>
             <ResponsiveContainer width="100%" height={340}>
               <PieChart>
                 <Pie
@@ -426,6 +551,8 @@ function SummaryView({
                   dataKey="value"
                   label={({ name, percent }) => percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''}
                   labelLine
+                  cursor="pointer"
+                  onClick={(data: { name: string }) => setDrillDown({ type: 'device', name: data.name })}
                 >
                   {devicePie.map((_, i) => <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]} />)}
                 </Pie>
@@ -448,14 +575,19 @@ function SummaryView({
 
           {/* Location bar */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Yêu cầu theo văn phòng</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Yêu cầu theo văn phòng
+              <span className="ml-2 text-[10px] font-normal text-blue-400 normal-case">· click để xem theo ngày</span>
+            </p>
             <ResponsiveContainer width="100%" height={340}>
               <BarChart data={locationData} margin={{ top: 28, right: 20, bottom: 10, left: -10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 13 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Bar dataKey="value" name="Số yêu cầu" fill="#0891b2" radius={[5, 5, 0, 0]}>
+                <Bar dataKey="value" name="Số yêu cầu" fill="#0891b2" radius={[5, 5, 0, 0]}
+                  cursor="pointer"
+                  onClick={(data: { name: string }) => setDrillDown({ type: 'location', name: data.name })}>
                   <LabelList dataKey="value" position="top" style={{ fontSize: 14, fill: '#1e293b', fontWeight: 700 }} />
                 </Bar>
               </BarChart>
@@ -485,7 +617,10 @@ function SummaryView({
 
         {/* 8. Error donut */}
         <div className={C}>
-          <h3 className="text-xs font-semibold text-gray-600 mb-2">Tỷ lệ loại lỗi trong tuần</h3>
+          <h3 className="text-xs font-semibold text-gray-600 mb-2">
+            Tỷ lệ loại lỗi trong tuần
+            <span className="ml-2 text-[10px] font-normal text-blue-400 normal-case">· click để xem thiết bị</span>
+          </h3>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
               <Pie
@@ -496,6 +631,8 @@ function SummaryView({
                 label={({ name, percent }) => percent > 0.04 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
                 labelLine={false}
                 fontSize={8}
+                cursor="pointer"
+                onClick={(data: { name: string }) => setDrillDown({ type: 'error', name: data.name })}
               >
                 {errorPie.map((_, i) => <Cell key={i} fill={ERROR_COLORS[i % ERROR_COLORS.length]} />)}
               </Pie>
