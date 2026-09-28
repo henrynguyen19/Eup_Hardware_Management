@@ -439,14 +439,14 @@ function SummaryView({
                   label={({ name, percent }) => percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''}
                   labelLine
                   cursor="pointer"
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  onClick={(data: any) => setSelectedDevice(prev => prev === data.name ? null : data.name)}
                 >
                   {devicePie.map((entry, i) => (
                     <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]}
                       fillOpacity={selectedDevice && selectedDevice !== entry.name ? 0.25 : 1}
                       stroke={selectedDevice === entry.name ? '#1e293b' : 'none'}
                       strokeWidth={selectedDevice === entry.name ? 2 : 0}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setSelectedDevice(prev => prev === entry.name ? null : entry.name)}
                     />
                   ))}
                 </Pie>
@@ -481,7 +481,7 @@ function SummaryView({
                     🔧 Loại lỗi của <span className="underline">{selectedDevice}</span> ({total} yêu cầu)
                   </p>
                   {errors.length === 0
-                    ? <p className="text-xs text-gray-400">Không có dữ liệu lỗi chi tiết</p>
+                    ? <p className="text-xs text-gray-400">Chưa có dữ liệu lỗi chi tiết cho thiết bị này (tổng: {deviceSum[selectedDevice] ?? 0} yêu cầu)</p>
                     : <div className="space-y-2">
                         {errors.map((e, i) => {
                           const p = total > 0 ? Math.round(e.value / total * 100) : 0
@@ -524,13 +524,13 @@ function SummaryView({
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Bar dataKey="value" name="Số yêu cầu" radius={[5, 5, 0, 0]}
-                  cursor="pointer"
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  onClick={(data: any) => setSelectedLocation(prev => prev === data.name ? null : data.name)}>
+                  cursor="pointer">
                   {locationData.map((entry, i) => (
                     <Cell key={i}
                       fill={selectedLocation && selectedLocation !== entry.name ? '#cbd5e1' : '#0891b2'}
                       fillOpacity={selectedLocation && selectedLocation !== entry.name ? 0.5 : 1}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setSelectedLocation(prev => prev === entry.name ? null : entry.name)}
                     />
                   ))}
                   <LabelList dataKey="value" position="top" style={{ fontSize: 13, fill: '#1e293b', fontWeight: 700 }} />
@@ -614,14 +614,14 @@ function SummaryView({
                 labelLine={false}
                 fontSize={8}
                 cursor="pointer"
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                onClick={(data: any) => setSelectedError(prev => prev === data.name ? null : data.name)}
               >
                 {errorPie.map((entry, i) => (
                   <Cell key={i} fill={ERROR_COLORS[i % ERROR_COLORS.length]}
                     fillOpacity={selectedError && selectedError !== entry.name ? 0.25 : 1}
                     stroke={selectedError === entry.name ? '#1e293b' : 'none'}
                     strokeWidth={selectedError === entry.name ? 2 : 0}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setSelectedError(prev => prev === entry.name ? null : entry.name)}
                   />
                 ))}
               </Pie>
