@@ -430,7 +430,11 @@ function SummaryView({
               )}
             </p>
             <ResponsiveContainer width="100%" height={selectedDevice ? 240 : 340}>
-              <PieChart>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <PieChart onClick={(data: any) => {
+                const name = data?.activePayload?.[0]?.payload?.name
+                if (name) setSelectedDevice((prev: string | null) => prev === name ? null : name)
+              }}>
                 <Pie
                   data={devicePie}
                   cx="50%" cy="42%"
@@ -445,8 +449,6 @@ function SummaryView({
                       fillOpacity={selectedDevice && selectedDevice !== entry.name ? 0.25 : 1}
                       stroke={selectedDevice === entry.name ? '#1e293b' : 'none'}
                       strokeWidth={selectedDevice === entry.name ? 2 : 0}
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setSelectedDevice(prev => prev === entry.name ? null : entry.name)}
                     />
                   ))}
                 </Pie>
@@ -518,19 +520,21 @@ function SummaryView({
               )}
             </p>
             <ResponsiveContainer width="100%" height={selectedLocation ? 200 : 340}>
-              <BarChart data={locationData} margin={{ top: 20, right: 20, bottom: 10, left: -10 }}>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <BarChart data={locationData} margin={{ top: 20, right: 20, bottom: 10, left: -10 }}
+                onClick={(data: any) => {
+                  const name = data?.activeLabel
+                  if (name) setSelectedLocation((prev: string | null) => prev === name ? null : name)
+                }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 13 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Bar dataKey="value" name="Số yêu cầu" radius={[5, 5, 0, 0]}
-                  cursor="pointer">
+                <Bar dataKey="value" name="Số yêu cầu" radius={[5, 5, 0, 0]} cursor="pointer">
                   {locationData.map((entry, i) => (
                     <Cell key={i}
                       fill={selectedLocation && selectedLocation !== entry.name ? '#cbd5e1' : '#0891b2'}
                       fillOpacity={selectedLocation && selectedLocation !== entry.name ? 0.5 : 1}
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setSelectedLocation(prev => prev === entry.name ? null : entry.name)}
                     />
                   ))}
                   <LabelList dataKey="value" position="top" style={{ fontSize: 13, fill: '#1e293b', fontWeight: 700 }} />
@@ -603,7 +607,11 @@ function SummaryView({
             )}
           </h3>
           <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            <PieChart onClick={(data: any) => {
+              const name = data?.activePayload?.[0]?.payload?.name
+              if (name) setSelectedError((prev: string | null) => prev === name ? null : name)
+            }}>
               <Pie
                 data={errorPie}
                 cx="50%" cy="50%"
@@ -620,8 +628,6 @@ function SummaryView({
                     fillOpacity={selectedError && selectedError !== entry.name ? 0.25 : 1}
                     stroke={selectedError === entry.name ? '#1e293b' : 'none'}
                     strokeWidth={selectedError === entry.name ? 2 : 0}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setSelectedError(prev => prev === entry.name ? null : entry.name)}
                   />
                 ))}
               </Pie>
