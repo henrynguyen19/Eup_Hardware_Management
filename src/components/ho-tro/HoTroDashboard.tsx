@@ -1170,6 +1170,10 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   }
   const [showGroupPending, setShowGroupPending] = useState(false)
   const [groupPendingFilter, setGroupPendingFilter] = useState<'all'|'hen'|'mai_bao_lai'>('all')
+  // State cho chart drill-down trong tab Thống kê
+  const [statsSelDevice, setStatsSelDevice] = useState<string | null>(null)
+  const [statsSelError, setStatsSelError]   = useState<string | null>(null)
+  const [statsSelLoc, setStatsSelLoc]       = useState<string | null>(null)
   const [showUnread, setShowUnread] = useState(false)
   const [unreadTickets, setUnreadTickets] = useState<UnreadTicket[]>([])
   const [unreadLoading, setUnreadLoading] = useState(false)
@@ -2376,39 +2380,114 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
                   {/* Chart 5: Device pie — Rate devices getting errors */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartDeviceTitle}</p>
-                    {Object.keys(byDeviceTotal).length ? (
-                      <ResponsiveContainer width="100%" height={170}>
-                        <PieChart>
-                          <Pie data={Object.entries(byDeviceTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))}
-                            cx="38%" cy="50%" outerRadius={65}
-                            dataKey="value" label={({name,percent}) => percent>0.04?`${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
-                            {Object.keys(byDeviceTotal).map((_,i) => <Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]} />)}
-                          </Pie>
-                          <Tooltip />
-                          <Legend wrapperStyle={{fontSize:8}} layout="vertical" align="right" verticalAlign="middle" />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    ) : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagDevice}</p>}
+                    <p className="text-xs font-semibold text-gray-600 mb-2">
+                      {t.hoTro.chartDeviceTitle}
+                      {statsSelDevice && <button onClick={() => setStatsSelDevice(null)} className="ml-2 text-[10px] text-red-400 hover:text-red-600 font-normal">✕ bỏ chọn</button>}
+                    </p>
+                    {Object.keys(byDeviceTotal).length ? (() => {
+                      const devPieData = Object.entries(byDeviceTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))
+                      const devTotal = devPieData.reduce((s,d)=>s+d.value,0)
+                      return (<>
+                        <ResponsiveContainer width="100%" height={140}>
+                          <PieChart>
+                            <Pie data={devPieData} cx="50%" cy="50%" outerRadius={60}
+                              dataKey="value" label={({percent}) => percent>0.06?`${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
+                              {devPieData.map((e,i) => <Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}
+                                fillOpacity={statsSelDevice && statsSelDevice !== e.name ? 0.25 : 1}
+                                stroke={statsSelDevice === e.name ? '#1e293b' : 'none'} strokeWidth={statsSelDevice === e.name ? 2 : 0} />)}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {devPieData.map((e,i) => {
+                            const p = devTotal > 0 ? Math.round(e.value/devTotal*100) : 0
+                            const act = statsSelDevice === e.name
+                            return <button key={i} onClick={() => setStatsSelDevice(prev => prev===e.name?null:e.name)}
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border transition-all ${act?'ring-1 ring-offset-1':'opacity-60 hover:opacity-100'}`}
+                              style={{borderColor:PIE_COLORS[i%PIE_COLORS.length], background: act?PIE_COLORS[i%PIE_COLORS.length]+'22':'white'}}>
+                              <span className="w-1.5 h-1.5 rounded-full" style={{background:PIE_COLORS[i%PIE_COLORS.length]}}/>
+                              {e.name} ({p}%)
+                            </button>
+                          })}
+                        </div>
+                        {statsSelDevice && (() => {
+                          const errs = Object.entries(errDevMatrix)
+                            .filter(([,dm]) => dm[statsSelDevice])
+                            .map(([err,dm]) => ({name:err, value:dm[statsSelDevice]}))
+                            .sort((a,b)=>b.value-a.value)
+                          const tot = errs.reduce((s,e)=>s+e.value,0)
+                          return errs.length > 0 ? (
+                            <div className="mt-2 bg-blue-50 border border-blue-100 rounded-lg p-3">
+                              <p className="text-[10px] font-bold text-blue-700 mb-2">🔧 Lỗi của {statsSelDevice} ({tot} YC)</p>
+                              {errs.map((e,i) => {
+                                const p2 = tot>0?Math.round(e.value/tot*100):0
+                                return <div key={i} className="flex items-center gap-1 mb-1">
+                                  <span className="text-[10px] text-gray-600 w-16 text-right shrink-0">{e.name}</span>
+                                  <div className="flex-1 bg-white rounded-full h-3 overflow-hidden">
+                                    <div className="h-3 rounded-full bg-blue-400" style={{width:`${Math.max(e.value/errs[0].value*100,4)}%`}}/>
+                                  </div>
+                                  <span className="text-[10px] text-gray-500 w-8 text-right">{p2}% ({e.value})</span>
+                                </div>
+                              })}
+                            </div>
+                          ) : <p className="text-[10px] text-gray-400 mt-2">Không có dữ liệu lỗi chi tiết</p>
+                        })()}
+                      </>)
+                    })() : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagDevice}</p>}
                   </div>
 
                   {/* Chart 6: Office bar — number of requests by location */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartOfficeTitle}</p>
-                    {Object.keys(byLocTotal).length ? (
-                      <ResponsiveContainer width="100%" height={170}>
-                        <BarChart data={Object.entries(byLocTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))}
-                          margin={{top:4,right:8,bottom:20,left:-20}}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                          <XAxis dataKey="name" tick={{fontSize:9}} angle={-20} textAnchor="end" />
-                          <YAxis {...yP} />
-                          <Tooltip />
-                          <Bar dataKey="value" name="YC" radius={[3,3,0,0]}>
-                            {Object.keys(byLocTotal).map((_,i) => <Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]} />)}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    ) : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagOffice}</p>}
+                    <p className="text-xs font-semibold text-gray-600 mb-2">
+                      {t.hoTro.chartOfficeTitle}
+                      {statsSelLoc && <button onClick={() => setStatsSelLoc(null)} className="ml-2 text-[10px] text-red-400 hover:text-red-600 font-normal">✕ bỏ chọn</button>}
+                    </p>
+                    {Object.keys(byLocTotal).length ? (() => {
+                      const locData = Object.entries(byLocTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))
+                      return (<>
+                        <ResponsiveContainer width="100%" height={140}>
+                          <BarChart data={locData} margin={{top:4,right:8,bottom:20,left:-20}}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="name" tick={{fontSize:9}} angle={-20} textAnchor="end" />
+                            <YAxis {...yP} />
+                            <Tooltip />
+                            <Bar dataKey="value" name="YC" radius={[3,3,0,0]}>
+                              {locData.map((e,i) => <Cell key={i}
+                                fill={statsSelLoc && statsSelLoc!==e.name ? '#cbd5e1' : PIE_COLORS[i%PIE_COLORS.length]}
+                                fillOpacity={statsSelLoc && statsSelLoc!==e.name ? 0.4 : 1} />)}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {locData.map((e,i) => {
+                            const act = statsSelLoc === e.name
+                            return <button key={i} onClick={() => setStatsSelLoc(prev => prev===e.name?null:e.name)}
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border transition-all ${act?'ring-1 ring-offset-1':'opacity-60 hover:opacity-100'}`}
+                              style={{borderColor:PIE_COLORS[i%PIE_COLORS.length], background: act?PIE_COLORS[i%PIE_COLORS.length]+'22':'white'}}>
+                              <span className="w-1.5 h-1.5 rounded-full" style={{background:PIE_COLORS[i%PIE_COLORS.length]}}/>
+                              {e.name} ({e.value})
+                            </button>
+                          })}
+                        </div>
+                        {statsSelLoc && (() => {
+                          const trend = days.map(d=>({date:d.date.slice(0,5), value:d.byLocation[statsSelLoc]??0})).filter(d=>d.value>0)
+                          const mx = Math.max(...trend.map(d=>d.value),1)
+                          return trend.length > 0 ? (
+                            <div className="mt-2 bg-cyan-50 border border-cyan-100 rounded-lg p-3">
+                              <p className="text-[10px] font-bold text-cyan-700 mb-2">🏢 {statsSelLoc} theo ngày</p>
+                              {trend.map((d,i) => <div key={i} className="flex items-center gap-1 mb-0.5">
+                                <span className="text-[10px] text-gray-500 w-10 text-right shrink-0">{d.date}</span>
+                                <div className="flex-1 bg-white rounded-full h-3 overflow-hidden">
+                                  <div className="h-3 rounded-full bg-cyan-400" style={{width:`${d.value/mx*100}%`}}/>
+                                </div>
+                                <span className="text-[10px] font-bold text-cyan-700 w-4 text-right">{d.value}</span>
+                              </div>)}
+                            </div>
+                          ) : null
+                        })()}
+                      </>)
+                    })() : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagOffice}</p>}
                   </div>
 
                   {/* Chart 7: Channel % — Zalo / Hotline / Ngày nghỉ */}
@@ -2439,20 +2518,58 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
 
                   {/* Chart 8: Error rate pie */}
                   <div className={C8}>
-                    <p className="text-xs font-semibold text-gray-600 mb-2">{t.hoTro.chartErrorTitle}</p>
-                    {Object.keys(byErrorTotal).length ? (
-                      <ResponsiveContainer width="100%" height={170}>
-                        <PieChart>
-                          <Pie data={Object.entries(byErrorTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))}
-                            cx="38%" cy="50%" outerRadius={65}
-                            dataKey="value" label={({name,percent}) => percent>0.04?`${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
-                            {Object.keys(byErrorTotal).map((_,i) => <Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]} />)}
-                          </Pie>
-                          <Tooltip />
-                          <Legend wrapperStyle={{fontSize:8}} layout="vertical" align="right" verticalAlign="middle" />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    ) : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagError}</p>}
+                    <p className="text-xs font-semibold text-gray-600 mb-2">
+                      {t.hoTro.chartErrorTitle}
+                      {statsSelError && <button onClick={() => setStatsSelError(null)} className="ml-2 text-[10px] text-red-400 hover:text-red-600 font-normal">✕ bỏ chọn</button>}
+                    </p>
+                    {Object.keys(byErrorTotal).length ? (() => {
+                      const errPieData = Object.entries(byErrorTotal).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value}))
+                      const errTotal = errPieData.reduce((s,d)=>s+d.value,0)
+                      return (<>
+                        <ResponsiveContainer width="100%" height={140}>
+                          <PieChart>
+                            <Pie data={errPieData} cx="50%" cy="50%" innerRadius={30} outerRadius={60}
+                              dataKey="value" label={({percent}) => percent>0.08?`${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
+                              {errPieData.map((e,i) => <Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}
+                                fillOpacity={statsSelError && statsSelError!==e.name ? 0.25 : 1}
+                                stroke={statsSelError===e.name ? '#1e293b' : 'none'} strokeWidth={statsSelError===e.name ? 2 : 0} />)}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {errPieData.map((e,i) => {
+                            const p = errTotal>0?Math.round(e.value/errTotal*100):0
+                            const act = statsSelError === e.name
+                            return <button key={i} onClick={() => setStatsSelError(prev => prev===e.name?null:e.name)}
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border transition-all ${act?'ring-1 ring-offset-1':'opacity-60 hover:opacity-100'}`}
+                              style={{borderColor:PIE_COLORS[i%PIE_COLORS.length], background: act?PIE_COLORS[i%PIE_COLORS.length]+'22':'white'}}>
+                              <span className="w-1.5 h-1.5 rounded-full" style={{background:PIE_COLORS[i%PIE_COLORS.length]}}/>
+                              {e.name} ({p}%)
+                            </button>
+                          })}
+                        </div>
+                        {statsSelError && (() => {
+                          const devs = Object.entries(errDevMatrix[statsSelError] ?? {}).sort((a,b)=>b[1]-a[1])
+                          const tot = devs.reduce((s,[,v])=>s+v,0)
+                          return devs.length > 0 ? (
+                            <div className="mt-2 bg-orange-50 border border-orange-100 rounded-lg p-3">
+                              <p className="text-[10px] font-bold text-orange-700 mb-2">🚨 Thiết bị gặp {statsSelError} ({tot} YC)</p>
+                              {devs.map(([dev,val],i) => {
+                                const p2=tot>0?Math.round(val/tot*100):0
+                                return <div key={i} className="flex items-center gap-1 mb-0.5">
+                                  <span className="text-[10px] text-gray-600 w-16 text-right shrink-0">{dev}</span>
+                                  <div className="flex-1 bg-white rounded-full h-3 overflow-hidden">
+                                    <div className="h-3 rounded-full bg-orange-400" style={{width:`${Math.max(val/devs[0][1]*100,4)}%`}}/>
+                                  </div>
+                                  <span className="text-[10px] text-gray-500 w-8 text-right">{p2}% ({val})</span>
+                                </div>
+                              })}
+                            </div>
+                          ) : <p className="text-[10px] text-gray-400 mt-2">Không có dữ liệu thiết bị</p>
+                        })()}
+                      </>)
+                    })() : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagError}</p>}
                   </div>
                 </div>
 
