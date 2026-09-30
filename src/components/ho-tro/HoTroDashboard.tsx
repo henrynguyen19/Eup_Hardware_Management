@@ -2206,6 +2206,24 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 errDevMatrix[e][device] = (errDevMatrix[e][device] ?? 0) + 1
               }
             }
+            // ── Location × Device matrix + Location × Device × Error ────────
+            const locDevMatrix: Record<string, Record<string, number>> = {}
+            const locDevErrMatrix: Record<string, Record<string, Record<string, number>>> = {}
+            for (const tk of statsTickets) {
+              const memo2 = (tk.reply ?? '') as string
+              const loc2  = parseMemoLocation(memo2) ?? ((tk as {zone?: string|null}).zone ?? null)
+              const dev2  = parseMemoDevice(memo2)
+              if (!loc2) continue
+              if (!locDevMatrix[loc2]) locDevMatrix[loc2] = {}
+              if (dev2) locDevMatrix[loc2][dev2] = (locDevMatrix[loc2][dev2] ?? 0) + 1
+              const errs2 = parseMemoErrors(memo2)
+              if (dev2 && errs2.length > 0) {
+                if (!locDevErrMatrix[loc2]) locDevErrMatrix[loc2] = {}
+                if (!locDevErrMatrix[loc2][dev2]) locDevErrMatrix[loc2][dev2] = {}
+                for (const e2 of errs2) locDevErrMatrix[loc2][dev2][e2] = (locDevErrMatrix[loc2][dev2][e2] ?? 0) + 1
+              }
+            }
+
             // Lấy top devices xuất hiện trong ma trận
             const matrixDevices = Array.from(
               new Set(Object.values(errDevMatrix).flatMap(m => Object.keys(m)))
@@ -2471,20 +2489,47 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                           })}
                         </div>
                         {statsSelLoc && (() => {
-                          const trend = days.map(d=>({date:d.date.slice(0,5), value:d.byLocation[statsSelLoc]??0})).filter(d=>d.value>0)
-                          const mx = Math.max(...trend.map(d=>d.value),1)
-                          return trend.length > 0 ? (
+                          const devMap  = locDevMatrix[statsSelLoc] ?? {}
+                          const devList = Object.entries(devMap).sort((a,b)=>b[1]-a[1])
+                          const devTot  = devList.reduce((s,[,v])=>s+v,0)
+                          if (devList.length === 0) return (
                             <div className="mt-2 bg-cyan-50 border border-cyan-100 rounded-lg p-3">
-                              <p className="text-[10px] font-bold text-cyan-700 mb-2">🏢 {statsSelLoc} theo ngày</p>
-                              {trend.map((d,i) => <div key={i} className="flex items-center gap-1 mb-0.5">
-                                <span className="text-[10px] text-gray-500 w-10 text-right shrink-0">{d.date}</span>
-                                <div className="flex-1 bg-white rounded-full h-3 overflow-hidden">
-                                  <div className="h-3 rounded-full bg-cyan-400" style={{width:`${d.value/mx*100}%`}}/>
-                                </div>
-                                <span className="text-[10px] font-bold text-cyan-700 w-4 text-right">{d.value}</span>
-                              </div>)}
+                              <p className="text-[10px] text-cyan-600">Không có tag thiết bị từ {statsSelLoc}</p>
                             </div>
-                          ) : null
+                          )
+                          return (
+                            <div className="mt-2 bg-cyan-50 border border-cyan-100 rounded-lg p-3">
+                              <p className="text-[10px] font-bold text-cyan-700 mb-2">🏢 {statsSelLoc} — thiết bị ({devTot} YC)</p>
+                              {devList.map(([dev,cnt],i) => {
+                                const pct  = devTot > 0 ? Math.round(cnt/devTot*100) : 0
+                                const errs = Object.entries(locDevErrMatrix[statsSelLoc]?.[dev] ?? {})
+                                  .sort((a,b)=>b[1]-a[1]).slice(0,5)
+                                return (
+                                  <div key={i} className="mb-2">
+                                    <div className="flex items-center gap-1 mb-0.5">
+                                      <span className="text-[10px] font-semibold text-gray-700 w-16 shrink-0 truncate">{dev}</span>
+                                      <div className="flex-1 bg-white rounded-full h-3 overflow-hidden">
+                                        <div className="h-3 rounded-full bg-cyan-400"
+                                          style={{width:`${Math.max(cnt/devList[0][1]*100,4)}%`}}/>
+                                      </div>
+                                      <span className="text-[10px] font-bold text-cyan-700 w-14 text-right shrink-0">{pct}% ({cnt})</span>
+                                    </div>
+                                    {errs.length > 0 && (
+                                      <div className="flex flex-wrap gap-0.5 ml-[68px] mt-0.5">
+                                        {errs.map(([e,c],j) => (
+                                          <span key={j} className="text-[9px] px-1 py-0.5 rounded-full border" style={{
+                                            borderColor: ERR_COLORS[e] ?? '#94a3b8',
+                                            background:  (ERR_COLORS[e] ?? '#94a3b8') + '22',
+                                            color:       ERR_COLORS[e] ?? '#64748b',
+                                          }}>{e} ×{c}</span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )
                         })()}
                       </>)
                     })() : <p className="text-xs text-gray-400 mt-8 text-center whitespace-pre-line">{t.hoTro.noHashtagOffice}</p>}
