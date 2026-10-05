@@ -858,6 +858,440 @@ function SummaryView({
   )
 }
 
+// ── HoTro Report Modal ─────────────────────────────────────────────
+function HoTroReportModal({
+  periodLabel, totalReq, totalFastC, fastPct, totalPendC,
+  byStaffTotal, byDeviceTotal, byErrorTotal, byLocTotal,
+  errDevMatrix, locDevMatrix,
+  chartTotal, chartResolution, chartPendPct, chartStaff, staffNames,
+  chartStaffBar, monthTrendData, weekErrData, matrixDevices,
+  onClose,
+}: {
+  periodLabel:   string
+  totalReq:      number
+  totalFastC:    number
+  fastPct:       number
+  totalPendC:    number
+  byStaffTotal:  Record<string,number>
+  byDeviceTotal: Record<string,number>
+  byErrorTotal:  Record<string,number>
+  byLocTotal:    Record<string,number>
+  errDevMatrix:  Record<string, Record<string,number>>
+  locDevMatrix:  Record<string, Record<string,number>>
+  chartTotal:    Record<string,string|number>[]
+  chartResolution: Record<string,string|number>[]
+  chartPendPct:  Record<string,string|number>[]
+  chartStaff:    Record<string,string|number>[]
+  staffNames:    string[]
+  chartStaffBar: {name:string;value:number}[]
+  monthTrendData:{label:string;total:number;pct:number|null;pctLabel:string}[]
+  weekErrData:   Record<string,string|number>[]
+  matrixDevices: string[]
+  onClose:       () => void
+}) {
+  const today    = new Date().toLocaleDateString('vi-VN')
+  const staffList = Object.entries(byStaffTotal).sort((a,b)=>b[1]-a[1])
+  const devList   = Object.entries(byDeviceTotal).sort((a,b)=>b[1]-a[1])
+  const errList   = Object.entries(byErrorTotal).sort((a,b)=>b[1]-a[1])
+  const locList   = Object.entries(byLocTotal).sort((a,b)=>b[1]-a[1])
+  const devTotal  = devList.reduce((s,[,v])=>s+v,0) || 1
+  const errTotal  = errList.reduce((s,[,v])=>s+v,0) || 1
+  const locTotal  = locList.reduce((s,[,v])=>s+v,0) || 1
+  const staffTot  = staffList.reduce((s,[,v])=>s+v,0) || 1
+
+  const KEY_ERRORS = ['No Connect','RFID','ACC','PW','Support','GPS','GSM']
+  const ERR_C: Record<string,string> = {
+    'No Connect':'#ef4444','RFID':'#8b5cf6','ACC':'#f59e0b',
+    'PW':'#f97316','Support':'#3b82f6','GPS':'#10b981','GSM':'#06b6d4',
+  }
+  const PIE_C = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316']
+  const STAFF_C: Record<string,string> = {
+    Kane:'#3b82f6',Stefan:'#10b981',Shiro:'#f59e0b',Irene:'#8b5cf6',Blue:'#ec4899'
+  }
+  const SPEED_C = ['#34d399','#60a5fa','#fb923c','#c084fc','#f472b6']
+  const xP = { tick:{fontSize:8}, interval:'preserveStartEnd' as const }
+  const yP = { tick:{fontSize:8} }
+  const S  = 'bg-white rounded-xl border border-gray-100 p-4'
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto py-6 px-4">
+      <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl">
+        {/* Control bar */}
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 print:hidden">
+          <span className="text-xs text-gray-400">Nhấn In để lưu PDF hoặc in báo cáo</span>
+          <div className="flex gap-2">
+            <button onClick={() => window.print()}
+              className="px-3 py-1.5 text-xs bg-gray-800 text-white rounded-lg hover:bg-gray-700">
+              🖨 In / Lưu PDF
+            </button>
+            <button onClick={onClose}
+              className="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">
+              ✕ Đóng
+            </button>
+          </div>
+        </div>
+
+        <div className="p-8 space-y-8">
+          {/* ── 1. Header ── */}
+          <div className="flex items-start justify-between border-b border-gray-200 pb-5">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-2xl">📞</span>
+                <h1 className="text-xl font-bold text-gray-900">BÁO CÁO HỖ TRỢ KỸ THUẬT</h1>
+              </div>
+              <p className="text-sm text-gray-500">EUP Hardware — {periodLabel}</p>
+            </div>
+            <div className="text-right text-xs text-gray-400">
+              <p>Xuất ngày: {today}</p>
+              <p>Tổng yêu cầu: <strong className="text-gray-700">{totalReq}</strong></p>
+              <p>Xử lý nhanh: <strong className="text-teal-600">{fastPct}%</strong></p>
+            </div>
+          </div>
+
+          {/* ── 2. KPI ── */}
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { label:'Tổng yêu cầu',  value:totalReq,    color:'#3b82f6', bg:'#eff6ff', border:'#bfdbfe' },
+              { label:'Xử lý nhanh',   value:`${fastPct}% (${totalFastC})`, color:'#10b981', bg:'#f0fdf4', border:'#bbf7d0' },
+              { label:'Cần theo dõi',  value:totalPendC,  color:'#ef4444', bg:'#fef2f2', border:'#fecaca' },
+            ].map(c=>(
+              <div key={c.label} className="rounded-xl border p-4 text-center" style={{background:c.bg,borderColor:c.border}}>
+                <p className="text-3xl font-bold" style={{color:c.color}}>{c.value}</p>
+                <p className="text-xs font-semibold text-gray-600 mt-1">{c.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* ── 3. Biểu đồ tổng YC + Speed tag (2 cột) ── */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">BIỂU ĐỒ YÊU CẦU THEO NGÀY</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className={S}>
+                <p className="text-xs font-semibold text-gray-600 mb-2">Tổng YC / Nhanh / Cần XĐ</p>
+                <ResponsiveContainer width="100%" height={160}>
+                  <ComposedChart data={chartTotal} margin={{top:4,right:4,bottom:0,left:-20}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                    <XAxis dataKey="date" {...xP}/>
+                    <YAxis {...yP}/>
+                    <Tooltip/>
+                    <Legend wrapperStyle={{fontSize:8}}/>
+                    <Bar dataKey="Tổng YC" fill="#60a5fa" radius={[2,2,0,0]}/>
+                    <Bar dataKey="#f Nhanh" fill="#34d399" radius={[2,2,0,0]}/>
+                    <Line type="monotone" dataKey="Cần XĐ" stroke="#f87171" strokeWidth={1.5} dot={{r:2}}/>
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <div className={S}>
+                <p className="text-xs font-semibold text-gray-600 mb-2">Phân loại tốc độ xử lý</p>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={chartResolution} margin={{top:4,right:4,bottom:0,left:-20}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                    <XAxis dataKey="date" {...xP}/>
+                    <YAxis {...yP}/>
+                    <Tooltip/>
+                    <Legend wrapperStyle={{fontSize:8}}/>
+                    {['#f Nhanh','#n Thường','#l Thấp','Hẹn','MBL'].map((k,i)=>(
+                      <Bar key={k} dataKey={k} stackId="a" fill={SPEED_C[i]} radius={i===4?[2,2,0,0]:undefined}/>
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* ── 4. Pending % + Staff % (2 cột) ── */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className={S}>
+              <p className="text-xs font-semibold text-gray-600 mb-2">% Cần theo dõi theo ngày</p>
+              <ResponsiveContainer width="100%" height={150}>
+                <LineChart data={chartPendPct} margin={{top:4,right:4,bottom:0,left:-20}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                  <XAxis dataKey="date" {...xP}/>
+                  <YAxis unit="%" {...yP}/>
+                  <Tooltip formatter={(v:number)=>`${v}%`}/>
+                  <Line type="monotone" dataKey="Cần theo dõi (%)" stroke="#3b82f6" strokeWidth={2} dot={{r:2}}/>
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className={S}>
+              <p className="text-xs font-semibold text-gray-600 mb-2">Tỉ lệ xử lý theo nhân viên</p>
+              <ResponsiveContainer width="100%" height={150}>
+                <LineChart data={chartStaff} margin={{top:4,right:4,bottom:0,left:-20}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                  <XAxis dataKey="date" {...xP}/>
+                  <YAxis unit="%" {...yP}/>
+                  <Tooltip/>
+                  <Legend wrapperStyle={{fontSize:8}}/>
+                  {staffNames.map(n=>(
+                    <Line key={n} type="monotone" dataKey={n} stroke={STAFF_C[n]??'#94a3b8'} strokeWidth={1.5} dot={{r:2}}/>
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* ── 5. Nhân viên (bar) + Xu hướng tháng (2 cột) ── */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className={S}>
+              <p className="text-xs font-semibold text-gray-600 mb-2">Tổng YC theo nhân viên</p>
+              <ResponsiveContainer width="100%" height={150}>
+                <BarChart data={chartStaffBar} layout="vertical" margin={{top:4,right:20,bottom:4,left:40}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                  <XAxis type="number" {...yP}/>
+                  <YAxis type="category" dataKey="name" tick={{fontSize:9}} width={50}/>
+                  <Tooltip/>
+                  <Bar dataKey="value" name="YC" radius={[0,3,3,0]}>
+                    {chartStaffBar.map((e,i)=><Cell key={i} fill={STAFF_C[e.name]??PIE_C[i%PIE_C.length]}/>)}
+                    <LabelList dataKey="value" position="right" style={{fontSize:9,fill:'#374151'}}/>
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {monthTrendData.length > 1 && (
+              <div className={S}>
+                <p className="text-xs font-semibold text-gray-600 mb-2">Xu hướng theo tháng</p>
+                <ResponsiveContainer width="100%" height={150}>
+                  <ComposedChart data={monthTrendData} margin={{top:4,right:4,bottom:0,left:-20}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                    <XAxis dataKey="label" {...xP}/>
+                    <YAxis {...yP}/>
+                    <Tooltip/>
+                    <Bar dataKey="total" name="YC" fill="#60a5fa" radius={[3,3,0,0]}>
+                      <LabelList dataKey="pctLabel" position="top" style={{fontSize:8,fill:'#64748b'}}/>
+                    </Bar>
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          {/* ── 6. Thiết bị (pie) + Lỗi phổ biến (bar) ── */}
+          {(devList.length > 0 || errList.length > 0) && (
+            <div className="grid grid-cols-2 gap-4">
+              {devList.length > 0 && (
+                <div className={S}>
+                  <p className="text-xs font-semibold text-gray-600 mb-2">Thiết bị có yêu cầu</p>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <PieChart>
+                      <Pie data={devList.map(([name,value])=>({name,value}))}
+                        cx="50%" cy="50%" outerRadius={65} dataKey="value"
+                        label={({name,percent})=>percent>0.05?`${name} ${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
+                        {devList.map((_,i)=><Cell key={i} fill={PIE_C[i%PIE_C.length]}/>)}
+                      </Pie>
+                      <Tooltip/>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {errList.length > 0 && (
+                <div className={S}>
+                  <p className="text-xs font-semibold text-gray-600 mb-2">Loại lỗi phổ biến</p>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={errList.slice(0,8).map(([name,value])=>({name,value}))} layout="vertical"
+                      margin={{top:4,right:24,bottom:4,left:60}}>
+                      <XAxis type="number" {...yP}/>
+                      <YAxis type="category" dataKey="name" tick={{fontSize:9}} width={65}/>
+                      <Tooltip/>
+                      <Bar dataKey="value" name="YC" radius={[0,3,3,0]}>
+                        {errList.slice(0,8).map(([err],i)=><Cell key={i} fill={ERR_C[err]??PIE_C[i%PIE_C.length]}/>)}
+                        <LabelList dataKey="value" position="right" style={{fontSize:9,fill:'#374151'}}/>
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── 7. Xu hướng lỗi theo tuần ── */}
+          {weekErrData.length > 0 && (
+            <div className={S}>
+              <p className="text-xs font-semibold text-gray-600 mb-2">Xu hướng lỗi theo tuần</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <LineChart data={weekErrData} margin={{top:4,right:4,bottom:0,left:-20}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                  <XAxis dataKey="weekLabel" {...xP}/>
+                  <YAxis {...yP}/>
+                  <Tooltip/>
+                  <Legend wrapperStyle={{fontSize:8}}/>
+                  {KEY_ERRORS.map(e=>(
+                    <Line key={e} type="monotone" dataKey={e} stroke={ERR_C[e]??'#94a3b8'} strokeWidth={1.5} dot={{r:2}}/>
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── 8. Theo văn phòng (bar) + Device per office ── */}
+          {locList.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">THEO VĂN PHÒNG</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className={S}>
+                  <p className="text-xs font-semibold text-gray-600 mb-2">Số YC theo văn phòng</p>
+                  <ResponsiveContainer width="100%" height={150}>
+                    <BarChart data={locList.map(([name,value])=>({name,value}))} margin={{top:4,right:8,bottom:20,left:-20}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                      <XAxis dataKey="name" tick={{fontSize:8}} angle={-15} textAnchor="end"/>
+                      <YAxis {...yP}/>
+                      <Tooltip/>
+                      <Bar dataKey="value" name="YC" radius={[3,3,0,0]}>
+                        {locList.map((_,i)=><Cell key={i} fill={PIE_C[i%PIE_C.length]}/>)}
+                        <LabelList dataKey="value" position="top" style={{fontSize:8,fill:'#374151'}}/>
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className={S}>
+                  <p className="text-xs font-semibold text-gray-600 mb-2">Thiết bị theo văn phòng</p>
+                  <div className="space-y-2 mt-1 overflow-y-auto max-h-[140px]">
+                    {locList.map(([loc],li)=>{
+                      const devs = Object.entries(locDevMatrix[loc]??{}).sort((a,b)=>b[1]-a[1]).slice(0,4)
+                      if (!devs.length) return null
+                      return (
+                        <div key={loc}>
+                          <p className="text-[9px] font-bold text-gray-500 mb-0.5">{loc}</p>
+                          <div className="flex flex-wrap gap-1">
+                            {devs.map(([dev,cnt],di)=>(
+                              <span key={di} className="text-[9px] px-1.5 py-0.5 rounded-full border"
+                                style={{borderColor:PIE_C[(li+di)%PIE_C.length],background:PIE_C[(li+di)%PIE_C.length]+'22',color:PIE_C[(li+di)%PIE_C.length]}}>
+                                {dev} ×{cnt}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── 9. Ma trận lỗi × thiết bị ── */}
+          {matrixDevices.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">MA TRẬN LỖI × THIẾT BỊ</p>
+              <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="text-[10px] border-collapse w-full">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-3 py-2 text-left font-semibold text-gray-500 border-b border-gray-100">Lỗi</th>
+                      {matrixDevices.map(d=>(
+                        <th key={d} className="px-2 py-2 text-center font-semibold text-gray-500 border-b border-gray-100">{d}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(errDevMatrix).sort((a,b)=>
+                      Object.values(b[1]).reduce((s,v)=>s+v,0)-Object.values(a[1]).reduce((s,v)=>s+v,0)
+                    ).map(([err,dm],i)=>(
+                      <tr key={err} className={i%2===0?'bg-white':'bg-gray-50/40'}>
+                        <td className="px-3 py-1.5 font-medium border-r border-gray-50" style={{color:ERR_C[err]??'#374151'}}>{err}</td>
+                        {matrixDevices.map(dev=>{
+                          const v=dm[dev]??0
+                          const mx=Math.max(...matrixDevices.map(d=>dm[d]??0),1)
+                          return (
+                            <td key={dev} className="px-2 py-1.5 text-center">
+                              {v>0?(
+                                <span className="inline-block min-w-[28px] px-1.5 py-0.5 rounded-md text-white text-[9px] font-bold"
+                                  style={{background:ERR_C[err]??'#94a3b8',opacity:0.4+0.6*(v/mx)}}>
+                                  {v}
+                                </span>
+                              ):<span className="text-gray-200">—</span>}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── 10. Bảng nhân viên + thiết bị ── */}
+          <div className="grid grid-cols-2 gap-6">
+            {staffList.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">NHÂN VIÊN XỬ LÝ</p>
+                <div className="rounded-xl border border-gray-100 overflow-hidden">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 text-gray-500">
+                        <th className="px-4 py-2 text-left font-semibold">Nhân viên</th>
+                        <th className="px-3 py-2 text-right font-semibold">YC</th>
+                        <th className="px-3 py-2 text-right font-semibold">%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {staffList.map(([name,cnt],i)=>(
+                        <tr key={name} className={`border-t border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                          <td className="px-4 py-1.5 font-medium text-gray-800">{name}</td>
+                          <td className="px-3 py-1.5 text-right font-bold text-gray-700">{cnt}</td>
+                          <td className="px-3 py-1.5 text-right text-gray-500">{Math.round(cnt/staffTot*100)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-gray-200 bg-gray-50 font-bold">
+                        <td className="px-4 py-1.5 text-gray-800">Tổng</td>
+                        <td className="px-3 py-1.5 text-right text-gray-800">{totalReq}</td>
+                        <td className="px-3 py-1.5 text-right text-gray-500">100%</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            )}
+            {devList.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">THIẾT BỊ + LỖI CHÍNH</p>
+                <div className="rounded-xl border border-gray-100 overflow-hidden">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 text-gray-500">
+                        <th className="px-3 py-2 text-left font-semibold">Thiết bị</th>
+                        <th className="px-2 py-2 text-right font-semibold">YC</th>
+                        <th className="px-3 py-2 text-left font-semibold">Lỗi chính</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {devList.map(([dev,cnt],i)=>{
+                        const topErr=Object.entries(errDevMatrix)
+                          .filter(([,dm])=>dm[dev]).map(([e,dm])=>({e,c:dm[dev]}))
+                          .sort((a,b)=>b.c-a.c)[0]
+                        return (
+                          <tr key={dev} className={`border-t border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                            <td className="px-3 py-1.5 font-medium text-gray-800">{dev}</td>
+                            <td className="px-2 py-1.5 text-right font-bold text-gray-700">{cnt}<span className="text-gray-400 font-normal ml-1 text-[10px]">{Math.round(cnt/devTotal*100)}%</span></td>
+                            <td className="px-3 py-1.5">
+                              {topErr&&<span className="text-[9px] px-1.5 py-0.5 rounded-full border font-medium"
+                                style={{borderColor:ERR_C[topErr.e]??'#94a3b8',background:(ERR_C[topErr.e]??'#94a3b8')+'22',color:ERR_C[topErr.e]??'#64748b'}}>
+                                {topErr.e} ×{topErr.c}
+                              </span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Footer ── */}
+          <div className="border-t border-gray-100 pt-4 flex justify-between text-[10px] text-gray-300">
+            <span>EUP Hardware Management System</span>
+            <span>{today}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Dashboard ─────────────────────────────────────────────────
 export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
   const { t } = useLanguage()
@@ -1174,6 +1608,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [statsSelDevice, setStatsSelDevice] = useState<string | null>(null)
   const [statsSelError, setStatsSelError]   = useState<string | null>(null)
   const [statsSelLoc, setStatsSelLoc]       = useState<string | null>(null)
+  const [showStatsReport, setShowStatsReport] = useState(false)
   const [showUnread, setShowUnread] = useState(false)
   const [unreadTickets, setUnreadTickets] = useState<UnreadTicket[]>([])
   const [unreadLoading, setUnreadLoading] = useState(false)
@@ -2315,7 +2750,39 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     </h2>
                     <p className="text-sm text-gray-400">{periodLabel} · {totalReq} {t.hoTro.statsFromCRM}</p>
                   </div>
+                  <button
+                    onClick={() => setShowStatsReport(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 border border-teal-600 rounded-lg transition"
+                    title="Xuất báo cáo thống kê"
+                  >
+                    📊 Xuất báo cáo
+                  </button>
                 </div>
+                {showStatsReport && (
+                  <HoTroReportModal
+                    periodLabel={periodLabel}
+                    totalReq={totalReq}
+                    totalFastC={totalFastC}
+                    fastPct={fastPct}
+                    totalPendC={totalPendC}
+                    byStaffTotal={byStaffTotal}
+                    byDeviceTotal={byDeviceTotal}
+                    byErrorTotal={byErrorTotal}
+                    byLocTotal={byLocTotal}
+                    errDevMatrix={errDevMatrix}
+                    locDevMatrix={locDevMatrix}
+                    chartTotal={chartTotal}
+                    chartResolution={chartResolution}
+                    chartPendPct={chartPendPct}
+                    chartStaff={chartStaff}
+                    staffNames={staffNames4}
+                    chartStaffBar={chartStaffBar}
+                    monthTrendData={monthTrendData}
+                    weekErrData={weekErrData}
+                    matrixDevices={matrixDevices}
+                    onClose={() => setShowStatsReport(false)}
+                  />
+                )}
 
                 {/* KPI row */}
                 <div className={`grid gap-3 mb-5 ${isAdmin ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2 md:grid-cols-3'}`}>
