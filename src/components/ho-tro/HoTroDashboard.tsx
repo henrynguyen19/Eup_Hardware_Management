@@ -864,7 +864,7 @@ function HoTroReportModal({
   byStaffTotal, byDeviceTotal, byErrorTotal, byLocTotal,
   errDevMatrix, locDevMatrix,
   chartTotal, chartResolution, chartPendPct, chartStaff, staffNames,
-  chartStaffBar, monthTrendData, weekErrData, matrixDevices,
+  chartStaffBar, monthTrendData, weekErrData, weekTotalData, matrixDevices,
   onClose,
 }: {
   periodLabel:   string
@@ -886,6 +886,7 @@ function HoTroReportModal({
   chartStaffBar: {name:string;value:number}[]
   monthTrendData:{label:string;total:number;pct:number|null;pctLabel:string}[]
   weekErrData:   Record<string,string|number>[]
+  weekTotalData: {weekLabel:string;total:number}[]
   matrixDevices: string[]
   onClose:       () => void
 }) {
@@ -1103,22 +1104,53 @@ function HoTroReportModal({
             </div>
           )}
 
-          {/* ── 7. Xu hướng lỗi theo tuần ── */}
-          {weekErrData.length > 0 && (
-            <div className={S}>
-              <p className="text-xs font-semibold text-gray-600 mb-2">Xu hướng lỗi theo tuần</p>
-              <ResponsiveContainer width="100%" height={160}>
-                <LineChart data={weekErrData} margin={{top:4,right:4,bottom:0,left:-20}}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
-                  <XAxis dataKey="weekLabel" {...xP}/>
-                  <YAxis {...yP}/>
-                  <Tooltip/>
-                  <Legend wrapperStyle={{fontSize:8}}/>
-                  {KEY_ERRORS.map(e=>(
-                    <Line key={e} type="monotone" dataKey={e} stroke={ERR_C[e]??'#94a3b8'} strokeWidth={1.5} dot={{r:2}}/>
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+          {/* ── 7. Xu hướng theo tuần — tổng YC + lỗi ── */}
+          {(weekTotalData.length > 0 || weekErrData.length > 0) && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">XU HƯỚNG THEO TUẦN</p>
+              <div className="grid grid-cols-2 gap-4">
+                {/* 7a. Tổng YC theo tuần */}
+                <div className={S}>
+                  <p className="text-xs font-semibold text-gray-600 mb-1">Tổng yêu cầu theo tuần</p>
+                  <p className="text-[9px] text-gray-400 mb-2">Biểu đồ đường tổng số YC mỗi tuần trong năm 2026</p>
+                  {weekTotalData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={160}>
+                      <LineChart data={weekTotalData} margin={{top:4,right:4,bottom:0,left:-20}}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                        <XAxis dataKey="weekLabel" {...xP}/>
+                        <YAxis {...yP}/>
+                        <Tooltip formatter={(v:number)=>[`${v} YC`,'Tổng']}/>
+                        <Line type="monotone" dataKey="total" name="Tổng YC"
+                          stroke="#3b82f6" strokeWidth={2} dot={{r:3, fill:'#3b82f6'}}
+                          label={{position:'top',fontSize:8,fill:'#1d4ed8',fontWeight:600}}/>
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <p className="text-xs text-gray-400 text-center py-10">Chưa có dữ liệu</p>
+                  )}
+                </div>
+                {/* 7b. Xu hướng lỗi theo tuần */}
+                <div className={S}>
+                  <p className="text-xs font-semibold text-gray-600 mb-1">Xu hướng lỗi nổi bật theo tuần</p>
+                  <p className="text-[9px] text-gray-400 mb-2">Theo dõi bất thường từng loại lỗi qua từng tuần</p>
+                  {weekErrData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={160}>
+                      <LineChart data={weekErrData} margin={{top:4,right:4,bottom:0,left:-20}}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                        <XAxis dataKey="weekLabel" {...xP}/>
+                        <YAxis {...yP}/>
+                        <Tooltip/>
+                        <Legend wrapperStyle={{fontSize:8}}/>
+                        {KEY_ERRORS.map(e=>(
+                          <Line key={e} type="monotone" dataKey={e} stroke={ERR_C[e]??'#94a3b8'} strokeWidth={1.5} dot={{r:2}}/>
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <p className="text-xs text-gray-400 text-center py-10">Chưa có dữ liệu lỗi</p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1144,9 +1176,9 @@ function HoTroReportModal({
                 </div>
                 <div className={S}>
                   <p className="text-xs font-semibold text-gray-600 mb-2">Thiết bị theo văn phòng</p>
-                  <div className="space-y-2 mt-1 overflow-y-auto max-h-[140px]">
+                  <div className="space-y-2 mt-1">
                     {locList.map(([loc],li)=>{
-                      const devs = Object.entries(locDevMatrix[loc]??{}).sort((a,b)=>b[1]-a[1]).slice(0,4)
+                      const devs = Object.entries(locDevMatrix[loc]??{}).sort((a,b)=>b[1]-a[1]).slice(0,6)
                       if (!devs.length) return null
                       return (
                         <div key={loc}>
@@ -2613,6 +2645,18 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                 return { label: v.label, total: v.total, pct, pctLabel: pct === null ? '' : pct >= 0 ? `+${pct}%` : `${pct}%` }
               })
 
+            // ── Weekly total requests trend ───────────────────────────────────
+            const weekTotalMap = new Map<string, { weekLabel: string; total: number }>()
+            for (const d of days) {
+              const wk = getISOWeekKey(d.sortKey)
+              const wNum = wk.split('-W')[1]
+              if (!weekTotalMap.has(wk)) weekTotalMap.set(wk, { weekLabel: `W${wNum}`, total: 0 })
+              weekTotalMap.get(wk)!.total += d.total
+            }
+            const weekTotalData = Array.from(weekTotalMap.entries())
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([, v]) => v)
+
             // ── Weekly error type trend (key errors) ──────────────────────────
             const KEY_ERRORS = ['No Connect', 'RFID', 'ACC', 'PW', 'Support', 'GPS', 'GSM']
             const weekErrMap = new Map<string, Record<string, number> & { weekLabel: string }>()
@@ -2779,6 +2823,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     chartStaffBar={chartStaffBar}
                     monthTrendData={monthTrendData}
                     weekErrData={weekErrData}
+                    weekTotalData={weekTotalData}
                     matrixDevices={matrixDevices}
                     onClose={() => setShowStatsReport(false)}
                   />
