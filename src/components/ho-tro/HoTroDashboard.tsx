@@ -864,7 +864,7 @@ function HoTroReportModal({
   byStaffTotal, byDeviceTotal, byErrorTotal, byLocTotal,
   errDevMatrix, locDevMatrix,
   chartTotal, chartResolution, chartPendPct, chartStaff, staffNames,
-  chartStaffBar, monthTrendData, weekErrData, weekTotalData, matrixDevices,
+  chartStaffBar, monthTrendData, weekErrData, weekTotalData, weekDataLoading, matrixDevices,
   onClose,
 }: {
   periodLabel:   string
@@ -885,9 +885,10 @@ function HoTroReportModal({
   staffNames:    string[]
   chartStaffBar: {name:string;value:number}[]
   monthTrendData:{label:string;total:number;pct:number|null;pctLabel:string}[]
-  weekErrData:   Record<string,string|number>[]
-  weekTotalData: {weekLabel:string;total:number}[]
-  matrixDevices: string[]
+  weekErrData:      Record<string,string|number>[]
+  weekTotalData:    {weekLabel:string;total:number}[]
+  weekDataLoading?: boolean
+  matrixDevices:    string[]
   onClose:       () => void
 }) {
   const today    = new Date().toLocaleDateString('vi-VN')
@@ -1104,55 +1105,66 @@ function HoTroReportModal({
             </div>
           )}
 
-          {/* ── 7. Xu hướng theo tuần — tổng YC + lỗi ── */}
-          {(weekTotalData.length > 0 || weekErrData.length > 0) && (
-            <div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">XU HƯỚNG THEO TUẦN</p>
-              <div className="grid grid-cols-2 gap-4">
-                {/* 7a. Tổng YC theo tuần */}
-                <div className={S}>
-                  <p className="text-xs font-semibold text-gray-600 mb-1">Tổng yêu cầu theo tuần</p>
-                  <p className="text-[9px] text-gray-400 mb-2">Biểu đồ đường tổng số YC mỗi tuần trong năm 2026</p>
-                  {weekTotalData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={160}>
-                      <LineChart data={weekTotalData} margin={{top:4,right:4,bottom:0,left:-20}}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
-                        <XAxis dataKey="weekLabel" {...xP}/>
-                        <YAxis {...yP}/>
-                        <Tooltip formatter={(v:number)=>[`${v} YC`,'Tổng']}/>
-                        <Line type="monotone" dataKey="total" name="Tổng YC"
-                          stroke="#3b82f6" strokeWidth={2} dot={{r:3, fill:'#3b82f6'}}
-                          label={{position:'top',fontSize:8,fill:'#1d4ed8',fontWeight:600}}/>
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <p className="text-xs text-gray-400 text-center py-10">Chưa có dữ liệu</p>
-                  )}
-                </div>
-                {/* 7b. Xu hướng lỗi theo tuần */}
-                <div className={S}>
-                  <p className="text-xs font-semibold text-gray-600 mb-1">Xu hướng lỗi nổi bật theo tuần</p>
-                  <p className="text-[9px] text-gray-400 mb-2">Theo dõi bất thường từng loại lỗi qua từng tuần</p>
-                  {weekErrData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={160}>
-                      <LineChart data={weekErrData} margin={{top:4,right:4,bottom:0,left:-20}}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
-                        <XAxis dataKey="weekLabel" {...xP}/>
-                        <YAxis {...yP}/>
-                        <Tooltip/>
-                        <Legend wrapperStyle={{fontSize:8}}/>
-                        {KEY_ERRORS.map(e=>(
-                          <Line key={e} type="monotone" dataKey={e} stroke={ERR_C[e]??'#94a3b8'} strokeWidth={1.5} dot={{r:2}}/>
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <p className="text-xs text-gray-400 text-center py-10">Chưa có dữ liệu lỗi</p>
-                  )}
-                </div>
+          {/* ── 7. Xu hướng theo tuần — toàn năm 2026, độc lập với filter ── */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">XU HƯỚNG THEO TUẦN</p>
+              <span className="text-[9px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium border border-blue-100">
+                {weekDataLoading ? '⏳ Đang tải dữ liệu cả năm...' : `Toàn năm ${new Date().getFullYear()} — W01 → W${weekTotalData.length > 0 ? weekTotalData[weekTotalData.length-1].weekLabel : '??'}`}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {/* 7a. Tổng YC theo tuần */}
+              <div className={S}>
+                <p className="text-xs font-semibold text-gray-600 mb-1">Tổng yêu cầu theo tuần</p>
+                <p className="text-[9px] text-gray-400 mb-2">Số YC mỗi tuần từ tháng 1/{new Date().getFullYear()} đến nay</p>
+                {weekDataLoading ? (
+                  <div className="flex items-center justify-center h-[160px]">
+                    <p className="text-xs text-gray-400 animate-pulse">⏳ Đang tải...</p>
+                  </div>
+                ) : weekTotalData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={160}>
+                    <LineChart data={weekTotalData} margin={{top:4,right:4,bottom:0,left:-20}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                      <XAxis dataKey="weekLabel" {...xP}/>
+                      <YAxis {...yP}/>
+                      <Tooltip formatter={(v:number)=>[`${v} YC`,'Tổng']}/>
+                      <Line type="monotone" dataKey="total" name="Tổng YC"
+                        stroke="#3b82f6" strokeWidth={2} dot={{r:3, fill:'#3b82f6'}}
+                        label={{position:'top',fontSize:8,fill:'#1d4ed8',fontWeight:600}}/>
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-xs text-gray-400 text-center py-10">Chưa có dữ liệu</p>
+                )}
+              </div>
+              {/* 7b. Xu hướng lỗi theo tuần */}
+              <div className={S}>
+                <p className="text-xs font-semibold text-gray-600 mb-1">Xu hướng lỗi nổi bật theo tuần</p>
+                <p className="text-[9px] text-gray-400 mb-2">Theo dõi bất thường từng loại lỗi qua từng tuần</p>
+                {weekDataLoading ? (
+                  <div className="flex items-center justify-center h-[160px]">
+                    <p className="text-xs text-gray-400 animate-pulse">⏳ Đang tải...</p>
+                  </div>
+                ) : weekErrData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={160}>
+                    <LineChart data={weekErrData} margin={{top:4,right:4,bottom:0,left:-20}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                      <XAxis dataKey="weekLabel" {...xP}/>
+                      <YAxis {...yP}/>
+                      <Tooltip/>
+                      <Legend wrapperStyle={{fontSize:8}}/>
+                      {KEY_ERRORS.map(e=>(
+                        <Line key={e} type="monotone" dataKey={e} stroke={ERR_C[e]??'#94a3b8'} strokeWidth={1.5} dot={{r:2}}/>
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-xs text-gray-400 text-center py-10">Chưa có dữ liệu lỗi</p>
+                )}
               </div>
             </div>
-          )}
+          </div>
 
           {/* ── 8. Theo văn phòng (bar) + Device per office ── */}
           {locList.length > 0 && (
@@ -1641,6 +1653,31 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
   const [statsSelError, setStatsSelError]   = useState<string | null>(null)
   const [statsSelLoc, setStatsSelLoc]       = useState<string | null>(null)
   const [showStatsReport, setShowStatsReport] = useState(false)
+
+  // ── Year-wide weekly stats (toàn năm 2026, độc lập với filter) ──
+  const [yearWeekStats, setYearWeekStats] = useState<{
+    weekTotalData: { weekLabel: string; total: number }[]
+    weekErrData:   Record<string, string | number>[]
+  } | null>(null)
+  const [yearWeekLoading, setYearWeekLoading] = useState(false)
+
+  async function fetchYearWeekStats() {
+    const cacheKey = `hotro-weekly-stats-${new Date().toISOString().slice(0, 10)}`
+    try {
+      const cached = localStorage.getItem(cacheKey)
+      if (cached) { setYearWeekStats(JSON.parse(cached)); return }
+    } catch { /* ignore localStorage error */ }
+
+    setYearWeekLoading(true)
+    try {
+      const res  = await fetch('/api/ho-tro/weekly-stats')
+      const json = await res.json()
+      if (res.ok && json.weekTotalData) {
+        setYearWeekStats({ weekTotalData: json.weekTotalData, weekErrData: json.weekErrData })
+        try { localStorage.setItem(cacheKey, JSON.stringify({ weekTotalData: json.weekTotalData, weekErrData: json.weekErrData })) } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ } finally { setYearWeekLoading(false) }
+  }
   const [showUnread, setShowUnread] = useState(false)
   const [unreadTickets, setUnreadTickets] = useState<UnreadTicket[]>([])
   const [unreadLoading, setUnreadLoading] = useState(false)
@@ -2795,7 +2832,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     <p className="text-sm text-gray-400">{periodLabel} · {totalReq} {t.hoTro.statsFromCRM}</p>
                   </div>
                   <button
-                    onClick={() => setShowStatsReport(true)}
+                    onClick={() => { setShowStatsReport(true); if (!yearWeekStats && !yearWeekLoading) fetchYearWeekStats() }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 border border-teal-600 rounded-lg transition"
                     title="Xuất báo cáo thống kê"
                   >
@@ -2822,8 +2859,9 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     staffNames={staffNames4}
                     chartStaffBar={chartStaffBar}
                     monthTrendData={monthTrendData}
-                    weekErrData={weekErrData}
-                    weekTotalData={weekTotalData}
+                    weekErrData={yearWeekStats?.weekErrData ?? weekErrData}
+                    weekTotalData={yearWeekStats?.weekTotalData ?? weekTotalData}
+                    weekDataLoading={yearWeekLoading}
                     matrixDevices={matrixDevices}
                     onClose={() => setShowStatsReport(false)}
                   />
