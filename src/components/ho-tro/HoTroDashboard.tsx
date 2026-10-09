@@ -864,7 +864,8 @@ function HoTroReportModal({
   byStaffTotal, byDeviceTotal, byErrorTotal, byLocTotal,
   errDevMatrix, locDevMatrix,
   chartTotal, chartResolution, chartPendPct, chartStaff, staffNames,
-  chartStaffBar, monthTrendData, weekErrData, weekTotalData, weekDataLoading, matrixDevices,
+  chartStaffBar, monthTrendData, weekErrData, weekTotalData, weekDataLoading,
+  chartChannel, channelNames, matrixDevices,
   onClose,
 }: {
   periodLabel:   string
@@ -888,6 +889,8 @@ function HoTroReportModal({
   weekErrData:      Record<string,string|number>[]
   weekTotalData:    {weekLabel:string;total:number}[]
   weekDataLoading?: boolean
+  chartChannel:     Record<string,string|number>[]
+  channelNames:     string[]
   matrixDevices:    string[]
   onClose:       () => void
 }) {
@@ -1067,9 +1070,11 @@ function HoTroReportModal({
             )}
           </div>
 
-          {/* ── 6. Thiết bị (pie) + Lỗi phổ biến (bar) ── */}
-          {(devList.length > 0 || errList.length > 0) && (
+          {/* ── 6. Thiết bị pie | Lỗi pie | Kênh % | Văn phòng bar (4 chart, giống dashboard Row 2) ── */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">PHÂN BỔ THIẾT BỊ · LỖI · KÊNH · VĂN PHÒNG</p>
             <div className="grid grid-cols-2 gap-4">
+              {/* 6a. Device pie */}
               {devList.length > 0 && (
                 <div className={S}>
                   <p className="text-xs font-semibold text-gray-600 mb-2">Thiết bị có yêu cầu</p>
@@ -1077,33 +1082,90 @@ function HoTroReportModal({
                     <PieChart>
                       <Pie data={devList.map(([name,value])=>({name,value}))}
                         cx="50%" cy="50%" outerRadius={65} dataKey="value"
-                        label={({name,percent})=>percent>0.05?`${name} ${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
+                        label={({name,percent})=>percent>0.06?`${name} ${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
                         {devList.map((_,i)=><Cell key={i} fill={PIE_C[i%PIE_C.length]}/>)}
                       </Pie>
                       <Tooltip/>
                     </PieChart>
                   </ResponsiveContainer>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {devList.map(([name,val],i)=>{
+                      const tot = devList.reduce((s,[,v])=>s+v,0)
+                      return <span key={i} className="flex items-center gap-1 text-[9px] text-gray-500">
+                        <span className="w-2 h-2 rounded-full inline-block" style={{background:PIE_C[i%PIE_C.length]}}/>
+                        {name} {tot>0?Math.round(val/tot*100):0}%
+                      </span>
+                    })}
+                  </div>
                 </div>
               )}
+
+              {/* 6b. Error pie */}
               {errList.length > 0 && (
                 <div className={S}>
                   <p className="text-xs font-semibold text-gray-600 mb-2">Loại lỗi phổ biến</p>
                   <ResponsiveContainer width="100%" height={160}>
-                    <BarChart data={errList.slice(0,8).map(([name,value])=>({name,value}))} layout="vertical"
-                      margin={{top:4,right:24,bottom:4,left:60}}>
-                      <XAxis type="number" {...yP}/>
-                      <YAxis type="category" dataKey="name" tick={{fontSize:9}} width={65}/>
-                      <Tooltip/>
-                      <Bar dataKey="value" name="YC" radius={[0,3,3,0]}>
+                    <PieChart>
+                      <Pie data={errList.slice(0,8).map(([name,value])=>({name,value}))}
+                        cx="50%" cy="50%" innerRadius={28} outerRadius={65} dataKey="value"
+                        label={({name,percent})=>percent>0.07?`${name} ${(percent*100).toFixed(0)}%`:''} labelLine={false} fontSize={8}>
                         {errList.slice(0,8).map(([err],i)=><Cell key={i} fill={ERR_C[err]??PIE_C[i%PIE_C.length]}/>)}
-                        <LabelList dataKey="value" position="right" style={{fontSize:9,fill:'#374151'}}/>
+                      </Pie>
+                      <Tooltip/>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {errList.slice(0,8).map(([name,val],i)=>{
+                      const tot = errList.reduce((s,[,v])=>s+v,0)
+                      return <span key={i} className="flex items-center gap-1 text-[9px] text-gray-500">
+                        <span className="w-2 h-2 rounded-full inline-block" style={{background:ERR_C[name]??PIE_C[i%PIE_C.length]}}/>
+                        {name} {tot>0?Math.round(val/tot*100):0}%
+                      </span>
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 6c. Channel % line chart */}
+              {channelNames.length > 0 && chartChannel.length > 0 && (
+                <div className={S}>
+                  <p className="text-xs font-semibold text-gray-600 mb-2">Kênh tiếp nhận (%)</p>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <LineChart data={chartChannel} margin={{top:4,right:4,bottom:0,left:-20}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                      <XAxis dataKey="date" {...xP}/>
+                      <YAxis unit="%" {...yP}/>
+                      <Tooltip formatter={(v:number)=>`${v}%`}/>
+                      <Legend wrapperStyle={{fontSize:8}}/>
+                      {channelNames.map((ch,i)=>(
+                        <Line key={ch} type="monotone" dataKey={`${ch} (%)`}
+                          stroke={PIE_C[i%PIE_C.length]} strokeWidth={1.5} dot={{r:2}}/>
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* 6d. Office bar */}
+              {locList.length > 0 && (
+                <div className={S}>
+                  <p className="text-xs font-semibold text-gray-600 mb-2">Số YC theo văn phòng</p>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={locList.map(([name,value])=>({name,value}))} margin={{top:4,right:8,bottom:20,left:-20}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                      <XAxis dataKey="name" tick={{fontSize:8}} angle={-15} textAnchor="end"/>
+                      <YAxis {...yP}/>
+                      <Tooltip/>
+                      <Bar dataKey="value" name="YC" radius={[3,3,0,0]}>
+                        {locList.map((_,i)=><Cell key={i} fill={PIE_C[i%PIE_C.length]}/>)}
+                        <LabelList dataKey="value" position="top" style={{fontSize:8,fill:'#374151'}}/>
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               )}
             </div>
-          )}
+          </div>
 
           {/* ── 7. Xu hướng theo tuần — toàn năm 2026, độc lập với filter ── */}
           <div>
@@ -1166,47 +1228,29 @@ function HoTroReportModal({
             </div>
           </div>
 
-          {/* ── 8. Theo văn phòng (bar) + Device per office ── */}
+          {/* ── 8. Thiết bị theo văn phòng ── */}
           {locList.length > 0 && (
             <div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">THEO VĂN PHÒNG</p>
-              <div className="grid grid-cols-2 gap-4">
-                <div className={S}>
-                  <p className="text-xs font-semibold text-gray-600 mb-2">Số YC theo văn phòng</p>
-                  <ResponsiveContainer width="100%" height={150}>
-                    <BarChart data={locList.map(([name,value])=>({name,value}))} margin={{top:4,right:8,bottom:20,left:-20}}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
-                      <XAxis dataKey="name" tick={{fontSize:8}} angle={-15} textAnchor="end"/>
-                      <YAxis {...yP}/>
-                      <Tooltip/>
-                      <Bar dataKey="value" name="YC" radius={[3,3,0,0]}>
-                        {locList.map((_,i)=><Cell key={i} fill={PIE_C[i%PIE_C.length]}/>)}
-                        <LabelList dataKey="value" position="top" style={{fontSize:8,fill:'#374151'}}/>
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className={S}>
-                  <p className="text-xs font-semibold text-gray-600 mb-2">Thiết bị theo văn phòng</p>
-                  <div className="space-y-2 mt-1">
-                    {locList.map(([loc],li)=>{
-                      const devs = Object.entries(locDevMatrix[loc]??{}).sort((a,b)=>b[1]-a[1]).slice(0,6)
-                      if (!devs.length) return null
-                      return (
-                        <div key={loc}>
-                          <p className="text-[9px] font-bold text-gray-500 mb-0.5">{loc}</p>
-                          <div className="flex flex-wrap gap-1">
-                            {devs.map(([dev,cnt],di)=>(
-                              <span key={di} className="text-[9px] px-1.5 py-0.5 rounded-full border"
-                                style={{borderColor:PIE_C[(li+di)%PIE_C.length],background:PIE_C[(li+di)%PIE_C.length]+'22',color:PIE_C[(li+di)%PIE_C.length]}}>
-                                {dev} ×{cnt}
-                              </span>
-                            ))}
-                          </div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">THIẾT BỊ THEO VĂN PHÒNG</p>
+              <div className={S}>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  {locList.map(([loc],li)=>{
+                    const devs = Object.entries(locDevMatrix[loc]??{}).sort((a,b)=>b[1]-a[1]).slice(0,6)
+                    if (!devs.length) return null
+                    return (
+                      <div key={loc}>
+                        <p className="text-[9px] font-bold text-gray-500 mb-0.5">{loc}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {devs.map(([dev,cnt],di)=>(
+                            <span key={di} className="text-[9px] px-1.5 py-0.5 rounded-full border"
+                              style={{borderColor:PIE_C[(li+di)%PIE_C.length],background:PIE_C[(li+di)%PIE_C.length]+'22',color:PIE_C[(li+di)%PIE_C.length]}}>
+                              {dev} ×{cnt}
+                            </span>
+                          ))}
                         </div>
-                      )
-                    })}
-                  </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -2817,6 +2861,15 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               .sort((a,b) => b[1]-a[1])
               .map(([name,value]) => ({ name, value }))
 
+            // Chart 7 — Channel % theo ngày (Zalo/Hotline/...)
+            const channelNames = Object.keys(byChTotal)
+            const chartChannel = days.map(d => {
+              const tot = Object.values(d.byChannel).reduce((s,v)=>s+v,0) || 1
+              const row: Record<string,string|number> = { date: d.date.slice(0,5) }
+              channelNames.forEach(ch => { row[`${ch} (%)`] = +((( d.byChannel[ch]??0)/tot)*100).toFixed(1) })
+              return row
+            })
+
             const xP  = { tick: { fontSize: 9 }, interval: 'preserveStartEnd' as const }
             const yP  = { tick: { fontSize: 9 } }
             const C8  = 'bg-white rounded-xl border border-gray-200 p-4'
@@ -2862,6 +2915,8 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     weekErrData={yearWeekStats?.weekErrData ?? weekErrData}
                     weekTotalData={yearWeekStats?.weekTotalData ?? weekTotalData}
                     weekDataLoading={yearWeekLoading}
+                    chartChannel={chartChannel}
+                    channelNames={channelNames}
                     matrixDevices={matrixDevices}
                     onClose={() => setShowStatsReport(false)}
                   />
