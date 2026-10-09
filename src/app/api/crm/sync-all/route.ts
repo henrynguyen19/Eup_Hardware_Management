@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { getCRMSessionForUser } from '@/lib/crm-session'
 import { isAdminUser } from '@/lib/auth-helpers'
 import { extractHandlerFromMemo, parseSpeedTag, parseCRMTime } from '@/lib/crm-utils'
+import { rebuildWeeklyStats } from '@/lib/hotro-weekly-stats'
 
 const adminClient = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
@@ -238,6 +239,10 @@ export async function POST(req: NextRequest) {
       ))
     }
   }
+
+  // ── Rebuild weekly stats cache sau khi sync xong ──
+  // Chạy background (không await) để không làm chậm response sync
+  rebuildWeeklyStats(db, { year: new Date().getFullYear() }).catch(() => { /* ignore */ })
 
   return NextResponse.json({
     ok: true,
