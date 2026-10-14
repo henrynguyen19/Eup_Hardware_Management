@@ -2123,6 +2123,31 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
   }
   for (const [key, v] of statusMap) statusOptions.push({ key, ...v })
 
+  // ── Hashtag stats from repair_notes of filtered items ───────────────────
+  const hashtagStats = (() => {
+    const map = new Map<string, number>()
+    for (const item of filtered) {
+      const notes = item.repair_notes ?? ''
+      const tags = notes.match(/#[\w]+/g) ?? []
+      for (const tag of tags) {
+        map.set(tag, (map.get(tag) ?? 0) + 1)
+      }
+      // Also check repair history
+      for (const h of item.repair_history) {
+        const htags = (h.notes ?? '').match(/#[\w]+/g) ?? []
+        for (const tag of htags) {
+          map.set(tag, (map.get(tag) ?? 0) + 1)
+        }
+      }
+    }
+    return [...map.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag, count]) => ({ tag, count }))
+  })()
+
+  const totalWithNotes  = filtered.filter(i => i.repair_notes).length
+  const totalNoNotes    = filtered.filter(i => i.has_repair_record && !i.repair_notes).length
+
   // CRM dates come as "2026-08-20 11:18:00.0" — slice 10 chars for date only
   const fmtDate = (iso: string | null) => iso ? iso.slice(0, 10) : '—'
 
@@ -2212,6 +2237,41 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
               </div>
             )}
           </div>
+          )}
+
+          {/* Hashtag stats */}
+          {hashtagStats.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+                {t('Thống kê lỗi theo ghi chú', 'Fault stats by notes')}
+                <span className="ml-2 font-normal normal-case text-gray-400">
+                  ({filtered.filter(i=>i.has_repair_record).length} {t('có hồ sơ', 'with records')}
+                  {totalWithNotes > 0 && `, ${totalWithNotes} ${t('có ghi chú', 'with notes')}`}
+                  {totalNoNotes > 0 && `, ${totalNoNotes} ${t('không ghi chú', 'no notes')})`})
+                </span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {hashtagStats.map(({ tag, count }) => {
+                  const pct = filtered.filter(i => i.has_repair_record).length
+                    ? Math.round(count / filtered.filter(i => i.has_repair_record).length * 100)
+                    : 0
+                  return (
+                    <div key={tag} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 min-w-[120px]">
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-blue-700">{tag}</p>
+                        <div className="mt-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-bold text-gray-800">{count}</p>
+                        <p className="text-[10px] text-gray-400">{pct}%</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           )}
 
           {/* Results table */}
