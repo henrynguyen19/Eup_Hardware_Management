@@ -2074,6 +2074,7 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
   const [items, setItems]           = useState<BackFactoryResult[]>([])
   const [productNames, setProductNames] = useState<string[]>([])
   const [selProduct, setSelProduct] = useState<string>('')
+  const [selStatus, setSelStatus]   = useState<string>('')
   const [error, setError]           = useState<string | null>(null)
   const [expanded, setExpanded]     = useState<Set<string>>(new Set())
 
@@ -2081,7 +2082,7 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
     const code = inputCode.trim()
     if (!code) return
     setCustCode(code)
-    setLoading(true); setError(null); setItems([]); setSelProduct(''); setExpanded(new Set())
+    setLoading(true); setError(null); setItems([]); setSelProduct(''); setSelStatus(''); setExpanded(new Set())
     try {
       const params = new URLSearchParams({ custCode: code, startDate, endDate })
       const res = await fetch('/api/crm/back-factory?' + params.toString())
@@ -2094,7 +2095,29 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
     } finally { setLoading(false) }
   }
 
-  const filtered = selProduct ? items.filter(i => i.product_name === selProduct) : items
+  const filtered = items.filter(i => {
+    if (selProduct && i.product_name !== selProduct) return false
+    if (selStatus) {
+      if (selStatus === '__no_record__') return !i.has_repair_record
+      if (i.repair_status !== selStatus) return false
+    }
+    return true
+  })
+
+  // Collect statuses present in results for filter pills
+  const statusOptions: { key: string; label: string; color: string; count: number }[] = []
+  const statusMap = new Map<string, { label: string; color: string; count: number }>()
+  for (const item of items) {
+    const k = item.repair_status ?? '__no_record__'
+    const existing = statusMap.get(k)
+    if (existing) { existing.count++ }
+    else statusMap.set(k, {
+      label: item.repair_status_label ?? t('Chưa có hồ sơ', 'No record'),
+      color: item.repair_status_color ?? 'bg-gray-100 text-gray-600',
+      count: 1,
+    })
+  }
+  for (const [key, v] of statusMap) statusOptions.push({ key, ...v })
 
   // CRM dates come as "2026-08-20 11:18:00.0" — slice 10 chars for date only
   const fmtDate = (iso: string | null) => iso ? iso.slice(0, 10) : '—'
@@ -2149,23 +2172,42 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
             </span>
           </div>
 
-          {/* ProductName filter pills */}
-          {productNames.length > 1 && (
-            <div className="flex flex-wrap gap-1.5">
-              <button onClick={() => setSelProduct('')}
-                className={`px-3 py-1 text-xs rounded-full border font-medium transition-colors ${!selProduct ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}>
-                {t('Tất cả', 'All')} ({items.length})
-              </button>
-              {productNames.map(p => {
-                const cnt = items.filter(i => i.product_name === p).length
-                return (
+          {/* Filter row: Product + Status */}
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            {/* ProductName pills */}
+            {productNames.length > 1 && (
+              <div className="flex flex-wrap gap-1.5 items-center">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider mr-1">{t('Loại TB', 'Type')}</span>
+                <button onClick={() => setSelProduct('')}
+                  className={`px-3 py-1 text-xs rounded-full border font-medium transition-colors ${!selProduct ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}>
+                  {t('Tất cả', 'All')}
+                </button>
+                {productNames.map(p => (
                   <button key={p} onClick={() => setSelProduct(p === selProduct ? '' : p)}
                     className={`px-3 py-1 text-xs rounded-full border font-medium transition-colors ${selProduct === p ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
-                    {p} ({cnt})
+                    {p} ({items.filter(i => i.product_name === p).length})
                   </button>
-                )
-              })}
-            </div>
+                ))}
+              </div>
+            )}
+
+            {/* Status pills */}
+            {statusOptions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 items-center">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider mr-1">{t('Trạng thái', 'Status')}</span>
+                <button onClick={() => setSelStatus('')}
+                  className={`px-3 py-1 text-xs rounded-full border font-medium transition-colors ${!selStatus ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}>
+                  {t('Tất cả', 'All')} ({items.length})
+                </button>
+                {statusOptions.sort((a,b) => b.count - a.count).map(s => (
+                  <button key={s.key} onClick={() => setSelStatus(s.key === selStatus ? '' : s.key)}
+                    className={`px-3 py-1 text-xs rounded-full border font-medium transition-colors ${selStatus === s.key ? s.color + ' border-transparent' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}>
+                    {s.label} ({s.count})
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           )}
 
           {/* Results table */}
