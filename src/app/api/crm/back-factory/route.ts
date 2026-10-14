@@ -36,6 +36,7 @@ interface RepairRow {
   status:           string | null
   notes:            string | null
   finish_reason:    string | null
+  destination:      string | null
   repair_warehouse: string | null
   received_at:      string | null
   sent_at:          string | null
@@ -43,6 +44,26 @@ interface RepairRow {
   sender_name:      string | null
   completer_name:   string | null
   crm_repair_id:    string | null
+}
+
+const FINISH_REASON_LABEL: Record<string, string> = {
+  sua_xong:         'Đã sửa xong',
+  khong_loi_bt:     'Không lỗi BT',
+  loai_bo:          'Loại bỏ',
+  loai_bo_bo_mach:  'Loại bỏ bo mạch',
+  send_supplier:    'Gửi nhà cung cấp',
+}
+
+const DESTINATION_LABEL: Record<string, string> = {
+  old_device: 'Old Device',
+  scrap:      'Báo phế',
+  supplier:   'Nhà cung cấp',
+}
+
+const DESTINATION_COLOR: Record<string, string> = {
+  old_device: 'text-purple-600',
+  scrap:      'text-red-600',
+  supplier:   'text-amber-600',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -117,7 +138,7 @@ export async function GET(req: NextRequest) {
     // Lấy TẤT CẢ records (nhiều lần SC/IMEI), mới nhất trước
     const { data: repairRows } = await db
       .from('repair_items')
-      .select('imei, product_name, status, notes, finish_reason, repair_warehouse, received_at, sent_at, completed_at, sender_name, completer_name, crm_repair_id')
+      .select('imei, product_name, status, notes, finish_reason, destination, repair_warehouse, received_at, sent_at, completed_at, sender_name, completer_name, crm_repair_id')
       .in('imei', imeis)
       .order('received_at', { ascending: false }) as { data: RepairRow[] | null }
 
@@ -145,6 +166,10 @@ export async function GET(req: NextRequest) {
         repair_status_color: latest ? (STATUS_COLOR[latest.status ?? ''] ?? 'bg-gray-100 text-gray-700') : null,
         repair_notes:        latest?.notes ?? null,
         repair_finish:       latest?.finish_reason ?? null,
+        repair_finish_label: latest?.finish_reason ? (FINISH_REASON_LABEL[latest.finish_reason] ?? latest.finish_reason) : null,
+        repair_destination:  latest?.destination ?? null,
+        repair_destination_label: latest?.destination ? (DESTINATION_LABEL[latest.destination] ?? latest.destination) : null,
+        repair_destination_color: latest?.destination ? (DESTINATION_COLOR[latest.destination] ?? 'text-gray-500') : null,
         repair_warehouse:    latest?.repair_warehouse ?? null,
         received_at:         latest?.received_at ?? null,
         sent_at:             latest?.sent_at ?? null,
@@ -161,6 +186,10 @@ export async function GET(req: NextRequest) {
           status_color:  STATUS_COLOR[r.status ?? ''] ?? 'bg-gray-100 text-gray-700',
           notes:         r.notes,
           finish_reason: r.finish_reason,
+          finish_label:  r.finish_reason ? (FINISH_REASON_LABEL[r.finish_reason] ?? r.finish_reason) : null,
+          destination:   r.destination,
+          dest_label:    r.destination ? (DESTINATION_LABEL[r.destination] ?? r.destination) : null,
+          dest_color:    r.destination ? (DESTINATION_COLOR[r.destination] ?? 'text-gray-500') : null,
           warehouse:     r.repair_warehouse,
           received_at:   r.received_at,
           sent_at:       r.sent_at,

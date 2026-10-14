@@ -2047,7 +2047,9 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
 // ── Customer Lookup Tab ──────────────────────────────────────────────────────
 interface BackFactoryRepairHistory {
   status: string | null; status_label: string | null; status_color: string | null
-  notes: string | null; finish_reason: string | null; warehouse: string | null
+  notes: string | null; finish_reason: string | null; finish_label: string | null
+  destination: string | null; dest_label: string | null; dest_color: string | null
+  warehouse: string | null
   received_at: string | null; sent_at: string | null; completed_at: string | null
   sender: string | null; completer: string | null; crm_id: string | null
 }
@@ -2055,7 +2057,9 @@ interface BackFactoryResult {
   bf_id: string; imei: string; product_name: string; car_number: string
   zone: string; wh_name: string
   repair_status: string | null; repair_status_label: string | null; repair_status_color: string | null
-  repair_notes: string | null; repair_finish: string | null; repair_warehouse: string | null
+  repair_notes: string | null; repair_finish: string | null; repair_finish_label: string | null
+  repair_destination: string | null; repair_destination_label: string | null; repair_destination_color: string | null
+  repair_warehouse: string | null
   received_at: string | null; sent_at: string | null; completed_at: string | null
   sender_name: string | null; completer_name: string | null; crm_repair_id: string | null
   repair_count: number; has_repair_record: boolean
@@ -2224,8 +2228,9 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
                     <th className="px-3 py-2.5 text-left font-semibold">{t('Trạng thái SC', 'Repair Status')}</th>
                     <th className="px-3 py-2.5 text-left font-semibold">{t('Mô tả lỗi', 'Description')}</th>
                     <th className="px-3 py-2.5 text-left font-semibold">{t('KT sửa', 'Repaired by')}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">{t('Vào', 'In')}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">{t('Ra', 'Out')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Vào SC', 'In')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Hoàn thành', 'Done')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Kết quả', 'Result')}</th>
                     <th className="px-3 py-2.5 text-left font-semibold">{t('Lần SC', 'SC#')}</th>
                   </tr>
                 </thead>
@@ -2260,7 +2265,22 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
                           <td className="px-3 py-2 max-w-[200px] text-gray-700">{item.repair_notes || '—'}</td>
                           <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{item.sender_name || '—'}</td>
                           <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.sent_at)}</td>
-                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.completed_at)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {item.completed_at ? (
+                              <div>
+                                <div className="text-gray-700">{fmtDate(item.completed_at)}</div>
+                                {item.completer_name && <div className="text-[10px] text-gray-400">{item.completer_name}</div>}
+                              </div>
+                            ) : '—'}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {item.repair_finish_label || item.repair_destination_label ? (
+                              <div>
+                                {item.repair_finish_label && <div className="text-[10px] text-gray-600">{item.repair_finish_label}</div>}
+                                {item.repair_destination_label && <div className={`text-[10px] font-semibold ${item.repair_destination_color ?? ''}`}>{item.repair_destination_label}</div>}
+                              </div>
+                            ) : '—'}
+                          </td>
                           <td className="px-3 py-2 text-center">
                             {item.repair_count > 0 ? (
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${item.repair_count > 1 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>
@@ -2286,7 +2306,22 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
                             <td className="px-3 py-1.5 text-gray-700 max-w-[200px]">{h.notes || '—'}</td>
                             <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{h.sender || '—'}</td>
                             <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{fmtDate(h.sent_at)}</td>
-                            <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{fmtDate(h.completed_at)}</td>
+                            <td className="px-3 py-1.5 whitespace-nowrap">
+                              {h.completed_at ? (
+                                <div>
+                                  <div className="text-gray-500">{fmtDate(h.completed_at)}</div>
+                                  {h.completer && <div className="text-[10px] text-gray-400">{h.completer}</div>}
+                                </div>
+                              ) : '—'}
+                            </td>
+                            <td className="px-3 py-1.5 whitespace-nowrap">
+                              {h.finish_label || h.dest_label ? (
+                                <div>
+                                  {h.finish_label && <div className="text-[10px] text-gray-600">{h.finish_label}</div>}
+                                  {h.dest_label && <div className={`text-[10px] font-semibold ${h.dest_color ?? ''}`}>{h.dest_label}</div>}
+                                </div>
+                              ) : '—'}
+                            </td>
                             <td />
                           </tr>
                         ))}
