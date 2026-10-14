@@ -2044,13 +2044,192 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
   )
 }
 
+// ── Customer Lookup Tab ──────────────────────────────────────────────────────
+interface BackFactoryResult {
+  bf_id: string; imei: string; product_name: string; car_number: string
+  zone: string; wh_name: string; memo: string
+  repair_status: string | null; repair_status_label: string | null
+  repair_notes: string | null; repair_received_at: string | null
+  repair_completed_at: string | null; has_repair_record: boolean
+}
+
+const REPAIR_STATUS_COLOR: Record<string, string> = {
+  cho_gui:     'bg-yellow-100 text-yellow-800',
+  da_gui:      'bg-blue-100 text-blue-800',
+  da_sua_xong: 'bg-emerald-100 text-emerald-800',
+  old_device:  'bg-purple-100 text-purple-800',
+  scrap:       'bg-red-100 text-red-800',
+  supplier:    'bg-amber-100 text-amber-800',
+}
+
+function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
+  const [custCode, setCustCode]     = useState('')
+  const [inputCode, setInputCode]   = useState('')
+  const [startDate, setStartDate]   = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 90)
+    return d.toISOString().slice(0, 10)
+  })
+  const [endDate, setEndDate]       = useState(() => new Date().toISOString().slice(0, 10))
+  const [loading, setLoading]       = useState(false)
+  const [items, setItems]           = useState<BackFactoryResult[]>([])
+  const [productNames, setProductNames] = useState<string[]>([])
+  const [selProduct, setSelProduct] = useState<string>('')
+  const [error, setError]           = useState<string | null>(null)
+
+  async function doSearch() {
+    const code = inputCode.trim()
+    if (!code) return
+    setCustCode(code)
+    setLoading(true); setError(null); setItems([]); setSelProduct('')
+    try {
+      const params = new URLSearchParams({ custCode: code, startDate, endDate })
+      const res = await fetch('/api/crm/back-factory?' + params.toString())
+      const json = await res.json()
+      if (!res.ok) { setError(json.error ?? 'Lỗi không xác định'); return }
+      setItems(json.items ?? [])
+      setProductNames(json.productNames ?? [])
+    } catch (e) {
+      setError(String(e))
+    } finally { setLoading(false) }
+  }
+
+  const filtered = selProduct ? items.filter(i => i.product_name === selProduct) : items
+
+  const fmtDate = (iso: string | null) => iso ? iso.slice(0, 10) : '—'
+
+  return (
+    <div className="space-y-4">
+      {/* Search bar */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
+          {t('Tra cứu thiết bị theo mã khách hàng', 'Lookup devices by customer code')}
+        </p>
+        <div className="flex flex-wrap gap-2 items-end">
+          <div>
+            <p className="text-xs text-gray-400 mb-1">{t('Mã KH (CustID)', 'Customer Code')}</p>
+            <div className="flex gap-1">
+              <input value={inputCode} onChange={e => setInputCode(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && doSearch()}
+                placeholder={t('Nhập mã KH...', 'Enter customer code...')}
+                className="border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-44 bg-blue-50" />
+              <button onClick={doSearch} disabled={loading || !inputCode.trim()}
+                className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
+                {loading ? '⏳' : '🔍'} {t('Tìm', 'Search')}
+              </button>
+            </div>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 mb-1">{t('Từ ngày', 'From')}</p>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-400 mb-1">{t('Đến ngày', 'To')}</p>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none" />
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">{error}</div>
+      )}
+
+      {items.length > 0 && (
+        <>
+          {/* Summary */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-gray-500">
+              {t('Mã KH', 'CustCode')}: <span className="font-bold text-gray-800">{custCode}</span>
+              {' — '}{filtered.length}/{items.length} {t('thiết bị', 'devices')}
+              {' — '}{items.filter(i => i.has_repair_record).length} {t('có hồ sơ sửa chữa', 'with repair record')}
+            </span>
+          </div>
+
+          {/* ProductName filter pills */}
+          {productNames.length > 1 && (
+            <div className="flex flex-wrap gap-1.5">
+              <button onClick={() => setSelProduct('')}
+                className={`px-3 py-1 text-xs rounded-full border font-medium transition-colors ${!selProduct ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}>
+                {t('Tất cả', 'All')} ({items.length})
+              </button>
+              {productNames.map(p => {
+                const cnt = items.filter(i => i.product_name === p).length
+                return (
+                  <button key={p} onClick={() => setSelProduct(p === selProduct ? '' : p)}
+                    className={`px-3 py-1 text-xs rounded-full border font-medium transition-colors ${selProduct === p ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
+                    {p} ({cnt})
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Results table */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 uppercase tracking-widest text-[10px]">
+                    <th className="px-3 py-2.5 text-left font-semibold">#</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Thiết bị', 'Device')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">IMEI</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Biển số', 'Plate')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Kho', 'WH')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Trạng thái SC', 'Repair Status')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Ghi chú sửa chữa', 'Repair Notes')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Nhận', 'Received')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Hoàn thành', 'Completed')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filtered.map((item, idx) => (
+                    <tr key={item.bf_id || idx}
+                      className={`hover:bg-gray-50 transition-colors ${!item.has_repair_record ? 'opacity-60' : ''}`}>
+                      <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
+                      <td className="px-3 py-2 font-medium text-gray-800">{item.product_name || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-gray-600">{item.imei || '—'}</td>
+                      <td className="px-3 py-2 text-gray-700">{item.car_number || '—'}</td>
+                      <td className="px-3 py-2 text-gray-500">{item.wh_name || '—'}</td>
+                      <td className="px-3 py-2">
+                        {item.repair_status ? (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${REPAIR_STATUS_COLOR[item.repair_status] ?? 'bg-gray-100 text-gray-700'}`}>
+                            {item.repair_status_label}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 italic">{t('Chưa có hồ sơ', 'No record')}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 max-w-xs">
+                        <span className="text-gray-700 whitespace-pre-line">{item.repair_notes || '—'}</span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.repair_received_at)}</td>
+                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.repair_completed_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {!loading && custCode && items.length === 0 && !error && (
+        <div className="text-center py-10 text-gray-400">
+          {t('Không tìm thấy thiết bị nào cho mã KH này trong khoảng thời gian đã chọn.', 'No devices found for this customer code in the selected date range.')}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function RepairTrackingDashboard({ externalLang }: { externalLang?: 'vi' | 'en' }) {
   const internal = useLang()
   const lang  = externalLang ?? internal.lang
   const toggle = internal.toggle
   const t = (vi: string, en: string) => lang === 'vi' ? vi : en
   const PAGE_SIZE = 50
-  const [activeTab, setActiveTab]   = useState<'list'|'stats'>('list')
+  const [activeTab, setActiveTab]   = useState<'list'|'stats'|'customer'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
   const [page, setPage]             = useState(0)
@@ -2121,7 +2300,11 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
       </div>
 
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {([['list', t('📋 Danh sách','📋 List')], ['stats', t('📊 Thống kê','📊 Statistics')]] as const).map(([tab,label])=>(
+        {([
+          ['list',     t('📋 Danh sách','📋 List')],
+          ['stats',    t('📊 Thống kê','📊 Statistics')],
+          ['customer', t('🔍 Tra cứu KH','🔍 Customer Lookup')],
+        ] as const).map(([tab,label])=>(
           <button key={tab} onClick={()=>setActiveTab(tab)}
             className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${activeTab===tab?'bg-white text-gray-800 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
             {label}
@@ -2225,8 +2408,10 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
             </div>
           )}
         </>
+      ) : activeTab==='stats' ? (
+        <StatsTab t={t} onFilterByTag={handleFilterByTag} active={true} />
       ) : (
-        <StatsTab t={t} onFilterByTag={handleFilterByTag} active={activeTab==='stats'} />
+        <CustomerLookupTab t={t} />
       )}
 
       {modal?.type==='send'     && <SendModal    item={modal.item} onClose={()=>setModal(null)} onSaved={()=>{setModal(null);load()}} t={t} />}
