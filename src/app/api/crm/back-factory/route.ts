@@ -116,7 +116,7 @@ export async function GET(req: NextRequest) {
 
     // Lấy TẤT CẢ records (nhiều lần SC/IMEI), mới nhất trước
     const { data: repairRows } = await db
-      .from('device_repairs')
+      .from('repair_items')
       .select('imei, product_name, status, notes, finish_reason, repair_warehouse, received_at, sent_at, completed_at, sender_name, completer_name, crm_repair_id')
       .in('imei', imeis)
       .order('received_at', { ascending: false }) as { data: RepairRow[] | null }
