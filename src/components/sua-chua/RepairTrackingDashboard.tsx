@@ -2046,26 +2046,20 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
 
 // ── Customer Lookup Tab ──────────────────────────────────────────────────────
 interface BackFactoryRepairHistory {
-  repair_id: number; status: string; description: string
-  repair_man: string; finish_man: string
-  in_date: string; out_date: string; warehouse: string
+  status: string | null; status_label: string | null; status_color: string | null
+  notes: string | null; finish_reason: string | null; warehouse: string | null
+  received_at: string | null; sent_at: string | null; completed_at: string | null
+  sender: string | null; completer: string | null; crm_id: string | null
 }
 interface BackFactoryResult {
   bf_id: string; imei: string; product_name: string; car_number: string
   zone: string; wh_name: string
-  repair_status: string | null; repair_description: string | null
-  repair_man: string | null; repair_finish_man: string | null
-  repair_in_date: string | null; repair_out_date: string | null
-  repair_warehouse: string | null; repair_count: number
-  repair_history: BackFactoryRepairHistory[]; has_repair_record: boolean
-}
-
-const REPAIR_STATUS_COLOR: Record<string, string> = {
-  'Repaired':      'bg-emerald-100 text-emerald-800',
-  'Repairing':     'bg-blue-100 text-blue-800',
-  'Waiting':       'bg-yellow-100 text-yellow-800',
-  'Scrapped':      'bg-red-100 text-red-800',
-  'No Fault':      'bg-gray-100 text-gray-700',
+  repair_status: string | null; repair_status_label: string | null; repair_status_color: string | null
+  repair_notes: string | null; repair_finish: string | null; repair_warehouse: string | null
+  received_at: string | null; sent_at: string | null; completed_at: string | null
+  sender_name: string | null; completer_name: string | null; crm_repair_id: string | null
+  repair_count: number; has_repair_record: boolean
+  repair_history: BackFactoryRepairHistory[]
 }
 
 function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
@@ -2214,17 +2208,17 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
                           <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{item.repair_warehouse || item.wh_name || '—'}</td>
                           <td className="px-3 py-2 whitespace-nowrap">
                             {item.repair_status ? (
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${REPAIR_STATUS_COLOR[item.repair_status] ?? 'bg-gray-100 text-gray-700'}`}>
-                                {item.repair_status}
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${item.repair_status_color ?? 'bg-gray-100 text-gray-700'}`}>
+                                {item.repair_status_label}
                               </span>
                             ) : (
-                              <span className="text-gray-300 italic text-[10px]">{t('Chưa có hồ sơ CRM', 'No CRM record')}</span>
+                              <span className="text-gray-300 italic text-[10px]">{t('Chưa có hồ sơ', 'No record')}</span>
                             )}
                           </td>
-                          <td className="px-3 py-2 max-w-[200px] text-gray-700">{item.repair_description || '—'}</td>
-                          <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{item.repair_man || '—'}</td>
-                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.repair_in_date)}</td>
-                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.repair_out_date)}</td>
+                          <td className="px-3 py-2 max-w-[200px] text-gray-700">{item.repair_notes || '—'}</td>
+                          <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{item.sender_name || '—'}</td>
+                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.sent_at)}</td>
+                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.completed_at)}</td>
                           <td className="px-3 py-2 text-center">
                             {item.repair_count > 0 ? (
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${item.repair_count > 1 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>
@@ -2241,14 +2235,16 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
                             <td className="px-3 py-1.5 text-gray-500">—</td>
                             <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{h.warehouse || '—'}</td>
                             <td className="px-3 py-1.5">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${REPAIR_STATUS_COLOR[h.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                                {h.status}
-                              </span>
+                              {h.status_label && (
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${h.status_color ?? 'bg-gray-100 text-gray-600'}`}>
+                                  {h.status_label}
+                                </span>
+                              )}
                             </td>
-                            <td className="px-3 py-1.5 text-gray-700 max-w-[200px]">{h.description || '—'}</td>
-                            <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{h.repair_man || '—'}</td>
-                            <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{fmtDate(h.in_date)}</td>
-                            <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{fmtDate(h.out_date)}</td>
+                            <td className="px-3 py-1.5 text-gray-700 max-w-[200px]">{h.notes || '—'}</td>
+                            <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{h.sender || '—'}</td>
+                            <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{fmtDate(h.sent_at)}</td>
+                            <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{fmtDate(h.completed_at)}</td>
                             <td />
                           </tr>
                         ))}
