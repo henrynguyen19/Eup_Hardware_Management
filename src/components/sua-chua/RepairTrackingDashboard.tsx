@@ -2239,40 +2239,82 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
           </div>
           )}
 
-          {/* Hashtag stats */}
-          {hashtagStats.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
-                {t('Thống kê lỗi theo ghi chú', 'Fault stats by notes')}
-                <span className="ml-2 font-normal normal-case text-gray-400">
-                  ({filtered.filter(i=>i.has_repair_record).length} {t('có hồ sơ', 'with records')}
-                  {totalWithNotes > 0 && `, ${totalWithNotes} ${t('có ghi chú', 'with notes')}`}
-                  {totalNoNotes > 0 && `, ${totalNoNotes} ${t('không ghi chú', 'no notes')})`})
-                </span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {hashtagStats.map(({ tag, count }) => {
-                  const pct = filtered.filter(i => i.has_repair_record).length
-                    ? Math.round(count / filtered.filter(i => i.has_repair_record).length * 100)
-                    : 0
-                  return (
-                    <div key={tag} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 min-w-[120px]">
-                      <div className="flex-1">
-                        <p className="text-xs font-semibold text-blue-700">{tag}</p>
-                        <div className="mt-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
+          {/* Hashtag stats table */}
+          {hashtagStats.length > 0 && (() => {
+            const total = filtered.filter(i => i.has_repair_record).length
+            const maxCount = hashtagStats[0]?.count ?? 1
+            return (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    {t('Thống kê lỗi theo ghi chú', 'Fault stats by notes')}
+                  </p>
+                  <span className="text-[10px] text-gray-400">
+                    {totalNoNotes > 0 && `${totalNoNotes} ${t('hồ sơ không ghi chú', 'records without notes')} · `}
+                    {t('Tổng hồ sơ', 'Total records')}: <span className="font-bold text-gray-700">{total}</span>
+                  </span>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-[10px] text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-2 text-left font-semibold w-8">#</th>
+                      <th className="px-4 py-2 text-left font-semibold">{t('Loại lỗi (hashtag)', 'Fault type (hashtag)')}</th>
+                      <th className="px-4 py-2 text-right font-semibold w-24">{t('Số lượng', 'Count')}</th>
+                      <th className="px-4 py-2 text-right font-semibold w-20">{t('Tỉ lệ', 'Rate')}</th>
+                      <th className="px-4 py-2 w-40"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {/* Tổng row */}
+                    <tr className="bg-blue-50 font-semibold">
+                      <td className="px-4 py-2.5 text-blue-400 text-xs">—</td>
+                      <td className="px-4 py-2.5 text-blue-700 text-xs">{t('Tổng số hồ sơ sửa chữa', 'Total repair records')}</td>
+                      <td className="px-4 py-2.5 text-right text-blue-800">{total}</td>
+                      <td className="px-4 py-2.5 text-right text-blue-600">100%</td>
+                      <td className="px-4 py-2.5">
+                        <div className="h-2 bg-blue-200 rounded-full">
+                          <div className="h-full bg-blue-500 rounded-full w-full" />
                         </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-bold text-gray-800">{count}</p>
-                        <p className="text-[10px] text-gray-400">{pct}%</p>
-                      </div>
-                    </div>
-                  )
-                })}
+                      </td>
+                    </tr>
+                    {hashtagStats.map(({ tag, count }, i) => {
+                      const pct  = total ? (count / total * 100).toFixed(1) : '0.0'
+                      const barW = total ? Math.round(count / maxCount * 100) : 0
+                      return (
+                        <tr key={tag} className="hover:bg-gray-50">
+                          <td className="px-4 py-2.5 text-gray-400 text-xs">{i + 1}</td>
+                          <td className="px-4 py-2.5">
+                            <span className="font-mono text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{tag}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-bold text-gray-800">{count}</td>
+                          <td className="px-4 py-2.5 text-right text-gray-500 tabular-nums">{pct}%</td>
+                          <td className="px-4 py-2.5">
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-blue-400 rounded-full transition-all" style={{ width: `${barW}%` }} />
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {/* Không ghi chú row */}
+                    {totalNoNotes > 0 && (
+                      <tr className="bg-gray-50 text-gray-400 italic">
+                        <td className="px-4 py-2.5 text-xs">—</td>
+                        <td className="px-4 py-2.5 text-xs">{t('Không có ghi chú', 'No notes')}</td>
+                        <td className="px-4 py-2.5 text-right text-xs">{totalNoNotes}</td>
+                        <td className="px-4 py-2.5 text-right text-xs">{total ? (totalNoNotes/total*100).toFixed(1) : 0}%</td>
+                        <td className="px-4 py-2.5">
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-gray-300 rounded-full" style={{ width: `${total ? Math.round(totalNoNotes/maxCount*100) : 0}%` }} />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Results table */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
