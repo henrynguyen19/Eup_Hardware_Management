@@ -2045,21 +2045,27 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
 }
 
 // ── Customer Lookup Tab ──────────────────────────────────────────────────────
+interface BackFactoryRepairHistory {
+  repair_id: number; status: string; description: string
+  repair_man: string; finish_man: string
+  in_date: string; out_date: string; warehouse: string
+}
 interface BackFactoryResult {
   bf_id: string; imei: string; product_name: string; car_number: string
-  zone: string; wh_name: string; memo: string
-  repair_status: string | null; repair_status_label: string | null
-  repair_notes: string | null; repair_received_at: string | null
-  repair_completed_at: string | null; has_repair_record: boolean
+  zone: string; wh_name: string
+  repair_status: string | null; repair_description: string | null
+  repair_man: string | null; repair_finish_man: string | null
+  repair_in_date: string | null; repair_out_date: string | null
+  repair_warehouse: string | null; repair_count: number
+  repair_history: BackFactoryRepairHistory[]; has_repair_record: boolean
 }
 
 const REPAIR_STATUS_COLOR: Record<string, string> = {
-  cho_gui:     'bg-yellow-100 text-yellow-800',
-  da_gui:      'bg-blue-100 text-blue-800',
-  da_sua_xong: 'bg-emerald-100 text-emerald-800',
-  old_device:  'bg-purple-100 text-purple-800',
-  scrap:       'bg-red-100 text-red-800',
-  supplier:    'bg-amber-100 text-amber-800',
+  'Repaired':      'bg-emerald-100 text-emerald-800',
+  'Repairing':     'bg-blue-100 text-blue-800',
+  'Waiting':       'bg-yellow-100 text-yellow-800',
+  'Scrapped':      'bg-red-100 text-red-800',
+  'No Fault':      'bg-gray-100 text-gray-700',
 }
 
 function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
@@ -2075,12 +2081,13 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
   const [productNames, setProductNames] = useState<string[]>([])
   const [selProduct, setSelProduct] = useState<string>('')
   const [error, setError]           = useState<string | null>(null)
+  const [expanded, setExpanded]     = useState<Set<string>>(new Set())
 
   async function doSearch() {
     const code = inputCode.trim()
     if (!code) return
     setCustCode(code)
-    setLoading(true); setError(null); setItems([]); setSelProduct('')
+    setLoading(true); setError(null); setItems([]); setSelProduct(''); setExpanded(new Set())
     try {
       const params = new URLSearchParams({ custCode: code, startDate, endDate })
       const res = await fetch('/api/crm/back-factory?' + params.toString())
@@ -2095,6 +2102,7 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
 
   const filtered = selProduct ? items.filter(i => i.product_name === selProduct) : items
 
+  // CRM dates come as "2026-08-20 11:18:00.0" — slice 10 chars for date only
   const fmtDate = (iso: string | null) => iso ? iso.slice(0, 10) : '—'
 
   return (
@@ -2142,7 +2150,8 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
             <span className="text-sm text-gray-500">
               {t('Mã KH', 'CustCode')}: <span className="font-bold text-gray-800">{custCode}</span>
               {' — '}{filtered.length}/{items.length} {t('thiết bị', 'devices')}
-              {' — '}{items.filter(i => i.has_repair_record).length} {t('có hồ sơ sửa chữa', 'with repair record')}
+              {' — '}{items.filter(i => i.has_repair_record).length} {t('có hồ sơ CRM', 'with CRM record')}
+              {' — '}{items.filter(i => i.repair_count > 1).length} {t('đã vào SC nhiều lần', 'repaired multiple times')}
             </span>
           </div>
 
@@ -2175,38 +2184,77 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
                     <th className="px-3 py-2.5 text-left font-semibold">{t('Thiết bị', 'Device')}</th>
                     <th className="px-3 py-2.5 text-left font-semibold">IMEI</th>
                     <th className="px-3 py-2.5 text-left font-semibold">{t('Biển số', 'Plate')}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">{t('Kho', 'WH')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Kho về', 'WH')}</th>
                     <th className="px-3 py-2.5 text-left font-semibold">{t('Trạng thái SC', 'Repair Status')}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">{t('Ghi chú sửa chữa', 'Repair Notes')}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">{t('Nhận', 'Received')}</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">{t('Hoàn thành', 'Completed')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Mô tả lỗi', 'Description')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('KT sửa', 'Repaired by')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Vào', 'In')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Ra', 'Out')}</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">{t('Lần SC', 'SC#')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filtered.map((item, idx) => (
-                    <tr key={item.bf_id || idx}
-                      className={`hover:bg-gray-50 transition-colors ${!item.has_repair_record ? 'opacity-60' : ''}`}>
-                      <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
-                      <td className="px-3 py-2 font-medium text-gray-800">{item.product_name || '—'}</td>
-                      <td className="px-3 py-2 font-mono text-gray-600">{item.imei || '—'}</td>
-                      <td className="px-3 py-2 text-gray-700">{item.car_number || '—'}</td>
-                      <td className="px-3 py-2 text-gray-500">{item.wh_name || '—'}</td>
-                      <td className="px-3 py-2">
-                        {item.repair_status ? (
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${REPAIR_STATUS_COLOR[item.repair_status] ?? 'bg-gray-100 text-gray-700'}`}>
-                            {item.repair_status_label}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300 italic">{t('Chưa có hồ sơ', 'No record')}</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 max-w-xs">
-                        <span className="text-gray-700 whitespace-pre-line">{item.repair_notes || '—'}</span>
-                      </td>
-                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.repair_received_at)}</td>
-                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.repair_completed_at)}</td>
-                    </tr>
-                  ))}
+                <tbody>
+                  {filtered.map((item, idx) => {
+                    const key    = item.bf_id || String(idx)
+                    const isOpen = expanded.has(key)
+                    const toggleExpand = () => setExpanded(prev => {
+                      const next = new Set(prev)
+                      isOpen ? next.delete(key) : next.add(key)
+                      return next
+                    })
+                    return (
+                      <>
+                        <tr key={key}
+                          onClick={item.repair_count > 1 ? toggleExpand : undefined}
+                          className={`border-b border-gray-50 transition-colors ${!item.has_repair_record ? 'opacity-55' : ''} ${item.repair_count > 1 ? 'cursor-pointer hover:bg-blue-50' : 'hover:bg-gray-50'}`}>
+                          <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
+                          <td className="px-3 py-2 font-medium text-gray-800">{item.product_name || '—'}</td>
+                          <td className="px-3 py-2 font-mono text-gray-500 text-[11px]">{item.imei || '—'}</td>
+                          <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{item.car_number || '—'}</td>
+                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{item.repair_warehouse || item.wh_name || '—'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {item.repair_status ? (
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${REPAIR_STATUS_COLOR[item.repair_status] ?? 'bg-gray-100 text-gray-700'}`}>
+                                {item.repair_status}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300 italic text-[10px]">{t('Chưa có hồ sơ CRM', 'No CRM record')}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 max-w-[200px] text-gray-700">{item.repair_description || '—'}</td>
+                          <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{item.repair_man || '—'}</td>
+                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.repair_in_date)}</td>
+                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtDate(item.repair_out_date)}</td>
+                          <td className="px-3 py-2 text-center">
+                            {item.repair_count > 0 ? (
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${item.repair_count > 1 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>
+                                {item.repair_count}{item.repair_count > 1 ? ` ${isOpen ? '▲' : '▼'}` : ''}
+                              </span>
+                            ) : '—'}
+                          </td>
+                        </tr>
+                        {/* Expanded: all repair history */}
+                        {isOpen && item.repair_history.slice(1).map((h, hi) => (
+                          <tr key={`${key}-h${hi}`} className="bg-blue-50 border-b border-blue-100">
+                            <td className="px-3 py-1.5 text-blue-300">{idx + 1}.{hi + 2}</td>
+                            <td className="px-3 py-1.5 text-blue-400 italic" colSpan={2}>{t('Lần trước', 'Earlier')}</td>
+                            <td className="px-3 py-1.5 text-gray-500">—</td>
+                            <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{h.warehouse || '—'}</td>
+                            <td className="px-3 py-1.5">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${REPAIR_STATUS_COLOR[h.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                                {h.status}
+                              </span>
+                            </td>
+                            <td className="px-3 py-1.5 text-gray-700 max-w-[200px]">{h.description || '—'}</td>
+                            <td className="px-3 py-1.5 text-gray-600 whitespace-nowrap">{h.repair_man || '—'}</td>
+                            <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{fmtDate(h.in_date)}</td>
+                            <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{fmtDate(h.out_date)}</td>
+                            <td />
+                          </tr>
+                        ))}
+                      </>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
