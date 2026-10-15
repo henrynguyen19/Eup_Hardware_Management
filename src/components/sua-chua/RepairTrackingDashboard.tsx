@@ -2237,7 +2237,6 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
               </div>
             )}
           </div>
-          )}
 
           {/* Hashtag stats table */}
           {hashtagStats.length > 0 && (() => {
