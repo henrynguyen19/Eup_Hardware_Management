@@ -78,10 +78,11 @@ export default function CustomerLookupTab() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Results
-  const [results, setResults]   = useState<LookupResult[]>([])
-  const [loading, setLoading]   = useState(false)
-  const [apiError, setApiError] = useState('')
-  const [searched, setSearched] = useState(false)
+  const [results, setResults]         = useState<LookupResult[]>([])
+  const [loading, setLoading]         = useState(false)
+  const [apiError, setApiError]       = useState('')
+  const [searched, setSearched]       = useState(false)
+  const [debugFields, setDebugFields] = useState<string[]>([])
 
   // Filter
   const [filterText, setFilterText]     = useState('')
@@ -141,6 +142,7 @@ export default function CustomerLookupTab() {
       const json = await res.json()
       if (!res.ok || json.error) throw new Error(json.error ?? 'Lỗi không xác định')
       setResults(json.results ?? [])
+      setDebugFields(json._debug_customer_fields ?? [])
     } catch (e) {
       setApiError(String(e))
     } finally {
@@ -337,6 +339,17 @@ export default function CustomerLookupTab() {
           <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">
             {apiError}
           </div>
+        )}
+
+        {debugFields.length > 0 && (
+          <details className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+            <summary className="text-[10px] font-bold text-gray-400 uppercase tracking-widest cursor-pointer">
+              🔍 Debug — Fields từ GetCustomerByInfo ({debugFields.length} trường)
+            </summary>
+            <p className="mt-1 text-[11px] font-mono text-gray-600 break-all">
+              {debugFields.join(' | ')}
+            </p>
+          </details>
         )}
       </div>
 

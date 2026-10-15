@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
     // ── Step 1: GetCustomerByInfo cho từng biển số ────────────────────────────
     // Map: plate → { cust_id, cust_imid, cust_name }
     const plateToCustomer = new Map<string, { cust_id: string; cust_imid: string; cust_name: string; machine_bar_code: string } | null>()
+    let debugRawCustomerFields: string[] = []
 
     await batchAll(plates, 5, async (plate) => {
       try {
@@ -90,12 +91,20 @@ export async function POST(req: NextRequest) {
           15_000
         )
         const first = rows?.[0] ?? null
+        // Capture raw field names from first successful result for debugging
+        if (first && debugRawCustomerFields.length === 0) {
+          debugRawCustomerFields = Object.keys(first)
+          console.log('[customer-lookup] GetCustomerByInfo raw fields:', debugRawCustomerFields)
+          console.log('[customer-lookup] GetCustomerByInfo first row:', JSON.stringify(first))
+        }
         if (first) {
+          // Try common field name variants for MachineBarCode
+          const barcode = first.MachineBarCode ?? first.Machine_BarCode ?? first.Barcode ?? first.BarCode ?? first.Machine_Barcode ?? ''
           plateToCustomer.set(plate, {
-            cust_id:          String(first.Cust_ID         ?? ''),
-            cust_imid:        String(first.Cust_IMID       ?? first.Cust_ID ?? ''),
-            cust_name:        String(first.Cust_Name       ?? first.CustName ?? ''),
-            machine_bar_code: String(first.MachineBarCode  ?? ''),
+            cust_id:          String(first.Cust_ID   ?? ''),
+            cust_imid:        String(first.Cust_IMID ?? first.Cust_ID ?? ''),
+            cust_name:        String(first.Cust_Name ?? first.CustName ?? ''),
+            machine_bar_code: String(barcode),
           })
         } else {
           plateToCustomer.set(plate, null)
@@ -144,6 +153,14 @@ export async function POST(req: NextRequest) {
       }
     })
 
+    // ── Debug: collect raw field keys from first found result ────────────────
+    const debugFirstRaw = (() => {
+      for (const [, info] of plateToCustomer.entries()) {
+        if (info) return info
+      }
+      return null
+    })()
+
     // ── Step 4: Assemble results ──────────────────────────────────────────────
     const results = plates.map(plate => {
       const customer = plateToCustomer.get(plate) ?? null
@@ -164,7 +181,7 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({ ok: true, results, total: results.length })
+    return NextResponse.json({ ok: true, results, total: results.length, _debug_customer_fields: debugRawCustomerFields })
 
   } catch (err) {
     const msg = String(err)
