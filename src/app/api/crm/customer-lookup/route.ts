@@ -19,10 +19,11 @@ export const maxDuration = 60
 // ── CRM types ────────────────────────────────────────────────────────────────
 
 interface CustomerByInfoRow {
-  Cust_ID:        string | number
-  Cust_IMID?:     string | number
-  CustName?:      string
-  Cust_Name?:     string
+  Cust_ID:         string | number
+  Cust_IMID?:      string | number
+  CustName?:       string
+  Cust_Name?:      string
+  MachineBarCode?: string
   // ... other fields we ignore
   [key: string]: unknown
 }
@@ -32,6 +33,7 @@ interface CarInfoRow {
   Car_Unicode?: string
   Car_Tel?:     string
   Car_IsCheck?: number | boolean | string
+  CHKTime?:     string
   // ... other fields
   [key: string]: unknown
 }
@@ -76,7 +78,7 @@ export async function POST(req: NextRequest) {
 
     // ── Step 1: GetCustomerByInfo cho từng biển số ────────────────────────────
     // Map: plate → { cust_id, cust_imid, cust_name }
-    const plateToCustomer = new Map<string, { cust_id: string; cust_imid: string; cust_name: string } | null>()
+    const plateToCustomer = new Map<string, { cust_id: string; cust_imid: string; cust_name: string; machine_bar_code: string } | null>()
 
     await batchAll(plates, 5, async (plate) => {
       try {
@@ -90,9 +92,10 @@ export async function POST(req: NextRequest) {
         const first = rows?.[0] ?? null
         if (first) {
           plateToCustomer.set(plate, {
-            cust_id:   String(first.Cust_ID   ?? ''),
-            cust_imid: String(first.Cust_IMID ?? first.Cust_ID ?? ''),
-            cust_name: String(first.Cust_Name ?? first.CustName ?? ''),
+            cust_id:          String(first.Cust_ID         ?? ''),
+            cust_imid:        String(first.Cust_IMID       ?? first.Cust_ID ?? ''),
+            cust_name:        String(first.Cust_Name       ?? first.CustName ?? ''),
+            machine_bar_code: String(first.MachineBarCode  ?? ''),
           })
         } else {
           plateToCustomer.set(plate, null)
@@ -112,7 +115,7 @@ export async function POST(req: NextRequest) {
 
     // ── Step 3: GetCarInfo cho từng Cust_IMID ────────────────────────────────
     // Map: plate → car info
-    const plateToCarInfo = new Map<string, Pick<CarInfoRow, 'Car_Unicode' | 'Car_Tel' | 'Car_Number' | 'Car_IsCheck'>>()
+    const plateToCarInfo = new Map<string, Pick<CarInfoRow, 'Car_Unicode' | 'Car_Tel' | 'Car_Number' | 'Car_IsCheck' | 'CHKTime'>>()
 
     const custImids = [...custImidToPlates.keys()]
     await batchAll(custImids, 3, async (custImid) => {
@@ -132,6 +135,7 @@ export async function POST(req: NextRequest) {
               Car_Tel:     car.Car_Tel     ?? '',
               Car_Number:  car.Car_Number  ?? '',
               Car_IsCheck: car.Car_IsCheck,
+              CHKTime:     car.CHKTime     ?? '',
             })
           }
         }
@@ -146,13 +150,15 @@ export async function POST(req: NextRequest) {
       const car      = plateToCarInfo.get(plate)  ?? null
       return {
         plate,
-        found:       !!customer,
-        cust_id:     customer?.cust_id   ?? null,
-        cust_imid:   customer?.cust_imid ?? null,
-        cust_name:   customer?.cust_name ?? null,
-        car_unicode: car?.Car_Unicode ?? null,
-        car_tel:     car?.Car_Tel     ?? null,
-        car_is_check: car?.Car_IsCheck != null
+        found:            !!customer,
+        cust_id:          customer?.cust_id          ?? null,
+        cust_imid:        customer?.cust_imid        ?? null,
+        cust_name:        customer?.cust_name        ?? null,
+        machine_bar_code: customer?.machine_bar_code ?? null,
+        car_unicode:      car?.Car_Unicode ?? null,
+        car_tel:          car?.Car_Tel     ?? null,
+        chk_time:         car?.CHKTime     ?? null,
+        car_is_check:     car?.Car_IsCheck != null
           ? Boolean(Number(car.Car_IsCheck))
           : null,
       }
