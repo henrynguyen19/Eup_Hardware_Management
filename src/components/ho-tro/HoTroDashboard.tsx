@@ -30,7 +30,7 @@ const JiraBugsTab    = dynamic(() => import('@/components/jira/JiraBugsTab'), { 
 const HashtagTab     = dynamic(() => import('./HashtagTab'), { ssr: false })
 const TicketTable    = dynamic(() => import('./TicketTable'), { ssr: false })
 const CarListTab          = dynamic(() => import('./CarListTab'), { ssr: false })
-const CustomerLookupTab   = dynamic(() => import('./CustomerLookupTab'), { ssr: false })
+
 
 interface Props {
   userEmail: string
@@ -1385,7 +1385,7 @@ function HoTroReportModal({
 export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConfig, allStaff }: Props) {
   const { t } = useLanguage()
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
-  const [activeTab, setActiveTab] = useState<'tickets' | 'stats' | 'team' | 'jira' | 'hashtag' | 'carlist' | 'customer-lookup'>('tickets')
+  const [activeTab, setActiveTab] = useState<'tickets' | 'stats' | 'team' | 'jira' | 'hashtag' | 'carlist'>('tickets')
   // Legacy — kept for stats tab internals
   const [isSummaryMode, setIsSummaryMode]   = useState(false)
   const [isJiraBugsMode, setIsJiraBugsMode] = useState(false)
@@ -2141,21 +2141,19 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
               ...(isAdmin ? [{ key: 'team', label: '👥 Thống kê nhóm' }] : []),
               { key: 'jira',    label: `🐛 ${t.jira.title}` },
               { key: 'hashtag', label: `🏷️ ${t.hoTro.tabHashtag}` },
-              { key: 'carlist',         label: '🚗 DS Xe' },
-              { key: 'customer-lookup', label: '🔍 Tra cứu KH' },
+              { key: 'carlist', label: '🚗 DS Xe' },
             ].map(({ key, label }) => (
               <button
                 key={key}
-                onClick={() => setActiveTab(key as 'tickets' | 'stats' | 'team' | 'jira' | 'hashtag' | 'carlist' | 'customer-lookup')}
+                onClick={() => setActiveTab(key as 'tickets' | 'stats' | 'team' | 'jira' | 'hashtag' | 'carlist')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
                   activeTab === key
                     ? key === 'tickets' ? 'bg-blue-600 text-white'
                     : key === 'stats'   ? 'bg-gray-800 text-white'
                     : key === 'team'    ? 'bg-indigo-600 text-white'
                     : key === 'jira'    ? 'bg-red-600 text-white'
-                    : key === 'carlist'         ? 'bg-orange-500 text-white'
-                    : key === 'customer-lookup' ? 'bg-violet-600 text-white'
-                    :                             'bg-teal-600 text-white'
+                    : key === 'carlist' ? 'bg-orange-500 text-white'
+                    :                    'bg-teal-600 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
                 }`}
               >
@@ -2175,10 +2173,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
 
         {/* ── Tab: Jira Bugs ── */}
-        {activeTab === 'customer-lookup' ? (
-          <CustomerLookupTab />
-
-        ) : activeTab === 'carlist' ? (
+        {activeTab === 'carlist' ? (
           <CarListTab />
 
         ) : activeTab === 'hashtag' ? (

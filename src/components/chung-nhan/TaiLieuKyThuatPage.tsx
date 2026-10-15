@@ -1,9 +1,12 @@
 'use client'
 
 import React, { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useLanguage } from '@/contexts/LanguageContext'
 import CertificatesPage from './CertificatesPage'
 import HuongDanLapDatPage from './HuongDanLapDatPage'
+
+const CustomerLookupTab = dynamic(() => import('@/components/ho-tro/CustomerLookupTab'), { ssr: false })
 
 // Google Drive folder IDs — cấu hình theo từng loại tài liệu
 // Giấy chứng nhận: dùng folder gốc hiện có
@@ -12,7 +15,7 @@ const FOLDER_CHUNG_NHAN   = '1wmuGM092uFqujUj_UUVDW0MZxRe15TZd'
 const FOLDER_TAI_LIEU_KT  = ''   // ← điền Google Drive folder ID
 const FOLDER_HUONG_DAN    = ''   // ← điền Google Drive folder ID
 
-type SubTab = 'certificates' | 'technical' | 'installation'
+type SubTab = 'certificates' | 'technical' | 'installation' | 'customer-lookup'
 
 export default function TaiLieuKyThuatPage({ isAdmin = false, canWriteCerts = false, canTaiLieu = true, canHuongDan = true }: { isAdmin?: boolean; canWriteCerts?: boolean; canTaiLieu?: boolean; canHuongDan?: boolean }) {
   const { lang } = useLanguage()
@@ -21,13 +24,22 @@ export default function TaiLieuKyThuatPage({ isAdmin = false, canWriteCerts = fa
   const vi = lang === 'vi'
 
   const allTabs: { key: SubTab; label: string; icon: string; show: boolean }[] = [
-    { key: 'installation',  icon: '🔧', label: vi ? 'Hướng dẫn lắp đặt'   : 'Installation Guide', show: canHuongDan },
-    { key: 'technical',     icon: '📋', label: vi ? 'Tài liệu kỹ thuật'   : 'Technical Docs',     show: canTaiLieu  },
-    { key: 'certificates',  icon: '📜', label: vi ? 'Giấy chứng nhận'     : 'Certificates',       show: isAdmin || canTaiLieu },
+    { key: 'installation',     icon: '🔧', label: vi ? 'Hướng dẫn lắp đặt'      : 'Installation Guide',  show: canHuongDan },
+    { key: 'technical',        icon: '📋', label: vi ? 'Tài liệu kỹ thuật'      : 'Technical Docs',      show: canTaiLieu  },
+    { key: 'certificates',     icon: '📜', label: vi ? 'Giấy chứng nhận'        : 'Certificates',        show: isAdmin || canTaiLieu },
+    { key: 'customer-lookup',  icon: '🔍', label: vi ? 'Tra cứu khách hàng'     : 'Customer Lookup',     show: true },
   ]
   const tabs = allTabs.filter(t => t.show)
 
   function renderContent() {
+    if (activeTab === 'customer-lookup') {
+      return (
+        <div className="max-w-5xl mx-auto px-4 py-6">
+          <CustomerLookupTab />
+        </div>
+      )
+    }
+
     if (activeTab === 'certificates') {
       return (
         <CertificatesPage
