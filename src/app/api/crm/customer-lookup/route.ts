@@ -122,6 +122,7 @@ export async function POST(req: NextRequest) {
     const custImids = [...custImidToPlates.keys()]
     await batchAll(custImids, 3, async (custImid) => {
       try {
+        const t0 = Date.now()
         const cars = await callCrmSoap<CarInfoRow>(
           'GetCarInfo',
           { Cust_IMID: custImid, teamId: -1 },
@@ -129,13 +130,18 @@ export async function POST(req: NextRequest) {
           identity,
           15_000
         )
+        const elapsed = Date.now() - t0
         const searchPlates = custImidToPlates.get(custImid) ?? []
+        const returnedPlates = (cars ?? []).map(c => c.Car_Name ?? c.Car_Number ?? '?')
+        console.log(
+          `[GetCarInfo] imid=${custImid} search=[${searchPlates.join(',')}]` +
+          ` returned=${cars?.length ?? 0} [${returnedPlates.join(',')}] ${elapsed}ms`
+        )
         for (const car of (cars ?? [])) {
           const crmNorm = normPlate(car.Car_Name ?? car.Car_Number ?? '')
           // Fuzzy match: CRM plate contains search plate OR search plate contains CRM plate
           const matched = searchPlates.find(sp => {
             const spNorm = normPlate(sp)
-            console.log(`[MATCH] crmNorm="${crmNorm}" spNorm="${spNorm}" eq=${crmNorm===spNorm} crmHasSp=${crmNorm.includes(spNorm)} spHasCrm=${spNorm.includes(crmNorm)}`)
             return crmNorm === spNorm || crmNorm.includes(spNorm) || spNorm.includes(crmNorm)
           })
           if (matched && !plateToCarInfo.has(matched)) {
@@ -154,11 +160,37 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    // DEBUG Step 3
-    const _dbg3 = [...custImidToPlates.entries()].map(([imid, pls]) => ({
-      imid, plates: pls, car_matched: pls.map(p => ({ p, has: plateToCarInfo.has(p), data: plateToCarInfo.get(p) }))
-    }))
-    console.log('[DEBUG step3]', JSON.stringify(_dbg3))
+    // ── Step 3b: Fallback — gọi riêng từng biển chưa có thông tin xe ────────────
+    // Xảy ra khi CRM trả về danh sách xe bị giới hạn, không đủ cho tất cả biển cùng Cust_IMID
+    const missingPlates = plates.filter(p => plateToCustomer.get(p) && !plateToCarInfo.has(p))
+    if (missingPlates.length > 0) {
+      await batchAll(missingPlates, 3, async (plate) => {
+        const info = plateToCustomer.get(plate)
+        if (!info) return
+        try {
+          const cars = await callCrmSoap<CarInfoRow>(
+            'GetCarInfo',
+            { Cust_IMID: info.cust_imid, teamId: -1 },
+            sessionId, identity, 15_000
+          )
+          const spNorm = normPlate(plate)
+          for (const car of (cars ?? [])) {
+            const crmNorm = normPlate(car.Car_Name ?? car.Car_Number ?? '')
+            if (crmNorm === spNorm || crmNorm.includes(spNorm) || spNorm.includes(crmNorm)) {
+              plateToCarInfo.set(plate, {
+                Car_Unicode:    car.Car_Unicode    ?? '',
+                Car_Tel:        car.Car_Tel        ?? '',
+                Car_Number:     car.Car_Number     ?? '',
+                Car_IsCheck:    car.Car_IsCheck,
+                CHKTime:        car.CHKTime        ?? '',
+                MachineBarCode: car.MachineBarCode ?? '',
+              })
+              break
+            }
+          }
+        } catch { /* ignore */ }
+      })
+    }
 
     // ── Step 4: Assemble results ──────────────────────────────────────────────
     const results = plates.map(plate => {
@@ -180,7 +212,7 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({ ok: true, results, total: results.length, _d3: _dbg3 })
+    return NextResponse.json({ ok: true, results, total: results.length })
 
   } catch (err) {
     const msg = String(err)
