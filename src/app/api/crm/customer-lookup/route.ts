@@ -28,7 +28,8 @@ interface CustomerByInfoRow {
 }
 
 interface CarInfoRow {
-  Car_Number?:      string
+  Car_Name?:        string   // biển số xe — CRM trả về "Car_Name" không phải "Car_Number"
+  Car_Number?:      string   // giữ lại phòng khi một số record dùng field này
   Car_Unicode?:     string
   Car_Tel?:         string
   Car_IsCheck?:     number | boolean | string
@@ -79,8 +80,6 @@ export async function POST(req: NextRequest) {
     // ── Step 1: GetCustomerByInfo cho từng biển số ────────────────────────────
     // Map: plate → { cust_id, cust_imid, cust_name }
     const plateToCustomer = new Map<string, { cust_id: string; cust_imid: string; cust_name: string } | null>()
-    let debugRawCustomerFields: string[] = []
-
     await batchAll(plates, 5, async (plate) => {
       try {
         const rows = await callCrmSoap<CustomerByInfoRow>(
@@ -91,9 +90,6 @@ export async function POST(req: NextRequest) {
           15_000
         )
         const first = rows?.[0] ?? null
-        if (first && debugRawCustomerFields.length === 0) {
-          debugRawCustomerFields = Object.keys(first)
-        }
         if (first) {
           plateToCustomer.set(plate, {
             cust_id:   String(first.Cust_ID   ?? ''),
@@ -116,8 +112,11 @@ export async function POST(req: NextRequest) {
       custImidToPlates.get(info.cust_imid)!.push(plate)
     }
 
+    // ── Fuzzy plate normalize: strip non-alphanumeric, uppercase ─────────────
+    const normPlate = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+
     // ── Step 3: GetCarInfo cho từng Cust_IMID ────────────────────────────────
-    // Map: plate → car info
+    // Map: original search plate → car info
     const plateToCarInfo = new Map<string, Pick<CarInfoRow, 'Car_Unicode' | 'Car_Tel' | 'Car_Number' | 'Car_IsCheck' | 'CHKTime' | 'MachineBarCode'>>()
 
     const custImids = [...custImidToPlates.keys()]
@@ -130,16 +129,23 @@ export async function POST(req: NextRequest) {
           identity,
           15_000
         )
+        const searchPlates = custImidToPlates.get(custImid) ?? []
         for (const car of (cars ?? [])) {
-          const num = (car.Car_Number ?? '').trim().toUpperCase()
-          if (custImidToPlates.get(custImid)?.includes(num)) {
-            plateToCarInfo.set(num, {
-              Car_Unicode:     car.Car_Unicode    ?? '',
-              Car_Tel:         car.Car_Tel        ?? '',
-              Car_Number:      car.Car_Number     ?? '',
-              Car_IsCheck:     car.Car_IsCheck,
-              CHKTime:         car.CHKTime        ?? '',
-              MachineBarCode:  car.MachineBarCode ?? '',
+          const crmNorm = normPlate(car.Car_Name ?? car.Car_Number ?? '')
+          // Fuzzy match: CRM plate contains search plate OR search plate contains CRM plate
+          const matched = searchPlates.find(sp => {
+            const spNorm = normPlate(sp)
+            console.log(`[MATCH] crmNorm="${crmNorm}" spNorm="${spNorm}" eq=${crmNorm===spNorm} crmHasSp=${crmNorm.includes(spNorm)} spHasCrm=${spNorm.includes(crmNorm)}`)
+            return crmNorm === spNorm || crmNorm.includes(spNorm) || spNorm.includes(crmNorm)
+          })
+          if (matched && !plateToCarInfo.has(matched)) {
+            plateToCarInfo.set(matched, {
+              Car_Unicode:    car.Car_Unicode    ?? '',
+              Car_Tel:        car.Car_Tel        ?? '',
+              Car_Number:     car.Car_Number     ?? '',
+              Car_IsCheck:    car.Car_IsCheck,
+              CHKTime:        car.CHKTime        ?? '',
+              MachineBarCode: car.MachineBarCode ?? '',
             })
           }
         }
@@ -148,13 +154,11 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    // ── Debug: collect raw field keys from first found result ────────────────
-    const debugFirstRaw = (() => {
-      for (const [, info] of plateToCustomer.entries()) {
-        if (info) return info
-      }
-      return null
-    })()
+    // DEBUG Step 3
+    const _dbg3 = [...custImidToPlates.entries()].map(([imid, pls]) => ({
+      imid, plates: pls, car_matched: pls.map(p => ({ p, has: plateToCarInfo.has(p), data: plateToCarInfo.get(p) }))
+    }))
+    console.log('[DEBUG step3]', JSON.stringify(_dbg3))
 
     // ── Step 4: Assemble results ──────────────────────────────────────────────
     const results = plates.map(plate => {
@@ -176,7 +180,7 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    return NextResponse.json({ ok: true, results, total: results.length, _debug_customer_fields: debugRawCustomerFields })
+    return NextResponse.json({ ok: true, results, total: results.length, _d3: _dbg3 })
 
   } catch (err) {
     const msg = String(err)
