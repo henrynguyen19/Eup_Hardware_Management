@@ -78,11 +78,16 @@ export default function CustomerLookupTab() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Results
-  const [results, setResults]         = useState<LookupResult[]>([])
-  const [loading, setLoading]         = useState(false)
-  const [apiError, setApiError]       = useState('')
-  const [searched, setSearched]       = useState(false)
-  const [debugFields, setDebugFields] = useState<string[]>([])
+  const [results, setResults]   = useState<LookupResult[]>([])
+  const [loading, setLoading]   = useState(false)
+  const [apiError, setApiError] = useState('')
+  const [searched, setSearched] = useState(false)
+
+  // Progress tracking
+  const [progress, setProgress] = useState({ done: 0, total: 0, chunk: 0, chunks: 0 })
+  const cancelRef = useRef(false)
+
+  const CHUNK_SIZE = 30
 
   // Filter
   const [filterText, setFilterText]     = useState('')
@@ -120,11 +125,18 @@ export default function CustomerLookupTab() {
       .filter(Boolean)
   }, [mode, manualText, sheets, selSheet, selCol])
 
-  // ── Search ─────────────────────────────────────────────────────────────────
+  // ── Search (batch + progress) ──────────────────────────────────────────────
   const handleSearch = useCallback(async () => {
-    const plates = getPlates()
-    if (plates.length === 0) return
+    const allPlates = getPlates()
+    if (allPlates.length === 0) return
 
+    // Chunk plates
+    const chunks: string[][] = []
+    for (let i = 0; i < allPlates.length; i += CHUNK_SIZE) {
+      chunks.push(allPlates.slice(i, i + CHUNK_SIZE))
+    }
+
+    cancelRef.current = false
     setLoading(true)
     setApiError('')
     setResults([])
@@ -132,23 +144,47 @@ export default function CustomerLookupTab() {
     setFilterText('')
     setFilterFound('all')
     setFilterSignal('all')
+    setProgress({ done: 0, total: allPlates.length, chunk: 0, chunks: chunks.length })
 
-    try {
-      const res = await fetch('/api/crm/customer-lookup', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ plates }),
-      })
-      const json = await res.json()
-      if (!res.ok || json.error) throw new Error(json.error ?? 'Lỗi không xác định')
-      setResults(json.results ?? [])
-      setDebugFields(json._debug_customer_fields ?? [])
-    } catch (e) {
-      setApiError(String(e))
-    } finally {
-      setLoading(false)
+    const accumulated: LookupResult[] = []
+    let errors: string[] = []
+
+    for (let ci = 0; ci < chunks.length; ci++) {
+      if (cancelRef.current) break
+
+      setProgress({ done: ci * CHUNK_SIZE, total: allPlates.length, chunk: ci + 1, chunks: chunks.length })
+
+      try {
+        const res = await fetch('/api/crm/customer-lookup', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ plates: chunks[ci] }),
+        })
+        const json = await res.json()
+        if (!res.ok || json.error) {
+          errors.push(`Batch ${ci + 1}: ${json.error ?? 'Lỗi không xác định'}`)
+        } else {
+          accumulated.push(...(json.results ?? []))
+          setResults([...accumulated]) // live update
+        }
+      } catch (e) {
+        errors.push(`Batch ${ci + 1}: ${String(e)}`)
+      }
+
+      // Small delay between batches to avoid flooding SOAP
+      if (ci < chunks.length - 1 && !cancelRef.current) {
+        await new Promise(r => setTimeout(r, 300))
+      }
     }
-  }, [getPlates])
+
+    setProgress(p => ({ ...p, done: accumulated.length }))
+    if (errors.length) setApiError(errors.join('\n'))
+    setLoading(false)
+  }, [getPlates, CHUNK_SIZE])
+
+  const handleCancel = useCallback(() => {
+    cancelRef.current = true
+  }, [])
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const plates       = getPlates()
@@ -203,20 +239,18 @@ export default function CustomerLookupTab() {
     navigator.clipboard.writeText([EXPORT_HEADERS.join('\t'), ...rows].join('\n'))
   }, [filtered, toRow, EXPORT_HEADERS])
 
-  // ── Export CSV ─────────────────────────────────────────────────────────────
-  const exportCSV = useCallback(() => {
-    const escape = (s: string) => `"${s.replace(/"/g, '""')}"`
-    const lines  = [
-      EXPORT_HEADERS.map(escape).join(','),
-      ...filtered.map(r => toRow(r).map(escape).join(',')),
-    ]
-    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `tra-cuu-kh-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  // ── Export Excel (XLSX) ────────────────────────────────────────────────────
+  const exportExcel = useCallback(async () => {
+    const XLSX = await loadXLSX()
+    const data = [EXPORT_HEADERS, ...filtered.map(r => toRow(r))]
+    const ws   = XLSX.utils.aoa_to_sheet(data)
+    // Auto column widths
+    ws['!cols'] = EXPORT_HEADERS.map((_: string, i: number) => ({
+      wch: Math.max(...data.map((row: string[]) => (row[i] ?? '').toString().length), 10)
+    }))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Tra cứu KH')
+    XLSX.writeFile(wb, `tra-cuu-kh-${new Date().toISOString().slice(0, 10)}.xlsx`)
   }, [filtered, toRow, EXPORT_HEADERS])
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -322,16 +356,42 @@ export default function CustomerLookupTab() {
           </div>
         )}
 
-        {/* Search button */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleSearch}
-            disabled={loading || plates.length === 0}
-            className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition">
-            {loading ? '⏳ Đang tra cứu...' : `🔍 Tra cứu ${plates.length > 0 ? `(${plates.length} biển)` : ''}`}
-          </button>
-          {plates.length > 500 && (
-            <p className="text-xs text-orange-500">⚠️ Tối đa 500 biển số mỗi lần</p>
+        {/* Search button + progress */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSearch}
+              disabled={loading || plates.length === 0}
+              className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition">
+              {loading ? '⏳ Đang tra cứu...' : `🔍 Tra cứu ${plates.length > 0 ? `(${plates.length} biển)` : ''}`}
+            </button>
+            {loading && (
+              <button onClick={handleCancel}
+                className="px-4 py-2 bg-red-100 text-red-700 text-sm font-medium rounded-xl hover:bg-red-200 transition">
+                ✕ Dừng
+              </button>
+            )}
+            {!loading && plates.length > 0 && (
+              <p className="text-xs text-gray-400">
+                {progress.chunks > 1 && `Sẽ chia ${progress.chunks} đợt × ${CHUNK_SIZE} biển`}
+              </p>
+            )}
+          </div>
+
+          {/* Progress bar */}
+          {loading && progress.total > 0 && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>Đợt {progress.chunk}/{progress.chunks} — Đã xử lý {results.length}/{progress.total} biển số</span>
+                <span>{Math.round(results.length / progress.total * 100)}%</span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round(results.length / progress.total * 100)}%` }}
+                />
+              </div>
+            </div>
           )}
         </div>
 
@@ -341,16 +401,6 @@ export default function CustomerLookupTab() {
           </div>
         )}
 
-        {debugFields.length > 0 && (
-          <details className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
-            <summary className="text-[10px] font-bold text-gray-400 uppercase tracking-widest cursor-pointer">
-              🔍 Debug — Fields từ GetCustomerByInfo ({debugFields.length} trường)
-            </summary>
-            <p className="mt-1 text-[11px] font-mono text-gray-600 break-all">
-              {debugFields.join(' | ')}
-            </p>
-          </details>
-        )}
       </div>
 
       {/* ── Results ── */}
@@ -388,9 +438,9 @@ export default function CustomerLookupTab() {
                   className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition">
                   📋 Sao chép
                 </button>
-                <button onClick={exportCSV}
+                <button onClick={exportExcel}
                   className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition">
-                  ⬇️ Xuất CSV
+                  ⬇️ Xuất Excel
                 </button>
               </div>
             </div>
