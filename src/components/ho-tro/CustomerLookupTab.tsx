@@ -17,7 +17,7 @@ interface LookupResult {
   car_is_check:     boolean | null
 }
 
-type SignalFilter = 'all' | '3d' | '5d' | '7d'
+type SignalFilter = 'all' | 'lt1d' | 'lt2d' | '3d' | '5d' | '7d'
 
 function daysSince(dateStr: string | null): number | null {
   if (!dateStr) return null
@@ -190,15 +190,23 @@ export default function CustomerLookupTab() {
   const plates       = getPlates()
   const currentSheet = sheets[selSheet]
 
-  const SIGNAL_DAYS: Record<SignalFilter, number> = { all: 0, '3d': 3, '5d': 5, '7d': 7 }
+  // lt1d / lt2d = mất tín hiệu DƯỚI X ngày; 3d/5d/7d = mất tín hiệu TRÊN X ngày
+  const matchSignal = (chk_time: string | null, f: SignalFilter): boolean => {
+    if (f === 'all') return true
+    const days = daysSince(chk_time)
+    if (days == null) return false
+    if (f === 'lt1d') return days < 1
+    if (f === 'lt2d') return days < 2
+    if (f === '3d')   return days >= 3
+    if (f === '5d')   return days >= 5
+    if (f === '7d')   return days >= 7
+    return true
+  }
 
   const filtered = results.filter(r => {
     if (filterFound === 'found'    && !r.found) return false
     if (filterFound === 'notfound' &&  r.found) return false
-    if (filterSignal !== 'all') {
-      const days = daysSince(r.chk_time)
-      if (days == null || days < SIGNAL_DAYS[filterSignal]) return false
-    }
+    if (!matchSignal(r.chk_time, filterSignal)) return false
     if (filterText) {
       const q = filterText.toUpperCase()
       return (
@@ -446,13 +454,15 @@ export default function CustomerLookupTab() {
             </div>
 
             {/* Row 2: signal loss filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Mất tín hiệu &gt;</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wider whitespace-nowrap">Mất tín hiệu</span>
               {([
-                ['all', 'Tất cả',  ''],
-                ['3d',  '3 ngày',  'bg-yellow-100 text-yellow-800'],
-                ['5d',  '5 ngày',  'bg-orange-100 text-orange-800'],
-                ['7d',  '7 ngày',  'bg-red-100 text-red-700'],
+                ['all',   'Tất cả',     ''],
+                ['lt1d',  '< 1 ngày',   'bg-green-100 text-green-800'],
+                ['lt2d',  '< 2 ngày',   'bg-blue-100 text-blue-800'],
+                ['3d',    '> 3 ngày',   'bg-yellow-100 text-yellow-800'],
+                ['5d',    '> 5 ngày',   'bg-orange-100 text-orange-800'],
+                ['7d',    '> 7 ngày',   'bg-red-100 text-red-700'],
               ] as const).map(([val, label, cls]) => (
                 <button key={val} onClick={() => setFilterSignal(val)}
                   className={`px-3 py-1 text-xs rounded-full border font-medium transition ${
@@ -461,7 +471,7 @@ export default function CustomerLookupTab() {
                       : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'
                   }`}>
                   {label}
-                  {val !== 'all' && ` (${results.filter(r => { const d = daysSince(r.chk_time); return d != null && d >= SIGNAL_DAYS[val as SignalFilter] }).length})`}
+                  {val !== 'all' && ` (${results.filter(r => matchSignal(r.chk_time, val)).length})`}
                 </button>
               ))}
               <span className="text-[10px] text-gray-300 ml-1">{filtered.length} kết quả</span>
