@@ -203,8 +203,9 @@ export async function POST(req: NextRequest) {
         cust_imid:        customer?.cust_imid ?? null,
         cust_name:        customer?.cust_name ?? null,
         machine_bar_code: car?.MachineBarCode ?? null,
-        car_unicode:      car?.Car_Unicode    ?? null,
-        car_tel:          car?.Car_Tel     ?? null,
+        car_number:       car?.Car_Number    ?? null,
+        car_unicode:      car?.Car_Unicode   ?? null,
+        car_tel:          car?.Car_Tel       ?? null,
         chk_time:         car?.CHKTime     ?? null,
         car_is_check:     car?.Car_IsCheck != null
           ? Boolean(Number(car.Car_IsCheck))

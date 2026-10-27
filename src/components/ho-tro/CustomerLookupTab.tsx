@@ -11,6 +11,7 @@ interface LookupResult {
   cust_imid:        string | null
   cust_name:        string | null
   machine_bar_code: string | null
+  car_number:       string | null
   car_unicode:      string | null
   car_tel:          string | null
   chk_time:         string | null
@@ -210,10 +211,10 @@ export default function CustomerLookupTab() {
     if (filterText) {
       const q = filterText.toUpperCase()
       return (
-        r.plate.includes(q)                              ||
+        r.plate.toUpperCase().includes(q)                    ||
+        (r.car_number      ?? '').toUpperCase().includes(q) ||
         (r.cust_name       ?? '').toUpperCase().includes(q) ||
-        (r.car_tel         ?? '').includes(filterText)   ||
-        (r.car_unicode     ?? '').toUpperCase().includes(q) ||
+        (r.car_tel         ?? '').includes(filterText)      ||
         (r.machine_bar_code ?? '').toUpperCase().includes(q)
       )
     }
@@ -501,9 +502,9 @@ export default function CustomerLookupTab() {
                     <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                     <td className="px-3 py-2">
                       <span className="font-mono font-semibold text-gray-800">
-                        {r.car_unicode || r.plate}
+                        {r.car_number || r.plate}
                       </span>
-                      {r.car_unicode && r.car_unicode.toUpperCase() !== r.plate.toUpperCase() && (
+                      {r.car_number && r.car_number.toUpperCase().replace(/[^A-Z0-9]/g,'') !== r.plate.toUpperCase().replace(/[^A-Z0-9]/g,'') && (
                         <span className="ml-1.5 text-[10px] text-gray-400">({r.plate})</span>
                       )}
                       {!r.found && (
