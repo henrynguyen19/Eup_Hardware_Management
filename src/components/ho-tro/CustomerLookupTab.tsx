@@ -500,7 +500,12 @@ export default function CustomerLookupTab() {
                   <tr key={r.plate} className={`hover:bg-gray-50 ${!r.found ? 'opacity-50' : ''}`}>
                     <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                     <td className="px-3 py-2">
-                      <span className="font-mono font-semibold text-gray-800">{r.plate}</span>
+                      <span className="font-mono font-semibold text-gray-800">
+                        {r.car_unicode || r.plate}
+                      </span>
+                      {r.car_unicode && r.car_unicode.toUpperCase() !== r.plate.toUpperCase() && (
+                        <span className="ml-1.5 text-[10px] text-gray-400">({r.plate})</span>
+                      )}
                       {!r.found && (
                         <span className="ml-2 text-[10px] text-red-400 bg-red-50 px-1.5 py-0.5 rounded">
                           Không tìm thấy
