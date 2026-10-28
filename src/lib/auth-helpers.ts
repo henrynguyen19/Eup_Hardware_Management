@@ -200,6 +200,19 @@ const ADMIN_LEGACY = [
   'huong_dan:read', 'huong_dan:write',
 ]
 
+// Role "Xem toàn bộ": xem được tất cả, không được thêm/sửa/xóa
+const VIEW_ALL_READ = [
+  'kho:read',
+  'sua_chua:read',
+  'ho_tro:read',
+  'chat_luong:read',
+  'chung_nhan:read',
+  'gui_hang:read',
+  'kho_daily:read',
+  'tai_lieu:read',
+  'huong_dan:read',
+]
+
 const SUB_TO_LEGACY: Record<string, string> = {
   thiet_bi_danh_sach:  'kho:read',
   thiet_bi_tinh_nang:  'kho:read',
@@ -217,6 +230,18 @@ export async function buildAppShellPerms(userId: string): Promise<string[]> {
   if (admin) return ADMIN_LEGACY
 
   const result = new Set<string>()
+
+  // Kiểm tra role "Xem toàn bộ" → grant toàn bộ read permissions
+  const { data: roleRows } = await adminDb()
+    .from('user_roles')
+    .select('roles(name)')
+    .eq('user_id', userId)
+  const roleNames = (roleRows ?? []).map(
+    (r: { roles: { name: string } | null }) => r.roles?.name ?? ''
+  )
+  if (roleNames.includes('Xem toàn bộ')) {
+    for (const p of VIEW_ALL_READ) result.add(p)
+  }
 
   // Hệ thống mới: user_dept_permissions
   const permKeys = await getUserPermKeys(userId)
