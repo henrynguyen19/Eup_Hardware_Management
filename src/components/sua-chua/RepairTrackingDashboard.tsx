@@ -1802,8 +1802,8 @@ function DetailedAnalysisPanel({ stats, t }: { stats: StatsData; t:(vi:string,en
 }
 
 
-function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void; active: boolean }) {
-  const [section, setSection] = useState<'repair'|'failure'|'hashtag'>('repair')
+function StatsTab({ t, onFilterByTag, active, initialSection }: { t:(vi:string,en:string)=>string; onFilterByTag:(tag:string)=>void; active: boolean; initialSection?: 'repair'|'failure'|'hashtag' }) {
+  const [section, setSection] = useState<'repair'|'failure'|'hashtag'>(initialSection ?? 'repair')
   const [stats, setStats]     = useState<StatsData|null>(null)
   const [loadingS, setLoadingS] = useState(true)
   const [from, setFrom]       = useState('')
@@ -1855,14 +1855,16 @@ function StatsTab({ t, onFilterByTag, active }: { t:(vi:string,en:string)=>strin
 
   return (
     <div className="space-y-5">
-      <div className="flex gap-1 border-b border-gray-200">
-        {sections.map(s=>(
-          <button key={s.id} onClick={()=>setSection(s.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${section===s.id?'border-blue-600 text-blue-700':'border-transparent text-gray-500 hover:text-gray-700'}`}>
-            {s.label}
-          </button>
-        ))}
-      </div>
+      {!initialSection && (
+        <div className="flex gap-1 border-b border-gray-200">
+          {sections.map(s=>(
+            <button key={s.id} onClick={()=>setSection(s.id)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${section===s.id?'border-blue-600 text-blue-700':'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {section==='repair' && (
         loadingS ? <div className="py-12 text-center text-sm text-gray-400">{t('Đang tải...','Loading...')}</div>
@@ -2451,7 +2453,7 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
   const toggle = internal.toggle
   const t = (vi: string, en: string) => lang === 'vi' ? vi : en
   const PAGE_SIZE = 50
-  const [activeTab, setActiveTab]   = useState<'list'|'stats'|'customer'>('list')
+  const [activeTab, setActiveTab]   = useState<'list'|'repair'|'failure'|'hashtag'|'customer'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
   const [page, setPage]             = useState(0)
@@ -2507,6 +2509,8 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
 
   function handleFilterByTag(tag: string) { setFilterTag(tag); setActiveTab('list') }
 
+  const isStatsTab = activeTab === 'repair' || activeTab === 'failure' || activeTab === 'hashtag'
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -2521,10 +2525,12 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
         )}
       </div>
 
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
         {([
           ['list',     t('📋 Danh sách','📋 List')],
-          ['stats',    t('📊 Thống kê','📊 Statistics')],
+          ['repair',   t('📊 Sửa chữa','📊 Repairs')],
+          ['failure',  t('⚠️ Tỉ lệ lỗi','⚠️ Failure Rate')],
+          ['hashtag',  t('🏷 Phân tích lỗi','🏷 Error Tags')],
           ['customer', t('🔍 Tra cứu KH','🔍 Customer Lookup')],
         ] as const).map(([tab,label])=>(
           <button key={tab} onClick={()=>setActiveTab(tab)}
@@ -2630,8 +2636,8 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
             </div>
           )}
         </>
-      ) : activeTab==='stats' ? (
-        <StatsTab t={t} onFilterByTag={handleFilterByTag} active={true} />
+      ) : isStatsTab ? (
+        <StatsTab key={activeTab} t={t} onFilterByTag={handleFilterByTag} active={true} initialSection={activeTab as 'repair'|'failure'|'hashtag'} />
       ) : (
         <CustomerLookupTab t={t} />
       )}
