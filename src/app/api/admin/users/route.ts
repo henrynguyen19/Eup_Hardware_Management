@@ -129,7 +129,7 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ ok: true })
 }
 
-// PUT: reset mật khẩu — sinh random, trả về tempPassword để admin thông báo cho user
+// PUT: reset mật khẩu về mặc định eupvn123
 export async function PUT(req: NextRequest) {
   const auth = await requireAdminPermission()
   if (!auth.ok) return auth.error!
@@ -137,12 +137,12 @@ export async function PUT(req: NextRequest) {
   const { userId } = await req.json()
   if (!userId) return NextResponse.json({ error: 'Thiếu userId' }, { status: 400 })
 
-  const tempPassword = generatePassword()
+  const defaultPassword = 'eupvn123'
   const { error } = await supabaseAdmin().auth.admin.updateUserById(userId, {
-    password: tempPassword,
+    password: defaultPassword,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true, tempPassword })
+  return NextResponse.json({ ok: true, tempPassword: defaultPassword })
 }
 
 // DELETE: xóa tài khoản hoàn toàn
