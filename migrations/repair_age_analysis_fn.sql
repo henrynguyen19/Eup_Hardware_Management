@@ -5,8 +5,8 @@
 -- Chạy trong Supabase SQL Editor (service_role).
 -- Nếu đã tạo trước đó, CREATE OR REPLACE sẽ thay thế tự động.
 
--- ── Function 1: Tổng hợp theo category × destination ─────────────────────
--- Trả về ~15 rows (5 categories × 3 destinations)
+-- ── Function 1: Tổng hợp theo product_name × destination ─────────────────
+-- Dùng product_name trực tiếp từ device_inventory (tên model thực tế từ CRM)
 CREATE OR REPLACE FUNCTION repair_age_by_dest_category()
 RETURNS TABLE (
   device_category TEXT,
@@ -23,14 +23,13 @@ SECURITY DEFINER
 AS $$
   WITH base AS (
     SELECT
-      COALESCE(dtm.order_name, 'Khác')::TEXT AS device_category,
-      ri.destination::TEXT                    AS destination,
+      COALESCE(di.product_name, 'Unknown')::TEXT AS device_category,
+      ri.destination::TEXT                        AS destination,
       ROUND(
         EXTRACT(EPOCH FROM (ri.received_at::timestamptz - di.imported_date::timestamptz)) / 86400
       ) AS age_days
     FROM repair_items ri
     JOIN device_inventory di ON di.device_code = ri.imei
-    LEFT JOIN device_type_mapping dtm ON dtm.crm_name = di.product_name
     WHERE ri.imei IS NOT NULL AND ri.imei != ''
       AND di.imported_date IS NOT NULL
       AND ri.received_at IS NOT NULL
@@ -51,10 +50,12 @@ AS $$
     ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY age_days))   AS p75_days
   FROM filtered
   GROUP BY device_category, destination
+  HAVING COUNT(*) >= 3
   ORDER BY device_category, destination
 $$;
 
--- ── Function 2: Chi tiết theo product_name × destination (kèm category) ──
+-- ── Function 2: Chi tiết theo product_name × destination ──────────────────
+-- (same as above — product_name IS the grouping key, alias kept for compat)
 CREATE OR REPLACE FUNCTION repair_age_by_product()
 RETURNS TABLE (
   device_category TEXT,
@@ -70,39 +71,37 @@ SECURITY DEFINER
 AS $$
   WITH base AS (
     SELECT
-      COALESCE(dtm.order_name, 'Khác')::TEXT AS device_category,
-      di.product_name,
-      ri.destination::TEXT                    AS destination,
+      COALESCE(di.product_name, 'Unknown')::TEXT AS pname,
+      ri.destination::TEXT                        AS destination,
       ROUND(
         EXTRACT(EPOCH FROM (ri.received_at::timestamptz - di.imported_date::timestamptz)) / 86400
       ) AS age_days
     FROM repair_items ri
     JOIN device_inventory di ON di.device_code = ri.imei
-    LEFT JOIN device_type_mapping dtm ON dtm.crm_name = di.product_name
     WHERE ri.imei IS NOT NULL AND ri.imei != ''
       AND di.imported_date IS NOT NULL
       AND ri.received_at IS NOT NULL
       AND ri.destination IN ('old_device', 'supplier', 'scrap')
   ),
   filtered AS (
-    SELECT device_category, product_name, destination, age_days
+    SELECT pname, destination, age_days
     FROM base
     WHERE age_days BETWEEN 0 AND 3650
   )
   SELECT
-    device_category,
-    product_name,
+    pname                                                            AS device_category,
+    pname                                                            AS product_name,
     destination,
     COUNT(*)                                                         AS unit_count,
     ROUND(AVG(age_days))                                             AS avg_days,
     ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days))    AS median_days
   FROM filtered
-  GROUP BY device_category, product_name, destination
+  GROUP BY pname, destination
   HAVING COUNT(*) >= 3
-  ORDER BY device_category, product_name, destination
+  ORDER BY pname, destination
 $$;
 
--- ── Function 3: Phân bố nhóm tuổi theo category ──────────────────────────
+-- ── Function 3: Phân bố nhóm tuổi theo product_name ──────────────────────
 CREATE OR REPLACE FUNCTION repair_age_distribution()
 RETURNS TABLE (
   device_category TEXT,
@@ -119,14 +118,13 @@ SECURITY DEFINER
 AS $$
   WITH base AS (
     SELECT
-      COALESCE(dtm.order_name, 'Khác')::TEXT AS device_category,
+      COALESCE(di.product_name, 'Unknown')::TEXT AS device_category,
       ri.destination::TEXT AS destination,
       ROUND(
         EXTRACT(EPOCH FROM (ri.received_at::timestamptz - di.imported_date::timestamptz)) / 86400
       ) AS age_days
     FROM repair_items ri
     JOIN device_inventory di ON di.device_code = ri.imei
-    LEFT JOIN device_type_mapping dtm ON dtm.crm_name = di.product_name
     WHERE ri.imei IS NOT NULL AND ri.imei != ''
       AND di.imported_date IS NOT NULL
       AND ri.received_at IS NOT NULL

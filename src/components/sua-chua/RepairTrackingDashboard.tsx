@@ -2167,29 +2167,28 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
     else { setSortCol(col); setSortAsc(true) }
   }
 
-  const CAT_ICON: Record<string, string> = {
-    'GPS Tracker': '📡', 'MDVR': '🎥', 'Camera': '📷', 'Khác': '🔧',
-  }
-
   return (
     <div className="space-y-6">
-      {/* Header + category filter pills */}
+      {/* Header + product filter */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-gray-800">{t('Phân tích tuổi thiết bị','Device Age Analysis')}</h2>
           <p className="text-xs text-gray-500 mt-0.5">{t(`${data.total_matched.toLocaleString()} bản ghi khớp (device_inventory ↔ repair_items)`,`${data.total_matched.toLocaleString()} matched records`)}</p>
         </div>
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 flex-wrap">
-          <button onClick={() => setSelCat('')}
-            className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${selCat==='' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-            🔍 {t('Tất cả','All')}
-          </button>
-          {data.categories.map(cat => (
-            <button key={cat} onClick={() => setSelCat(cat)}
-              className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${selCat===cat ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-              {CAT_ICON[cat] ?? '📦'} {cat}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <select
+            value={selCat}
+            onChange={e => setSelCat(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 min-w-[220px]"
+          >
+            <option value="">{t('— Tất cả thiết bị —','— All devices —')}</option>
+            {data.categories.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+          {selCat && (
+            <button onClick={() => setSelCat('')} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 border border-gray-200 rounded-lg">✕</button>
+          )}
         </div>
       </div>
 
@@ -2257,7 +2256,6 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
           <table className="w-full text-sm text-left">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase">
-                <th className="px-4 py-2">{t('Nhóm','Category')}</th>
                 <th className="px-4 py-2 cursor-pointer select-none hover:text-gray-700" onClick={() => thClick('product')}>
                   {t('Loại thiết bị','Device Type')} {sortCol==='product' ? (sortAsc ? '▲' : '▼') : ''}
                 </th>
@@ -2273,10 +2271,9 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
             </thead>
             <tbody>
               {filteredProducts.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-400">{t('Không có dữ liệu','No data')}</td></tr>
+                <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">{t('Không có dữ liệu','No data')}</td></tr>
               ) : filteredProducts.map((r, i) => (
                 <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                  <td className="px-4 py-2 text-xs text-gray-500">{CAT_ICON[r.device_category] ?? '📦'} {r.device_category}</td>
                   <td className="px-4 py-2 font-medium text-gray-800 text-xs">{r.product}</td>
                   <td className="px-4 py-2">
                     <span className={`text-xs px-2 py-0.5 rounded-full border ${DEST_BG_MAP[r.destination] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>{r.dest_label}</span>
@@ -2291,7 +2288,7 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
         </div>
         {filteredProducts.length > 0 && (
           <div className="px-5 py-2 text-xs text-gray-400 border-t border-gray-100">
-            {t(`Hiển thị ${filteredProducts.length} hàng (≥3 mẫu)`, `Showing ${filteredProducts.length} rows (≥3 samples)`)}
+            {t(`${filteredProducts.length} dòng (≥3 mẫu)`, `${filteredProducts.length} rows (≥3 samples)`)}
           </div>
         )}
       </div>
