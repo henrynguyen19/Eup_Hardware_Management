@@ -11,10 +11,12 @@ const adminDb = () => createClient(
  * GET /api/repair-tracking/age-analysis
  * Phân tích tuổi thiết bị theo kết quả xử lý (destination).
  *
- * Yêu cầu: chạy migration migrations/repair_age_analysis_fn.sql trước.
- * Function SQL: repair_age_analysis() → (destination, product_name, age_days)
- * Join: device_inventory.device_code = repair_items.imei
- * Tuổi = received_at − imported_date (ngày)
+ * Yêu cầu: chạy migration migrations/repair_age_analysis_fn.sql.
+ * Dùng 4 SQL functions để tránh giới hạn 1.000 row của Supabase RPC:
+ *   repair_age_by_destination()
+ *   repair_age_by_product()
+ *   repair_age_distribution()
+ *   repair_age_total_matched()
  */
 export async function GET() {
   const supabase = createSupabaseServerClient()
@@ -23,98 +25,60 @@ export async function GET() {
 
   const db = adminDb()
 
-  // Gọi PostgreSQL function (xem migrations/repair_age_analysis_fn.sql)
-  const { data: rows, error } = await db.rpc('repair_age_analysis')
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  // ── Tính toán client-side ─────────────────────────────────────────────────
-  type Row = { destination: string; product_name: string; age_days: number }
-
   const DEST_LABEL: Record<string, string> = {
     old_device: 'Trả lại sử dụng',
     supplier:   'Gửi nhà cung cấp (RMA)',
     scrap:      'Báo phế',
   }
 
-  // Aggregate: { product × destination → [age_days] }
-  type Bucket = { ages: number[]; product: string; destination: string }
-  const map = new Map<string, Bucket>()
+  // Gọi song song cả 4 functions
+  const [r1, r2, r3, r4] = await Promise.all([
+    db.rpc('repair_age_by_destination'),
+    db.rpc('repair_age_by_product'),
+    db.rpc('repair_age_distribution'),
+    db.rpc('repair_age_total_matched'),
+  ])
 
-  for (const r of (rows as Row[]) ?? []) {
-    const key = `${r.product_name}|||${r.destination}`
-    if (!map.has(key)) map.set(key, { ages: [], product: r.product_name, destination: r.destination })
-    map.get(key)!.ages.push(r.age_days)
-  }
+  if (r1.error) return NextResponse.json({ error: r1.error.message }, { status: 500 })
+  if (r2.error) return NextResponse.json({ error: r2.error.message }, { status: 500 })
+  if (r3.error) return NextResponse.json({ error: r3.error.message }, { status: 500 })
 
-  function avg(arr: number[]) { return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0 }
-  function median(arr: number[]) {
-    if (!arr.length) return 0
-    const s = [...arr].sort((a, b) => a - b)
-    const m = Math.floor(s.length / 2)
-    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2)
-  }
+  type DestRow = { destination: string; unit_count: number; avg_days: number; median_days: number; p25_days: number; p75_days: number }
+  type ProdRow = { product_name: string; destination: string; unit_count: number; avg_days: number; median_days: number }
+  type BktRow  = { bucket_label: string; total_count: number; old_device: number; supplier: number; scrap: number }
 
-  // ── By destination (tổng hợp) ─────────────────────────────────────────────
-  const destMap = new Map<string, number[]>()
-  for (const b of map.values()) {
-    if (!destMap.has(b.destination)) destMap.set(b.destination, [])
-    destMap.get(b.destination)!.push(...b.ages)
-  }
+  const byDestination = ((r1.data ?? []) as DestRow[]).map(d => ({
+    destination:  d.destination,
+    label:        DEST_LABEL[d.destination] ?? d.destination,
+    count:        Number(d.unit_count),
+    avg_days:     Number(d.avg_days),
+    median_days:  Number(d.median_days),
+    p25:          Number(d.p25_days),
+    p75:          Number(d.p75_days),
+  }))
 
-  const byDestination = Array.from(destMap.entries())
-    .filter(([d]) => DEST_LABEL[d])
-    .map(([destination, ages]) => ({
-      destination,
-      label:       DEST_LABEL[destination] ?? destination,
-      count:       ages.length,
-      avg_days:    avg(ages),
-      median_days: median(ages),
-      p25: (() => { const s = [...ages].sort((a, b) => a - b); return s[Math.floor(s.length * 0.25)] ?? 0 })(),
-      p75: (() => { const s = [...ages].sort((a, b) => a - b); return s[Math.floor(s.length * 0.75)] ?? 0 })(),
-    }))
-    .sort((a, b) => a.avg_days - b.avg_days)
+  const byProduct = ((r2.data ?? []) as ProdRow[]).map(p => ({
+    product:     p.product_name,
+    destination: p.destination,
+    label:       DEST_LABEL[p.destination] ?? p.destination,
+    count:       Number(p.unit_count),
+    avg_days:    Number(p.avg_days),
+    median_days: Number(p.median_days),
+  }))
 
-  // ── By product × destination ──────────────────────────────────────────────
-  const byProduct = Array.from(map.entries())
-    .filter(([k]) => DEST_LABEL[k.split('|||')[1]])
-    .map(([, b]) => ({
-      product:     b.product,
-      destination: b.destination,
-      label:       DEST_LABEL[b.destination] ?? b.destination,
-      count:       b.ages.length,
-      avg_days:    avg(b.ages),
-      median_days: median(b.ages),
-    }))
-    .filter(r => r.count >= 5)  // chỉ hiện nếu có đủ mẫu
-    .sort((a, b) => a.product.localeCompare(b.product) || a.avg_days - b.avg_days)
-
-  // ── Age distribution buckets ──────────────────────────────────────────────
-  const allAges = Array.from(map.values()).flatMap(b => b.ages)
-
-  const getAges = (dest: string) =>
-    Array.from(map.entries())
-      .filter(([k]) => k.endsWith(`|||${dest}`))
-      .flatMap(([, bk]) => bk.ages)
-
-  const buckets = [
-    { label: '< 6 tháng',  min: 0,    max: 180  },
-    { label: '6-12 tháng', min: 180,  max: 365  },
-    { label: '1-2 năm',    min: 365,  max: 730  },
-    { label: '2-3 năm',    min: 730,  max: 1095 },
-    { label: '> 3 năm',    min: 1095, max: 9999 },
-  ].map(b => ({
-    label:      b.label,
-    total:      allAges.filter(d => d >= b.min && d < b.max).length,
-    old_device: getAges('old_device').filter(d => d >= b.min && d < b.max).length,
-    supplier:   getAges('supplier').filter(d => d >= b.min && d < b.max).length,
-    scrap:      getAges('scrap').filter(d => d >= b.min && d < b.max).length,
+  const age_distribution = ((r3.data ?? []) as BktRow[]).map(b => ({
+    label:      b.bucket_label,
+    total:      Number(b.total_count),
+    old_device: Number(b.old_device),
+    supplier:   Number(b.supplier),
+    scrap:      Number(b.scrap),
   }))
 
   return NextResponse.json({
     ok: true,
-    total_matched: (rows as Row[])?.length ?? 0,
+    total_matched: Number(r4.data ?? 0),
     by_destination:   byDestination,
     by_product:       byProduct,
-    age_distribution: buckets,
+    age_distribution,
   })
 }
