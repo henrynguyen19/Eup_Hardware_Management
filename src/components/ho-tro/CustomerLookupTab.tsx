@@ -16,6 +16,7 @@ interface LookupResult {
   car_tel:          string | null
   chk_time:         string | null
   car_is_check:     boolean | null
+  match_type:       'exact' | 'fuzzy' | null
 }
 
 type SignalFilter = 'all' | 'lt1d' | 'lt2d' | '3d' | '5d' | '7d'
@@ -506,6 +507,15 @@ export default function CustomerLookupTab() {
                       </span>
                       {r.car_number && r.car_number.toUpperCase().replace(/[^A-Z0-9]/g,'') !== r.plate.toUpperCase().replace(/[^A-Z0-9]/g,'') && (
                         <span className="ml-1.5 text-[10px] text-gray-400">({r.plate})</span>
+                      )}
+                      {r.found && r.car_number && r.match_type === 'exact' && (
+                        <span className="ml-1.5 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded border border-green-200">✓ Khớp</span>
+                      )}
+                      {r.found && r.car_number && r.match_type === 'fuzzy' && (
+                        <span className="ml-1.5 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200" title="Khớp gần đúng — kiểm tra lại biển số">~ Gần đúng</span>
+                      )}
+                      {r.found && !r.car_number && (
+                        <span className="ml-1.5 text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200" title="Tìm thấy khách hàng nhưng không xác định được xe cụ thể">? Chưa xác định</span>
                       )}
                       {!r.found && (
                         <span className="ml-2 text-[10px] text-red-400 bg-red-50 px-1.5 py-0.5 rounded">

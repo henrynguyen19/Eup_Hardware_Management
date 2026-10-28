@@ -117,7 +117,8 @@ export async function POST(req: NextRequest) {
 
     // ── Step 3: GetCarInfo cho từng Cust_IMID ────────────────────────────────
     // Map: original search plate → car info
-    const plateToCarInfo = new Map<string, Pick<CarInfoRow, 'Car_Unicode' | 'Car_Tel' | 'Car_Number' | 'Car_IsCheck' | 'CHKTime' | 'MachineBarCode'>>()
+    type CarInfoEntry = Pick<CarInfoRow, 'Car_Unicode' | 'Car_Tel' | 'Car_Number' | 'Car_IsCheck' | 'CHKTime' | 'MachineBarCode'> & { matchType: 'exact' | 'fuzzy' }
+    const plateToCarInfo = new Map<string, CarInfoEntry>()
 
     const custImids = [...custImidToPlates.keys()]
     await batchAll(custImids, 3, async (custImid) => {
@@ -139,12 +140,15 @@ export async function POST(req: NextRequest) {
         )
         for (const car of (cars ?? [])) {
           const crmNorm = normPlate(car.Car_Name ?? car.Car_Number ?? '')
+          if (crmNorm.length < 3) continue  // bỏ qua xe không có biển số hợp lệ
           // Fuzzy match: CRM plate contains search plate OR search plate contains CRM plate
           const matched = searchPlates.find(sp => {
             const spNorm = normPlate(sp)
+            if (spNorm.length < 3) return false
             return crmNorm === spNorm || crmNorm.includes(spNorm) || spNorm.includes(crmNorm)
           })
           if (matched && !plateToCarInfo.has(matched)) {
+            const spNorm2 = normPlate(matched)
             plateToCarInfo.set(matched, {
               Car_Unicode:    car.Car_Unicode    ?? '',
               Car_Tel:        car.Car_Tel        ?? '',
@@ -152,6 +156,7 @@ export async function POST(req: NextRequest) {
               Car_IsCheck:    car.Car_IsCheck,
               CHKTime:        car.CHKTime        ?? '',
               MachineBarCode: car.MachineBarCode ?? '',
+              matchType:      crmNorm === spNorm2 ? 'exact' : 'fuzzy',
             })
           }
         }
@@ -176,6 +181,7 @@ export async function POST(req: NextRequest) {
           const spNorm = normPlate(plate)
           for (const car of (cars ?? [])) {
             const crmNorm = normPlate(car.Car_Name ?? car.Car_Number ?? '')
+            if (crmNorm.length < 3 || spNorm.length < 3) continue
             if (crmNorm === spNorm || crmNorm.includes(spNorm) || spNorm.includes(crmNorm)) {
               plateToCarInfo.set(plate, {
                 Car_Unicode:    car.Car_Unicode    ?? '',
@@ -184,6 +190,7 @@ export async function POST(req: NextRequest) {
                 Car_IsCheck:    car.Car_IsCheck,
                 CHKTime:        car.CHKTime        ?? '',
                 MachineBarCode: car.MachineBarCode ?? '',
+                matchType:      crmNorm === spNorm ? 'exact' : 'fuzzy',
               })
               break
             }
@@ -206,10 +213,11 @@ export async function POST(req: NextRequest) {
         car_number:       car?.Car_Number    ?? null,
         car_unicode:      car?.Car_Unicode   ?? null,
         car_tel:          car?.Car_Tel       ?? null,
-        chk_time:         car?.CHKTime     ?? null,
+        chk_time:         car?.CHKTime       ?? null,
         car_is_check:     car?.Car_IsCheck != null
           ? Boolean(Number(car.Car_IsCheck))
           : null,
+        match_type:       car?.matchType ?? null,  // 'exact' | 'fuzzy' | null (không tìm thấy xe)
       }
     })
 
