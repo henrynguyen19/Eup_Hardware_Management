@@ -2068,6 +2068,176 @@ interface BackFactoryResult {
   repair_history: BackFactoryRepairHistory[]
 }
 
+// ── Device Age Analysis Tab ────────────────────────────────────────────────
+interface AgeByDest   { destination: string; label: string; count: number; avg_days: number; median_days: number; p25: number; p75: number }
+interface AgeByProd   { product: string; destination: string; label: string; count: number; avg_days: number; median_days: number }
+interface AgeBucket   { label: string; total: number; old_device: number; supplier: number; scrap: number }
+interface AgeAnalysis { ok: boolean; total_matched: number; by_destination: AgeByDest[]; by_product: AgeByProd[]; age_distribution: AgeBucket[] }
+
+const DEST_COLOR_MAP: Record<string, string> = {
+  old_device: '#10b981', supplier: '#8b5cf6', scrap: '#ef4444',
+}
+const DEST_BG_MAP: Record<string, string> = {
+  old_device: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  supplier:   'bg-purple-50 text-purple-700 border-purple-200',
+  scrap:      'bg-red-50 text-red-700 border-red-200',
+}
+
+function fmtDays(days: number) {
+  if (days < 30)  return `${days} ngày`
+  if (days < 365) return `${(days/30).toFixed(1)} tháng`
+  return `${(days/365).toFixed(1)} năm`
+}
+
+function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
+  const [data,    setData]    = useState<AgeAnalysis | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [err,     setErr]     = useState('')
+  const [prodFilter, setProdFilter] = useState('')
+  const [sortCol,  setSortCol]  = useState<'product'|'avg_days'|'count'>('product')
+  const [sortAsc,  setSortAsc]  = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch('/api/repair-tracking/age-analysis')
+      .then(r => r.json())
+      .then(d => { if (d.ok) setData(d); else setErr(d.error ?? 'Lỗi') })
+      .catch(e => setErr(String(e)))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="py-16 text-center text-sm text-gray-400">⏳ {t('Đang phân tích tuổi thiết bị…','Analysing device age…')}</div>
+  if (err)     return <div className="py-8 text-center text-sm text-red-500">❌ {err}</div>
+  if (!data)   return null
+
+  const filteredProducts = data.by_product
+    .filter(r => !prodFilter || r.product.toLowerCase().includes(prodFilter.toLowerCase()))
+    .sort((a, b) => {
+      const cmp = sortCol === 'product' ? a.product.localeCompare(b.product)
+                : sortCol === 'avg_days' ? a.avg_days - b.avg_days
+                : a.count - b.count
+      return sortAsc ? cmp : -cmp
+    })
+
+  function thClick(col: typeof sortCol) {
+    if (sortCol === col) setSortAsc(v => !v)
+    else { setSortCol(col); setSortAsc(true) }
+  }
+
+  const maxAvgDays = Math.max(...data.by_destination.map(d => d.avg_days), 1)
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-800">{t('Phân tích tuổi thiết bị','Device Age Analysis')}</h2>
+          <p className="text-xs text-gray-500 mt-0.5">{t(`${data.total_matched.toLocaleString()} bản ghi khớp (device_inventory ↔ repair_items)`,`${data.total_matched.toLocaleString()} matched records`)}</p>
+        </div>
+      </div>
+
+      {/* Summary cards + bar chart */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {data.by_destination.map(d => (
+          <div key={d.destination} className={`rounded-xl border p-4 ${DEST_BG_MAP[d.destination] ?? 'bg-gray-50 text-gray-700 border-gray-200'}`}>
+            <div className="text-xs font-medium mb-1">{d.label}</div>
+            <div className="text-2xl font-bold">{fmtDays(d.avg_days)}</div>
+            <div className="text-xs mt-1 opacity-70">{t('TB tuổi khi xử lý','Avg age at processing')} · {d.count.toLocaleString()} {t('máy','units')}</div>
+            <div className="mt-2 text-xs opacity-60">{t(`P25: ${fmtDays(d.p25)} — Trung vị: ${fmtDays(d.median_days)} — P75: ${fmtDays(d.p75)}`, `P25: ${fmtDays(d.p25)} — Median: ${fmtDays(d.median_days)} — P75: ${fmtDays(d.p75)}`)}</div>
+            {/* Mini bar */}
+            <div className="mt-3 bg-white bg-opacity-50 rounded-full h-1.5">
+              <div className="h-1.5 rounded-full" style={{ width: `${Math.round(d.avg_days / maxAvgDays * 100)}%`, background: DEST_COLOR_MAP[d.destination] ?? '#6b7280' }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Age distribution buckets */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-700">{t('Phân bố tuổi thiết bị theo kết quả xử lý','Age distribution by outcome')}</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase">
+                <th className="px-4 py-2">{t('Nhóm tuổi','Age Group')}</th>
+                <th className="px-4 py-2 text-right">{t('Tổng','Total')}</th>
+                <th className="px-4 py-2 text-right text-emerald-600">{t('Trả lại SD','Returned')}</th>
+                <th className="px-4 py-2 text-right text-purple-600">{t('Gửi NCC','RMA')}</th>
+                <th className="px-4 py-2 text-right text-red-600">{t('Báo phế','Scrap')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.age_distribution.map(b => (
+                <tr key={b.label} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="px-4 py-2 font-medium text-gray-700">{b.label}</td>
+                  <td className="px-4 py-2 text-right text-gray-600">{b.total.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right text-emerald-600">{b.old_device.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right text-purple-600">{b.supplier.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right text-red-600">{b.scrap.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Detail table by product × destination */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
+          <h3 className="text-sm font-semibold text-gray-700">{t('Chi tiết theo loại thiết bị','Detail by device type')}</h3>
+          <input
+            value={prodFilter}
+            onChange={e => setProdFilter(e.target.value)}
+            placeholder={t('Lọc loại thiết bị…','Filter device type…')}
+            className="ml-auto border border-gray-200 rounded-lg px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200 w-44"
+          />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase">
+                <th className="px-4 py-2 cursor-pointer select-none hover:text-gray-700" onClick={() => thClick('product')}>
+                  {t('Loại thiết bị','Device Type')} {sortCol==='product' ? (sortAsc ? '▲' : '▼') : ''}
+                </th>
+                <th className="px-4 py-2">{t('Kết quả','Outcome')}</th>
+                <th className="px-4 py-2 text-right cursor-pointer select-none hover:text-gray-700" onClick={() => thClick('count')}>
+                  {t('Số máy','Units')} {sortCol==='count' ? (sortAsc ? '▲' : '▼') : ''}
+                </th>
+                <th className="px-4 py-2 text-right cursor-pointer select-none hover:text-gray-700" onClick={() => thClick('avg_days')}>
+                  {t('Tuổi TB','Avg Age')} {sortCol==='avg_days' ? (sortAsc ? '▲' : '▼') : ''}
+                </th>
+                <th className="px-4 py-2 text-right">{t('Trung vị','Median')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredProducts.length === 0 ? (
+                <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">{t('Không có dữ liệu','No data')}</td></tr>
+              ) : filteredProducts.map((r, i) => (
+                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="px-4 py-2 font-medium text-gray-800 text-xs">{r.product}</td>
+                  <td className="px-4 py-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${DEST_BG_MAP[r.destination] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>{r.label}</span>
+                  </td>
+                  <td className="px-4 py-2 text-right text-gray-600 text-xs">{r.count.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right font-semibold text-gray-800 text-xs">{fmtDays(r.avg_days)}</td>
+                  <td className="px-4 py-2 text-right text-gray-500 text-xs">{fmtDays(r.median_days)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filteredProducts.length > 0 && (
+          <div className="px-5 py-2 text-xs text-gray-400 border-t border-gray-100">
+            {t(`Hiển thị ${filteredProducts.length} hàng (≥5 mẫu)`, `Showing ${filteredProducts.length} rows (≥5 samples)`)}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
   const [custCode, setCustCode]     = useState('')
   const [inputCode, setInputCode]   = useState('')
@@ -2453,7 +2623,7 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
   const toggle = internal.toggle
   const t = (vi: string, en: string) => lang === 'vi' ? vi : en
   const PAGE_SIZE = 50
-  const [activeTab, setActiveTab]   = useState<'list'|'repair'|'failure'|'hashtag'|'customer'>('list')
+  const [activeTab, setActiveTab]   = useState<'list'|'repair'|'failure'|'hashtag'|'customer'|'age'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
   const [page, setPage]             = useState(0)
@@ -2532,6 +2702,7 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
           ['failure',  t('⚠️ Tỉ lệ lỗi','⚠️ Failure Rate')],
           ['hashtag',  t('🏷 Phân tích lỗi','🏷 Error Tags')],
           ['customer', t('🔍 Tra cứu KH','🔍 Customer Lookup')],
+          ['age',      t('📅 Tuổi thiết bị','📅 Device Age')],
         ] as const).map(([tab,label])=>(
           <button key={tab} onClick={()=>setActiveTab(tab)}
             className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${activeTab===tab?'bg-white text-gray-800 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
@@ -2638,6 +2809,8 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
         </>
       ) : isStatsTab ? (
         <StatsTab key={activeTab} t={t} onFilterByTag={handleFilterByTag} active={true} initialSection={activeTab as 'repair'|'failure'|'hashtag'} />
+      ) : activeTab === 'age' ? (
+        <DeviceAgeTab t={t} />
       ) : (
         <CustomerLookupTab t={t} />
       )}
