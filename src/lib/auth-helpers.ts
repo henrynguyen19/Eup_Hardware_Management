@@ -239,7 +239,7 @@ export async function buildAppShellPerms(userId: string): Promise<string[]> {
   const roleNames = (roleRows ?? []).map(
     (r: { roles: { name: string } | null }) => r.roles?.name ?? ''
   )
-  if (roleNames.includes('Xem toàn bộ')) {
+  if (roleNames.some(n => n === 'Xem toan bo' || n === 'Xem toàn bộ')) {
     for (const p of VIEW_ALL_READ) result.add(p)
   }
 
