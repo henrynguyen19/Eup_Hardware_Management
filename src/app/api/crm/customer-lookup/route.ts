@@ -139,9 +139,8 @@ export async function POST(req: NextRequest) {
           ` returned=${cars?.length ?? 0} [${returnedPlates.join(',')}] ${elapsed}ms`
         )
         for (const car of (cars ?? [])) {
-          const crmNorm = normPlate(car.Car_Name ?? car.Car_Number ?? '')
+          const crmNorm = normPlate(car.Car_Number ?? '')  // so sánh với Car_Number (biển số đầy đủ)
           if (crmNorm.length < 3) continue  // bỏ qua xe không có biển số hợp lệ
-          // Fuzzy match: CRM plate contains search plate OR search plate contains CRM plate
           const matched = searchPlates.find(sp => {
             const spNorm = normPlate(sp)
             if (spNorm.length < 3) return false
@@ -180,7 +179,7 @@ export async function POST(req: NextRequest) {
           )
           const spNorm = normPlate(plate)
           for (const car of (cars ?? [])) {
-            const crmNorm = normPlate(car.Car_Name ?? car.Car_Number ?? '')
+            const crmNorm = normPlate(car.Car_Number ?? '')  // so sánh với Car_Number
             if (crmNorm.length < 3 || spNorm.length < 3) continue
             if (crmNorm === spNorm || crmNorm.includes(spNorm) || spNorm.includes(crmNorm)) {
               plateToCarInfo.set(plate, {
