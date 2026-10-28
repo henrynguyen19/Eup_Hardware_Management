@@ -17,7 +17,7 @@ import { callCrmSoap } from '@/lib/crm-utils'
 export const runtime     = 'nodejs'
 export const maxDuration = 60
 
-const HISTORY_START = '2023-01'   // YYYY-MM
+const HISTORY_START = '2020-01'   // YYYY-MM
 
 const sb = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
