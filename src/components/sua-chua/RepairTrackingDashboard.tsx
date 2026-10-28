@@ -2069,10 +2069,10 @@ interface BackFactoryResult {
 }
 
 // ── Device Age Analysis Tab ────────────────────────────────────────────────
-interface AgeByDest   { destination: string; label: string; count: number; avg_days: number; median_days: number; p25: number; p75: number }
-interface AgeByProd   { product: string; destination: string; label: string; count: number; avg_days: number; median_days: number }
-interface AgeBucket   { label: string; total: number; old_device: number; supplier: number; scrap: number }
-interface AgeAnalysis { ok: boolean; total_matched: number; by_destination: AgeByDest[]; by_product: AgeByProd[]; age_distribution: AgeBucket[] }
+interface AgeDestCat  { device_category: string; destination: string; dest_label: string; count: number; avg_days: number; median_days: number; p25: number; p75: number }
+interface AgeByProd   { device_category: string; product: string; destination: string; dest_label: string; count: number; avg_days: number; median_days: number }
+interface AgeBucket   { device_category: string; label: string; bucket_order: number; total: number; old_device: number; supplier: number; scrap: number }
+interface AgeAnalysis { ok: boolean; total_matched: number; categories: string[]; by_dest_category: AgeDestCat[]; by_product: AgeByProd[]; age_distribution: AgeBucket[] }
 
 const DEST_COLOR_MAP: Record<string, string> = {
   old_device: '#10b981', supplier: '#8b5cf6', scrap: '#ef4444',
@@ -2090,12 +2090,13 @@ function fmtDays(days: number) {
 }
 
 function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
-  const [data,    setData]    = useState<AgeAnalysis | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [err,     setErr]     = useState('')
+  const [data,       setData]       = useState<AgeAnalysis | null>(null)
+  const [loading,    setLoading]    = useState(true)
+  const [err,        setErr]        = useState('')
+  const [selCat,     setSelCat]     = useState<string>('') // '' = Tất cả
   const [prodFilter, setProdFilter] = useState('')
-  const [sortCol,  setSortCol]  = useState<'product'|'avg_days'|'count'>('product')
-  const [sortAsc,  setSortAsc]  = useState(true)
+  const [sortCol,    setSortCol]    = useState<'product'|'avg_days'|'count'>('product')
+  const [sortAsc,    setSortAsc]    = useState(true)
 
   useEffect(() => {
     setLoading(true)
@@ -2110,7 +2111,49 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
   if (err)     return <div className="py-8 text-center text-sm text-red-500">❌ {err}</div>
   if (!data)   return null
 
-  const filteredProducts = data.by_product
+  // ── Filter theo category ──
+  const catFilter = (arr: { device_category: string }[]) =>
+    selCat ? arr.filter(r => r.device_category === selCat) : arr
+
+  // Summary cards: merge by destination across all (or filtered) categories
+  const destMap = new Map<string, { dest_label: string; count: number; avg_sum: number; p25: number; p75: number; median: number }>()
+  for (const r of catFilter(data.by_dest_category)) {
+    const existing = destMap.get(r.destination)
+    if (!existing) {
+      destMap.set(r.destination, { dest_label: r.dest_label, count: r.count, avg_sum: r.avg_days * r.count, p25: r.p25, p75: r.p75, median: r.median_days })
+    } else {
+      existing.avg_sum += r.avg_days * r.count
+      existing.count   += r.count
+    }
+  }
+  const summaryCards = Array.from(destMap.entries()).map(([dest, v]) => ({
+    destination: dest,
+    dest_label:  v.dest_label,
+    count:       v.count,
+    avg_days:    Math.round(v.avg_sum / v.count),
+    median_days: v.median,
+    p25:         v.p25,
+    p75:         v.p75,
+  })).sort((a, b) => a.avg_days - b.avg_days)
+
+  const maxAvgDays = Math.max(...summaryCards.map(d => d.avg_days), 1)
+
+  // Distribution — filter + dedupe buckets by label
+  const bucketMap = new Map<string, AgeBucket>()
+  for (const b of catFilter(data.age_distribution).sort((a, b) => a.bucket_order - b.bucket_order)) {
+    const existing = bucketMap.get(b.label)
+    if (!existing) bucketMap.set(b.label, { ...b })
+    else {
+      existing.total      += b.total
+      existing.old_device += b.old_device
+      existing.supplier   += b.supplier
+      existing.scrap      += b.scrap
+    }
+  }
+  const buckets = [...bucketMap.values()]
+
+  // Product detail
+  const filteredProducts = catFilter(data.by_product)
     .filter(r => !prodFilter || r.product.toLowerCase().includes(prodFilter.toLowerCase()))
     .sort((a, b) => {
       const cmp = sortCol === 'product' ? a.product.localeCompare(b.product)
@@ -2124,27 +2167,40 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
     else { setSortCol(col); setSortAsc(true) }
   }
 
-  const maxAvgDays = Math.max(...data.by_destination.map(d => d.avg_days), 1)
+  const CAT_ICON: Record<string, string> = {
+    'GPS Tracker': '📡', 'MDVR': '🎥', 'Camera': '📷', 'Khác': '🔧',
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header + category filter pills */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-gray-800">{t('Phân tích tuổi thiết bị','Device Age Analysis')}</h2>
           <p className="text-xs text-gray-500 mt-0.5">{t(`${data.total_matched.toLocaleString()} bản ghi khớp (device_inventory ↔ repair_items)`,`${data.total_matched.toLocaleString()} matched records`)}</p>
         </div>
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 flex-wrap">
+          <button onClick={() => setSelCat('')}
+            className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${selCat==='' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+            🔍 {t('Tất cả','All')}
+          </button>
+          {data.categories.map(cat => (
+            <button key={cat} onClick={() => setSelCat(cat)}
+              className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${selCat===cat ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              {CAT_ICON[cat] ?? '📦'} {cat}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Summary cards + bar chart */}
+      {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {data.by_destination.map(d => (
+        {summaryCards.map(d => (
           <div key={d.destination} className={`rounded-xl border p-4 ${DEST_BG_MAP[d.destination] ?? 'bg-gray-50 text-gray-700 border-gray-200'}`}>
-            <div className="text-xs font-medium mb-1">{d.label}</div>
+            <div className="text-xs font-medium mb-1">{d.dest_label}</div>
             <div className="text-2xl font-bold">{fmtDays(d.avg_days)}</div>
             <div className="text-xs mt-1 opacity-70">{t('TB tuổi khi xử lý','Avg age at processing')} · {d.count.toLocaleString()} {t('máy','units')}</div>
             <div className="mt-2 text-xs opacity-60">{t(`P25: ${fmtDays(d.p25)} — Trung vị: ${fmtDays(d.median_days)} — P75: ${fmtDays(d.p75)}`, `P25: ${fmtDays(d.p25)} — Median: ${fmtDays(d.median_days)} — P75: ${fmtDays(d.p75)}`)}</div>
-            {/* Mini bar */}
             <div className="mt-3 bg-white bg-opacity-50 rounded-full h-1.5">
               <div className="h-1.5 rounded-full" style={{ width: `${Math.round(d.avg_days / maxAvgDays * 100)}%`, background: DEST_COLOR_MAP[d.destination] ?? '#6b7280' }} />
             </div>
@@ -2152,7 +2208,7 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
         ))}
       </div>
 
-      {/* Age distribution buckets */}
+      {/* Age distribution */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-700">{t('Phân bố tuổi thiết bị theo kết quả xử lý','Age distribution by outcome')}</h3>
@@ -2169,28 +2225,31 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
               </tr>
             </thead>
             <tbody>
-              {data.age_distribution.map(b => (
-                <tr key={b.label} className="border-b border-gray-50 hover:bg-gray-50">
-                  <td className="px-4 py-2 font-medium text-gray-700">{b.label}</td>
-                  <td className="px-4 py-2 text-right text-gray-600">{b.total.toLocaleString()}</td>
-                  <td className="px-4 py-2 text-right text-emerald-600">{b.old_device.toLocaleString()}</td>
-                  <td className="px-4 py-2 text-right text-purple-600">{b.supplier.toLocaleString()}</td>
-                  <td className="px-4 py-2 text-right text-red-600">{b.scrap.toLocaleString()}</td>
-                </tr>
-              ))}
+              {buckets.length === 0
+                ? <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">{t('Không có dữ liệu','No data')}</td></tr>
+                : buckets.map(b => (
+                  <tr key={b.label} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-2 font-medium text-gray-700">{b.label}</td>
+                    <td className="px-4 py-2 text-right text-gray-600">{b.total.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-right text-emerald-600">{b.old_device.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-right text-purple-600">{b.supplier.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-right text-red-600">{b.scrap.toLocaleString()}</td>
+                  </tr>
+                ))
+              }
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Detail table by product × destination */}
+      {/* Detail table */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
           <h3 className="text-sm font-semibold text-gray-700">{t('Chi tiết theo loại thiết bị','Detail by device type')}</h3>
           <input
             value={prodFilter}
             onChange={e => setProdFilter(e.target.value)}
-            placeholder={t('Lọc loại thiết bị…','Filter device type…')}
+            placeholder={t('Lọc tên thiết bị…','Filter device name…')}
             className="ml-auto border border-gray-200 rounded-lg px-3 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200 w-44"
           />
         </div>
@@ -2198,6 +2257,7 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
           <table className="w-full text-sm text-left">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase">
+                <th className="px-4 py-2">{t('Nhóm','Category')}</th>
                 <th className="px-4 py-2 cursor-pointer select-none hover:text-gray-700" onClick={() => thClick('product')}>
                   {t('Loại thiết bị','Device Type')} {sortCol==='product' ? (sortAsc ? '▲' : '▼') : ''}
                 </th>
@@ -2213,12 +2273,13 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
             </thead>
             <tbody>
               {filteredProducts.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">{t('Không có dữ liệu','No data')}</td></tr>
+                <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-400">{t('Không có dữ liệu','No data')}</td></tr>
               ) : filteredProducts.map((r, i) => (
                 <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="px-4 py-2 text-xs text-gray-500">{CAT_ICON[r.device_category] ?? '📦'} {r.device_category}</td>
                   <td className="px-4 py-2 font-medium text-gray-800 text-xs">{r.product}</td>
                   <td className="px-4 py-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full border ${DEST_BG_MAP[r.destination] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>{r.label}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${DEST_BG_MAP[r.destination] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>{r.dest_label}</span>
                   </td>
                   <td className="px-4 py-2 text-right text-gray-600 text-xs">{r.count.toLocaleString()}</td>
                   <td className="px-4 py-2 text-right font-semibold text-gray-800 text-xs">{fmtDays(r.avg_days)}</td>
@@ -2230,7 +2291,7 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
         </div>
         {filteredProducts.length > 0 && (
           <div className="px-5 py-2 text-xs text-gray-400 border-t border-gray-100">
-            {t(`Hiển thị ${filteredProducts.length} hàng (≥5 mẫu)`, `Showing ${filteredProducts.length} rows (≥5 samples)`)}
+            {t(`Hiển thị ${filteredProducts.length} hàng (≥3 mẫu)`, `Showing ${filteredProducts.length} rows (≥3 samples)`)}
           </div>
         )}
       </div>
