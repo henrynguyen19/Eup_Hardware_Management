@@ -209,10 +209,11 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
           errors.push(`${ym}: ${d.error ?? 'Lỗi không xác định'}`)
           setHistLog(p => [...p, `${progress} ❌ ${ym}: ${d.error ?? 'Error'}`])
         } else {
-          const ins = d.inserted ?? 0; const upd = d.updated ?? 0
-          totalInserted += ins; totalUpdated += upd; totalFetched += d.total ?? 0
+          // API trả về `upserted` (gộp insert+update), không tách riêng
+          const ups = d.upserted ?? d.inserted ?? 0
+          totalInserted += ups; totalFetched += d.total ?? 0
           setHistLog(p => [...p,
-            `${progress} ✅ ${ym}: ${d.total ?? 0} từ CRM → +${ins} thêm, ~${upd} cập nhật`
+            `${progress} ✅ ${ym}: ${d.total ?? 0} từ CRM → cập nhật ${ups} bản ghi`
           ])
         }
       } catch(e) {
@@ -232,8 +233,8 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
       inserted: totalInserted,
       updated: totalUpdated,
       message: t(
-        `Hoàn tất ${months.length} tháng — thêm ${totalInserted}, cập nhật ${totalUpdated}${errors.length > 0 ? ` (${errors.length} lỗi)` : ''}`,
-        `Done ${months.length} months — added ${totalInserted}, updated ${totalUpdated}${errors.length > 0 ? ` (${errors.length} errors)` : ''}`,
+        `Hoàn tất ${months.length} tháng — ${totalFetched} records từ CRM, cập nhật ${totalInserted} bản ghi${errors.length > 0 ? ` (${errors.length} lỗi)` : ''}`,
+        `Done ${months.length} months — ${totalFetched} from CRM, updated ${totalInserted} records${errors.length > 0 ? ` (${errors.length} errors)` : ''}`,
       ),
       errors: errors.slice(0, 5),
     })
@@ -1588,6 +1589,15 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
     await runSyncLoop({ forceFrom: `${year}-01` })
   }
 
+  async function forceResyncAll() {
+    if (!confirm(t(
+      'Sẽ xóa toàn bộ sync log và chạy lại từ 2020-01. Có thể mất 20-40 phút. Tiếp tục?',
+      'Will clear all sync logs and re-sync from 2020-01. May take 20-40 min. Continue?'
+    ))) return
+    setSyncLog([`🗑 ${t('Đang xóa toàn bộ sync log từ 2020-01…','Clearing all sync logs from 2020-01…')}`])
+    await runSyncLoop({ forceFrom: '2020-01' })
+  }
+
   const fmtMonth = (ym: string) => { const [y, m] = ym.split('-'); return `${m}/${y}` }
 
   return (
@@ -1618,6 +1628,7 @@ function InventorySyncPanel({ t, onDone }: { t:(vi:string,en:string)=>string; on
             : <>
                 <button onClick={startSync} className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">🔄 {syncDone?t('Sync lại','Re-sync'):t('Bắt đầu Sync','Start Sync')}</button>
                 <button onClick={forceResync2026} title={t(`Xóa log & sync lại toàn bộ năm ${new Date().getFullYear()}`,`Clear log & re-sync all of ${new Date().getFullYear()}`)} className="px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600">⚡ {t(`Sync lại ${new Date().getFullYear()}`,`Re-sync ${new Date().getFullYear()}`)}</button>
+                <button onClick={forceResyncAll} title={t('Xóa toàn bộ log & sync lại từ 2020-01 (sửa ngày nhập kho)','Clear all logs & re-sync from 2020-01 (fix import dates)')} className="px-3 py-1.5 text-sm bg-rose-600 text-white rounded-lg hover:bg-rose-700">🔁 {t('Re-sync từ 2020','Re-sync from 2020')}</button>
               </>
           }
         </div>
