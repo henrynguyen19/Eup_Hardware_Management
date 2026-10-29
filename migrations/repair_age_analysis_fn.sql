@@ -1,12 +1,17 @@
 -- Migration: Phân tích tuổi thiết bị với phân loại theo category
--- JOIN device_inventory.product_name = device_type_mapping.crm_name
---   để lấy order_name (GPS Tracker / MDVR / Camera / ...) làm device_category
+-- Lưu ý: imported_date từ CRM (Device_Date) có thể trễ hơn ngày sửa thực tế
+--   → một số thiết bị có age_days âm (được nhập CRM sau khi đã sửa)
+--   → chúng ta vẫn ĐẾM những record này, nhưng dùng GREATEST(0, age_days)
+--     để tính trung bình (không để âm kéo xuống)
 --
 -- Chạy trong Supabase SQL Editor (service_role).
--- Nếu đã tạo trước đó, CREATE OR REPLACE sẽ thay thế tự động.
+-- DROP trước nếu bị lỗi "cannot change return type":
+--   DROP FUNCTION IF EXISTS repair_age_by_dest_category();
+--   DROP FUNCTION IF EXISTS repair_age_by_product();
+--   DROP FUNCTION IF EXISTS repair_age_distribution();
+--   DROP FUNCTION IF EXISTS repair_age_total_matched();
 
 -- ── Function 1: Tổng hợp theo product_name × destination ─────────────────
--- Dùng product_name trực tiếp từ device_inventory (tên model thực tế từ CRM)
 CREATE OR REPLACE FUNCTION repair_age_by_dest_category()
 RETURNS TABLE (
   device_category TEXT,
@@ -35,19 +40,22 @@ AS $$
       AND ri.received_at IS NOT NULL
       AND ri.destination IN ('old_device', 'supplier', 'scrap')
   ),
+  -- Loại bỏ chỉ các outlier > 10 năm (thiết bị không hợp lệ)
+  -- Vẫn GIỮ age_days âm (nhập CRM sau khi sửa) — tính như 0 trong avg
   filtered AS (
-    SELECT device_category, destination, age_days
+    SELECT device_category, destination, age_days,
+           GREATEST(0, age_days) AS age_clamped
     FROM base
-    WHERE age_days BETWEEN 0 AND 3650
+    WHERE age_days <= 3650
   )
   SELECT
     device_category,
     destination,
-    COUNT(*)                                                         AS unit_count,
-    ROUND(AVG(age_days))                                             AS avg_days,
-    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days))    AS median_days,
-    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY age_days))   AS p25_days,
-    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY age_days))   AS p75_days
+    COUNT(*)                                                                  AS unit_count,
+    ROUND(AVG(age_clamped))                                                   AS avg_days,
+    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_clamped))          AS median_days,
+    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY age_clamped))         AS p25_days,
+    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY age_clamped))         AS p75_days
   FROM filtered
   GROUP BY device_category, destination
   HAVING COUNT(*) >= 3
@@ -55,7 +63,6 @@ AS $$
 $$;
 
 -- ── Function 2: Chi tiết theo product_name × destination ──────────────────
--- (same as above — product_name IS the grouping key, alias kept for compat)
 CREATE OR REPLACE FUNCTION repair_age_by_product()
 RETURNS TABLE (
   device_category TEXT,
@@ -84,17 +91,18 @@ AS $$
       AND ri.destination IN ('old_device', 'supplier', 'scrap')
   ),
   filtered AS (
-    SELECT pname, destination, age_days
+    SELECT pname, destination,
+           GREATEST(0, age_days) AS age_clamped
     FROM base
-    WHERE age_days BETWEEN 0 AND 3650
+    WHERE age_days <= 3650
   )
   SELECT
-    pname                                                            AS device_category,
-    pname                                                            AS product_name,
+    pname                                                                     AS device_category,
+    pname                                                                     AS product_name,
     destination,
-    COUNT(*)                                                         AS unit_count,
-    ROUND(AVG(age_days))                                             AS avg_days,
-    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days))    AS median_days
+    COUNT(*)                                                                  AS unit_count,
+    ROUND(AVG(age_clamped))                                                   AS avg_days,
+    ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_clamped))          AS median_days
   FROM filtered
   GROUP BY pname, destination
   HAVING COUNT(*) >= 3
@@ -102,6 +110,7 @@ AS $$
 $$;
 
 -- ── Function 3: Phân bố nhóm tuổi theo product_name ──────────────────────
+-- Thêm bucket "Không rõ" cho thiết bị có age_days < 0
 CREATE OR REPLACE FUNCTION repair_age_distribution()
 RETURNS TABLE (
   device_category TEXT,
@@ -135,21 +144,24 @@ AS $$
       device_category,
       destination,
       CASE
+        WHEN age_days <    0  THEN 'Không rõ ngày nhập'
         WHEN age_days <  180  THEN '< 6 tháng'
         WHEN age_days <  365  THEN '6-12 tháng'
         WHEN age_days <  730  THEN '1-2 năm'
         WHEN age_days <  1095 THEN '2-3 năm'
-        ELSE '> 3 năm'
+        WHEN age_days <= 3650 THEN '> 3 năm'
+        ELSE NULL  -- bỏ outlier > 10 năm
       END AS bucket_label,
       CASE
+        WHEN age_days <    0  THEN 0
         WHEN age_days <  180  THEN 1
         WHEN age_days <  365  THEN 2
         WHEN age_days <  730  THEN 3
         WHEN age_days <  1095 THEN 4
-        ELSE 5
+        WHEN age_days <= 3650 THEN 5
+        ELSE NULL
       END AS bucket_ord
     FROM base
-    WHERE age_days BETWEEN 0 AND 3650
   )
   SELECT
     device_category,
@@ -160,6 +172,7 @@ AS $$
     COUNT(*) FILTER (WHERE destination = 'supplier')                AS supplier,
     COUNT(*) FILTER (WHERE destination = 'scrap')                   AS scrap
   FROM classified
+  WHERE bucket_label IS NOT NULL
   GROUP BY device_category, bucket_label, bucket_ord
   ORDER BY device_category, bucket_ord
 $$;
@@ -191,7 +204,7 @@ DROP FUNCTION IF EXISTS repair_age_by_destination();
 DROP FUNCTION IF EXISTS repair_age_analysis();
 
 -- Test:
--- SELECT * FROM repair_age_by_dest_category();
+-- SELECT * FROM repair_age_by_dest_category() WHERE device_category LIKE '%GO-168%';
 -- SELECT * FROM repair_age_by_product() LIMIT 20;
--- SELECT * FROM repair_age_distribution();
+-- SELECT * FROM repair_age_distribution() WHERE device_category LIKE '%GO-168%';
 -- SELECT repair_age_total_matched();

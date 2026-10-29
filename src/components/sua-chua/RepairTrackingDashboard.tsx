@@ -146,10 +146,100 @@ interface SyncResult {
 function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:string)=>string }) {
   const [from, setFrom]       = useState(monthAgoStr())
   const [to, setTo]           = useState(todayStr())
-  const [loading, setLoading] = useState<false | 'new' | 'stale' | 'date' | 'fix_imei'>(false)
+  const [loading, setLoading] = useState<false | 'new' | 'stale' | 'date' | 'fix_imei' | 'history'>(false)
   const [result, setResult]   = useState<SyncResult | null>(null)
   const [err, setErr]         = useState('')
   const [staleLog, setStaleLog] = useState<string[]>([])
+
+  // ── Sync lịch sử cũ theo tháng ──
+  const [histFrom, setHistFrom] = useState('2023-01')
+  const [histTo,   setHistTo]   = useState(() => {
+    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  })
+  const [histLog,  setHistLog]  = useState<string[]>([])
+  const [histStop, setHistStop] = useState(false)
+  const histStopRef = useRef(false)
+
+  function genMonths(from: string, to: string): string[] {
+    const months: string[] = []
+    let [y, m] = from.split('-').map(Number)
+    const [ty, tm] = to.split('-').map(Number)
+    while (y < ty || (y === ty && m <= tm)) {
+      months.push(`${y}-${String(m).padStart(2,'0')}`)
+      m++; if (m > 12) { m = 1; y++ }
+    }
+    return months
+  }
+
+  async function doHistorySync() {
+    if (!histFrom || !histTo || histFrom > histTo) {
+      setErr(t('Vui lòng chọn khoảng tháng hợp lệ','Please select a valid month range')); return
+    }
+    const months = genMonths(histFrom, histTo)
+    if (months.length === 0) return
+
+    histStopRef.current = false
+    setHistStop(false)
+    setLoading('history'); setErr(''); setResult(null)
+    setHistLog([t(`Bắt đầu sync ${months.length} tháng (${histFrom} → ${histTo})…`, `Starting sync of ${months.length} months (${histFrom} → ${histTo})…`)])
+
+    let totalInserted = 0, totalUpdated = 0, totalFetched = 0
+    const errors: string[] = []
+
+    for (let i = 0; i < months.length; i++) {
+      if (histStopRef.current) {
+        setHistLog(p => [...p, `⛔ ${t('Đã dừng bởi người dùng','Stopped by user')}`])
+        break
+      }
+      const ym = months[i]
+      const [y, mo] = ym.split('-').map(Number)
+      const lastDay = new Date(y, mo, 0).getDate()
+      const startTime = `${ym}-01 00:00:00`
+      const endTime   = `${ym}-${String(lastDay).padStart(2,'0')} 23:59:59`
+      const progress  = `[${i+1}/${months.length}]`
+
+      try {
+        const res = await fetch('/api/repair-tracking/sync-crm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startTime, endTime }),
+        })
+        const d = await res.json()
+        if (!res.ok || d.error) {
+          errors.push(`${ym}: ${d.error ?? 'Lỗi không xác định'}`)
+          setHistLog(p => [...p, `${progress} ❌ ${ym}: ${d.error ?? 'Error'}`])
+        } else {
+          const ins = d.inserted ?? 0; const upd = d.updated ?? 0
+          totalInserted += ins; totalUpdated += upd; totalFetched += d.total ?? 0
+          setHistLog(p => [...p,
+            `${progress} ✅ ${ym}: ${d.total ?? 0} từ CRM → +${ins} thêm, ~${upd} cập nhật`
+          ])
+        }
+      } catch(e) {
+        errors.push(`${ym}: ${String(e)}`)
+        setHistLog(p => [...p, `${progress} ❌ ${ym}: ${String(e).substring(0,60)}`])
+      }
+
+      // Delay giữa các tháng để tránh quá tải CRM
+      if (i < months.length - 1 && !histStopRef.current) {
+        await new Promise(r => setTimeout(r, 800))
+      }
+    }
+
+    setResult({
+      ok: errors.length === 0,
+      total: totalFetched,
+      inserted: totalInserted,
+      updated: totalUpdated,
+      message: t(
+        `Hoàn tất ${months.length} tháng — thêm ${totalInserted}, cập nhật ${totalUpdated}${errors.length > 0 ? ` (${errors.length} lỗi)` : ''}`,
+        `Done ${months.length} months — added ${totalInserted}, updated ${totalUpdated}${errors.length > 0 ? ` (${errors.length} errors)` : ''}`,
+      ),
+      errors: errors.slice(0, 5),
+    })
+    if (totalInserted + totalUpdated > 0) onSynced()
+    setLoading(false)
+  }
 
   async function doSync(payload: object, kind: 'new' | 'date') {
     setLoading(kind); setErr(''); setResult(null); setStaleLog([])
@@ -310,6 +400,65 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
             {loading === 'date' ? <span className="animate-spin inline-block">⟳</span> : '🔄'} {t('Đồng bộ theo ngày','Sync by date')}
           </button>
           <p className="text-xs text-gray-500 mt-1">{t('💡 Sync theo ngày sẽ tự sửa IMEI sai trong khoảng đó','💡 Date-range sync also fixes bad IMEIs in that period')}</p>
+        </div>
+      </details>
+
+      {/* ── Sync lịch sử cũ theo tháng ── */}
+      <details className="group">
+        <summary className="text-xs text-purple-600 cursor-pointer hover:underline list-none font-medium">
+          🕐 {t('Sync lịch sử cũ (theo tháng — tự động)','Sync old history (monthly — auto)')}
+        </summary>
+        <div className="mt-3 bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3">
+          <p className="text-xs text-purple-700">
+            {t('Tự động sync từng tháng một từ CRM. Phù hợp để lấy lịch sử từ 2022-2024. Có thể mất 5-15 phút tùy số tháng.',
+               'Auto-syncs one month at a time from CRM. Good for recovering 2022-2024 history. May take 5-15 min depending on range.')}
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs font-medium text-purple-700 mb-1">{t('Từ tháng','From month')}</label>
+              <input type="month" value={histFrom} onChange={e => setHistFrom(e.target.value)}
+                className="border border-purple-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-300" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-purple-700 mb-1">{t('Đến tháng','To month')}</label>
+              <input type="month" value={histTo} onChange={e => setHistTo(e.target.value)}
+                className="border border-purple-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-300" />
+            </div>
+            <div className="text-xs text-purple-500 self-end pb-2">
+              {histFrom && histTo && histFrom <= histTo
+                ? `≈ ${genMonths(histFrom, histTo).length} ${t('tháng','months')}`
+                : ''}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={doHistorySync}
+              disabled={!!loading}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-sm rounded-xl hover:bg-purple-700 disabled:opacity-50 shadow-sm"
+            >
+              {loading === 'history'
+                ? <><span className="animate-spin inline-block">⟳</span> {t('Đang sync…','Syncing…')}</>
+                : <>🕐 {t('Bắt đầu sync lịch sử','Start history sync')}</>}
+            </button>
+            {loading === 'history' && (
+              <button
+                onClick={() => { histStopRef.current = true; setHistStop(true) }}
+                className="px-4 py-2 bg-red-500 text-white text-sm rounded-xl hover:bg-red-600 shadow-sm"
+              >
+                ⛔ {t('Dừng','Stop')}
+              </button>
+            )}
+          </div>
+          {histLog.length > 0 && (
+            <div className="bg-white border border-purple-100 rounded-lg p-2 max-h-48 overflow-y-auto">
+              {histLog.map((line, i) => (
+                <p key={i} className="text-xs font-mono text-gray-700 leading-5">{line}</p>
+              ))}
+              {loading === 'history' && (
+                <p className="text-xs font-mono text-purple-500 animate-pulse">⏳ {t('Đang xử lý tháng tiếp theo…','Processing next month…')}</p>
+              )}
+            </div>
+          )}
         </div>
       </details>
       {err    && <p className="text-xs text-red-600">⚠ {err}</p>}
@@ -2097,6 +2246,27 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
   const [prodFilter, setProdFilter] = useState('')
   const [sortCol,    setSortCol]    = useState<'product'|'avg_days'|'count'>('product')
   const [sortAsc,    setSortAsc]    = useState(true)
+  const [exporting,  setExporting]  = useState(false)
+
+  async function handleExportWarrantyScrap() {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams({ warranty_scrap: 'true' })
+      if (selCat) params.set('product', selCat)
+      const res  = await fetch(`/api/repair-tracking/export?${params}`)
+      if (!res.ok) { alert('Lỗi xuất file: ' + await res.text()); return }
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      const prodSlug = selCat ? '-' + selCat.toLowerCase().replace(/[^a-z0-9]/g, '-') : ''
+      a.download = `bao-hanh-bao-phe${prodSlug}-${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -2189,6 +2359,16 @@ function DeviceAgeTab({ t }: { t: (vi: string, en: string) => string }) {
           {selCat && (
             <button onClick={() => setSelCat('')} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 border border-gray-200 rounded-lg">✕</button>
           )}
+          <button
+            onClick={handleExportWarrantyScrap}
+            disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 hover:bg-green-700 text-white disabled:opacity-60 transition"
+          >
+            {exporting ? '⏳' : '⬇'}{' '}
+            {selCat
+              ? t(`Xuất ${selCat}`, `Export ${selCat}`)
+              : t('Xuất Bảo hành & Phế', 'Export Warranty & Scrap')}
+          </button>
         </div>
       </div>
 
