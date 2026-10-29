@@ -28,8 +28,11 @@ const sb = () => createClient(
 interface CRMDevice {
   Device_ID:               number
   Device_Code:             string
-  Device_Date:             string
-  Device_TransferTime:     string
+  Device_Date:             string       // = Device_WarrantyDate (ngày bảo hành/bán ra)
+  Device_WarrantyDate?:    string       // tường minh hơn — dùng cái này làm imported_date
+  Device_WarrantyEndDate?: string
+  Device_WarrantyMonth?:   number
+  Device_TransferTime:     string       // ngày của từng giao dịch — KHÔNG dùng làm imported_date
   Device_Type:             number
   Device_TypeName?:        string
   Device_ProductName?:     string
@@ -81,9 +84,11 @@ function getProductName(r: CRMDevice): string {
 }
 
 function getImportedDate(r: CRMDevice): string | null {
-  // Ưu tiên Device_Date (ngày nhập kho/đăng ký trong CRM) vì đây là ngày thực tế thiết bị được nhập
-  // Device_TransferTime chỉ là ngày của từng giao dịch cụ thể, có thể khác tháng nhập
-  const raw = r.Device_Date || r.Device_TransferTime
+  // Device_Date = Device_WarrantyDate = ngày bắt đầu bảo hành (ngày bán/xuất hàng cho khách)
+  // Device_WarrantyDate được ưu tiên (tường minh hơn về ý nghĩa)
+  // KHÔNG dùng Device_TransferTime — đó là ngày của từng giao dịch transfer (scrap/dispatch/...)
+  // có thể xảy ra rất muộn so với ngày thiết bị được bán, gây sai lệch tuổi thiết bị
+  const raw = (r.Device_WarrantyDate as string | undefined) || r.Device_Date
   if (!raw?.trim()) return null
   const d = new Date(raw.replace(' ', 'T'))
   return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0]
@@ -243,19 +248,41 @@ export async function POST(req: NextRequest) {
         device_id:     r.Device_ID,
         device_code:   (r.Device_Code || '').trim() || null,
         product_name:  getProductName(r),
-        imported_date: getImportedDate(r),  // Device_Date = ngày nhập kho thực tế
+        imported_date: getImportedDate(r),  // Device_WarrantyDate = ngày bán/bảo hành
         synced_at:     new Date().toISOString(),
       }))
       console.log(`[device-inventory/sync] ${monthLabel}: ${records.length} records`)
 
-      // ignoreDuplicates: false — cho phép UPDATE các row đã tồn tại
-      // Cần thiết để sửa imported_date sai từ lần sync cũ (khi dùng Device_TransferTime thay vì Device_Date)
-      // An toàn vì imported_date luôn = Device_Date (ổn định), không bị thay đổi khi sync lại nhiều lần
+      // Upsert theo từng batch 500:
+      // - Nếu device_id chưa có → INSERT bình thường
+      // - Nếu device_id đã tồn tại → chỉ update imported_date nếu giá trị MỚI nhỏ hơn (LEAST)
+      //   Điều này đảm bảo nhiều lần sync sẽ luôn giữ ngày sớm nhất (ngày bán đầu tiên)
+      //   thay vì bị ghi đè bởi ngày transfer muộn hơn (scrap, transfer action...)
       for (let i = 0; i < rows.length; i += 500) {
         const batch = rows.slice(i, i + 500)
+
+        // Lấy imported_date hiện tại của các device_id trong batch
+        const batchIds = batch.map(r => r.device_id)
+        const { data: existing } = await db
+          .from('device_inventory')
+          .select('device_id, imported_date')
+          .in('device_id', batchIds)
+        const existingMap = new Map<number, string | null>(
+          (existing ?? []).map(r => [r.device_id as number, r.imported_date as string | null])
+        )
+
+        // Điều chỉnh imported_date: giữ ngày cũ hơn (LEAST)
+        const adjustedBatch = batch.map(row => {
+          const existingDate = existingMap.get(row.device_id)
+          if (!existingDate || !row.imported_date) return row
+          // Giữ ngày nhỏ hơn (sớm hơn)
+          const keep = row.imported_date < existingDate ? row.imported_date : existingDate
+          return { ...row, imported_date: keep }
+        })
+
         const { error } = await db
           .from('device_inventory')
-          .upsert(batch, { onConflict: 'device_id', ignoreDuplicates: false })
+          .upsert(adjustedBatch, { onConflict: 'device_id', ignoreDuplicates: false })
         if (error) errors.push(error.message)
         else upserted += batch.length
       }
