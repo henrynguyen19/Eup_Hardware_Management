@@ -44,6 +44,7 @@ export default function SidebarNav({ userEmail, isAdmin, canHoTro, canChatLuong 
     { icon: '🛠️', label: t.sidebar.techSupport, href: '/ho-tro',       show: canHoTro || isAdmin },
     { icon: '📜', label: t.sidebar.certificate, href: '/chung-nhan',   show: canChungNhan || isAdmin },
     { icon: '📊', label: t.sidebar.repairStats, href: '/sua-chua',     show: canSuaChua || isAdmin },
+    { icon: '📄', label: 'Báo cáo tuần',       href: '/bao-cao',      show: canSuaChua || canHoTro || isAdmin },
     { icon: '✅', label: t.sidebar.qualityMgmt, href: '/chat-luong',   show: canChatLuong || isAdmin },
     { icon: '🚚', label: t.sidebar.delivery,    href: '/giao-nhan',    show: true },
     { icon: '👥', label: t.sidebar.userMgmt,    href: '/admin/users', show: isAdmin },
