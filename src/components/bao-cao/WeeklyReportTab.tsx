@@ -100,13 +100,20 @@ export default function WeeklyReportTab() {
 
   async function load() {
     setLoading(true)
-    const [r1, r2, r3] = await Promise.all([
-      fetch(`/api/repair-tracking/weekly-summary?from=${from}&to=${to}`).then(r => r.json()),
-      fetch(`/api/repair-tracking/weekly-error-matrix?from=${from}&to=${to}`).then(r => r.json()),
-      fetch(`/api/ho-tro/weekly-detail?from=${from}&to=${to}`).then(r => r.json()),
-    ])
-    setRepairData(r1); setRepairErr(r2); setHotroData(r3)
-    setLoading(false)
+    try {
+      const [r1, r2, r3] = await Promise.all([
+        fetch(`/api/repair-tracking/weekly-summary?from=${from}&to=${to}`).then(r => r.json()),
+        fetch(`/api/repair-tracking/weekly-error-matrix?from=${from}&to=${to}`).then(r => r.json()),
+        fetch(`/api/ho-tro/weekly-detail?from=${from}&to=${to}`).then(r => r.json()),
+      ])
+      if (!r1.error) setRepairData(r1)
+      if (!r2.error) setRepairErr(r2)
+      if (!r3.error) setHotroData(r3)
+    } catch (e) {
+      console.error('WeeklyReportTab load error:', e)
+    } finally {
+      setLoading(false)
+    }
   }
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
