@@ -2866,13 +2866,195 @@ function CustomerLookupTab({ t }: { t: (vi: string, en: string) => string }) {
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WeeklyReportTab — Tổng hợp kết quả sửa chữa theo tuần (mẫu báo cáo)
+// ─────────────────────────────────────────────────────────────────────────────
+interface WeeklySummary {
+  from: string; to: string; total: number
+  repaired: number; repairedPct: number
+  warranty: number; warrantyPct: number
+  noFault:  number; noFaultPct:  number
+  broken:   number; brokenPct:   number
+  byProduct: { product: string; delivered: number; repaired: number; warranty: number; noFault: number; broken: number }[]
+}
+
+function WeeklyReportTab({ t }: { t: (vi: string, en: string) => string }) {
+  // Default: đầu tuần (thứ 2) → hôm nay
+  function defaultWeek() {
+    const now = new Date()
+    const day = now.getDay()
+    const offset = day === 0 ? -6 : 1 - day
+    const mon = new Date(now); mon.setDate(now.getDate() + offset)
+    const fmt = (d: Date) => d.toISOString().split('T')[0]
+    return { from: fmt(mon), to: fmt(now) }
+  }
+  const dw = defaultWeek()
+  const [from, setFrom]         = useState(dw.from)
+  const [to, setTo]             = useState(dw.to)
+  const [data, setData]         = useState<WeeklySummary | null>(null)
+  const [loading, setLoading]   = useState(false)
+  const [exporting, setExporting] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    const res = await fetch(`/api/repair-tracking/weekly-summary?from=${from}&to=${to}`)
+    const d = await res.json()
+    setData(d)
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleExport() {
+    if (!data) return
+    setExporting(true)
+    try {
+      const res = await fetch(`/api/repair-tracking/weekly-summary/export?from=${from}&to=${to}`)
+      if (!res.ok) { alert(t('Lỗi xuất file', 'Export error')); return }
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = `bao-cao-sua-chua-${from}-${to}.xlsx`; a.click()
+      URL.revokeObjectURL(url)
+    } finally { setExporting(false) }
+  }
+
+  const outcomeCards = data ? [
+    { label: t('Đã sửa xong', 'Repaired'),     count: data.repaired, pct: data.repairedPct, color: 'emerald' },
+    { label: t('Gửi bảo hành', 'Warranty'),     count: data.warranty, pct: data.warrantyPct, color: 'amber'   },
+    { label: t('Không lỗi', 'No Fault'),         count: data.noFault,  pct: data.noFaultPct,  color: 'blue'    },
+    { label: t('Báo phế', 'Broken'),             count: data.broken,   pct: data.brokenPct,   color: 'red'     },
+  ] : []
+
+  const colorMap: Record<string, { bg: string; text: string; border: string }> = {
+    emerald: { bg: 'bg-emerald-50',  text: 'text-emerald-600', border: 'border-emerald-200' },
+    amber:   { bg: 'bg-amber-50',    text: 'text-amber-600',   border: 'border-amber-200'   },
+    blue:    { bg: 'bg-blue-50',     text: 'text-blue-600',    border: 'border-blue-200'    },
+    red:     { bg: 'bg-red-50',      text: 'text-red-600',     border: 'border-red-200'     },
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Controls */}
+      <div className="flex flex-wrap gap-3 items-end">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">{t('Từ ngày', 'From')}</label>
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">{t('Đến ngày', 'To')}</label>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+        <button onClick={load} disabled={loading}
+          className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
+          {loading ? t('Đang tải...', 'Loading...') : t('Xem', 'View')}
+        </button>
+        <button onClick={handleExport} disabled={!data || exporting}
+          className="px-4 py-1.5 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 disabled:opacity-50 font-medium flex items-center gap-1.5">
+          📥 {exporting ? t('Đang xuất...', 'Exporting...') : t('Xuất Excel', 'Export Excel')}
+        </button>
+      </div>
+
+      {loading && <div className="text-center py-12 text-gray-400">{t('Đang tải dữ liệu...', 'Loading...')}</div>}
+
+      {data && !loading && (
+        <>
+          {/* Outcome Summary Cards */}
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">
+              {t('OUTCOME SUMMARY', 'OUTCOME SUMMARY')} — {data.total.toLocaleString()} {t('HOÀN THÀNH', 'DELIVERED')}
+            </p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {outcomeCards.map(c => {
+                const col = colorMap[c.color]
+                return (
+                  <div key={c.color} className={`rounded-xl border p-4 ${col.bg} ${col.border}`}>
+                    <div className={`text-3xl font-bold ${col.text}`}>{c.count}</div>
+                    <div className="text-sm text-gray-600 mt-0.5">{c.label}</div>
+                    <div className={`text-xl font-semibold ${col.text} mt-1`}>{c.pct}%</div>
+                  </div>
+                )
+              })}
+            </div>
+            {/* Progress bar */}
+            {data.total > 0 && (
+              <div className="mt-3 flex rounded-full overflow-hidden h-2.5 gap-px">
+                <div className="bg-emerald-500" style={{ width: `${data.repairedPct}%` }} />
+                <div className="bg-amber-500"   style={{ width: `${data.warrantyPct}%` }} />
+                <div className="bg-blue-500"    style={{ width: `${data.noFaultPct}%` }} />
+                <div className="bg-red-500"     style={{ width: `${data.brokenPct}%` }} />
+              </div>
+            )}
+            <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-600">
+              <span><span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1" />{t('Đã sửa','Repaired')} {data.repairedPct}%</span>
+              <span><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 mr-1"  />{t('Bảo hành','Warranty')} {data.warrantyPct}%</span>
+              <span><span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500 mr-1"   />{t('Không lỗi','No Fault')} {data.noFaultPct}%</span>
+              <span><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 mr-1"    />{t('Báo phế','Broken')} {data.brokenPct}%</span>
+            </div>
+          </div>
+
+          {/* By Device Type Table */}
+          {data.byProduct.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">{t('THEO LOẠI THIẾT BỊ', 'BY DEVICE TYPE')}</p>
+              <div className="overflow-x-auto rounded-xl border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('Loại thiết bị', 'Device Type')}</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('Hoàn thành', 'Delivered')}</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-emerald-600 uppercase">{t('Sửa xong', 'Repaired')}</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-amber-600 uppercase">{t('Bảo hành', 'Warranty')}</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-blue-600 uppercase">{t('Không lỗi', 'No Fault')}</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-red-600 uppercase">{t('Báo phế', 'Broken')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.byProduct.map((row, i) => (
+                      <tr key={row.product} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                        <td className="px-4 py-2.5 font-medium text-gray-700">{row.product}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-gray-800">{row.delivered}</td>
+                        <td className="px-4 py-2.5 text-right text-emerald-600 font-medium">{row.repaired || '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-amber-600 font-medium">{row.warranty || '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-blue-600 font-medium">{row.noFault || '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-red-600 font-medium">{row.broken || '—'}</td>
+                      </tr>
+                    ))}
+                    {/* Total row */}
+                    <tr className="bg-gray-100 font-semibold border-t-2 border-gray-200">
+                      <td className="px-4 py-2.5 text-gray-800">{t('Tổng cộng', 'Total')}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-800">{data.total}</td>
+                      <td className="px-4 py-2.5 text-right text-emerald-700">{data.repaired}</td>
+                      <td className="px-4 py-2.5 text-right text-amber-700">{data.warranty}</td>
+                      <td className="px-4 py-2.5 text-right text-blue-700">{data.noFault}</td>
+                      <td className="px-4 py-2.5 text-right text-red-700">{data.broken}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {data.total === 0 && (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              {t('Không có thiết bị nào hoàn thành trong khoảng thời gian này.', 'No completed devices in this date range.')}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function RepairTrackingDashboard({ externalLang }: { externalLang?: 'vi' | 'en' }) {
   const internal = useLang()
   const lang  = externalLang ?? internal.lang
   const toggle = internal.toggle
   const t = (vi: string, en: string) => lang === 'vi' ? vi : en
   const PAGE_SIZE = 50
-  const [activeTab, setActiveTab]   = useState<'list'|'repair'|'failure'|'hashtag'|'customer'|'age'>('list')
+  const [activeTab, setActiveTab]   = useState<'list'|'repair'|'failure'|'hashtag'|'customer'|'age'|'weekly'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
   const [page, setPage]             = useState(0)
@@ -2952,6 +3134,7 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
           ['hashtag',  t('🏷 Phân tích lỗi','🏷 Error Tags')],
           ['customer', t('🔍 Tra cứu KH','🔍 Customer Lookup')],
           ['age',      t('📅 Tuổi thiết bị','📅 Device Age')],
+          ['weekly',   t('📊 Báo cáo tuần','📊 Weekly Report')],
         ] as const).map(([tab,label])=>(
           <button key={tab} onClick={()=>setActiveTab(tab)}
             className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${activeTab===tab?'bg-white text-gray-800 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
@@ -3060,6 +3243,8 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
         <StatsTab key={activeTab} t={t} onFilterByTag={handleFilterByTag} active={true} initialSection={activeTab as 'repair'|'failure'|'hashtag'} />
       ) : activeTab === 'age' ? (
         <DeviceAgeTab t={t} />
+      ) : activeTab === 'weekly' ? (
+        <WeeklyReportTab t={t} />
       ) : (
         <CustomerLookupTab t={t} />
       )}

@@ -894,8 +894,11 @@ function HoTroReportModal({
   channelNames:     string[]
   matrixDevices:    string[]
   onClose:       () => void
+  onExportExcel?: () => void
+  exportingExcel?: boolean
 }) {
   const today    = new Date().toLocaleDateString('vi-VN')
+  const [xlsLoading, setXlsLoading] = useState(false)
   const staffList = Object.entries(byStaffTotal).sort((a,b)=>b[1]-a[1])
   const devList   = Object.entries(byDeviceTotal).sort((a,b)=>b[1]-a[1])
   const errList   = Object.entries(byErrorTotal).sort((a,b)=>b[1]-a[1])
@@ -926,6 +929,17 @@ function HoTroReportModal({
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100 print:hidden">
           <span className="text-xs text-gray-400">Nhấn In để lưu PDF hoặc in báo cáo</span>
           <div className="flex gap-2">
+            {onExportExcel && (
+              <button
+                onClick={async () => {
+                  setXlsLoading(true)
+                  try { await onExportExcel() } finally { setXlsLoading(false) }
+                }}
+                disabled={xlsLoading || exportingExcel}
+                className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1">
+                📥 {xlsLoading ? 'Đang xuất...' : 'Xuất Excel'}
+              </button>
+            )}
             <button onClick={() => window.print()}
               className="px-3 py-1.5 text-xs bg-gray-800 text-white rounded-lg hover:bg-gray-700">
               🖨 In / Lưu PDF
@@ -2920,6 +2934,25 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                     channelNames={channelNames}
                     matrixDevices={matrixDevices}
                     onClose={() => setShowStatsReport(false)}
+                    onExportExcel={async () => {
+                      const res = await fetch('/api/ho-tro/weekly-export', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          periodLabel, totalReq, fastPct,
+                          chartTotal, chartResolution, chartStaff,
+                          staffNames: staffNames4,
+                          errDevMatrix, matrixDevices,
+                          byStaffTotal, byDeviceTotal, byLocTotal,
+                        }),
+                      })
+                      if (!res.ok) { alert('Lỗi xuất Excel'); return }
+                      const blob = await res.blob()
+                      const url  = URL.createObjectURL(blob)
+                      const a    = document.createElement('a')
+                      a.href = url; a.download = `hotro-weekly-${new Date().toISOString().split('T')[0]}.xlsx`; a.click()
+                      URL.revokeObjectURL(url)
+                    }}
                   />
                 )}
 
