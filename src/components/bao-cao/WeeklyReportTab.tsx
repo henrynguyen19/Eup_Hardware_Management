@@ -27,25 +27,37 @@ interface HotroDetail {
   from: string; to: string
   days: { date: string; total: number; fast: number; normal: number; slow: number; scheduled: number; followup: number; staff: Record<string, number> }[]
   staffNames: string[]
-  totals: { total: number; fast: number; fastPct: number; byStaff: Record<string, number> }
+  totals: { total: number; fast: number; normal: number; slow: number; scheduled: number; followup: number; fastPct: number; byStaff: Record<string, number> }
   errMatrix: ErrorMatrix
+  byZone: { zone: string; count: number }[]
+  byType: { type: string; count: number }[]
 }
 
-const OUTCOME_COLORS = ['#22c55e','#f59e0b','#3b82f6','#ef4444']
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+const OUTCOME_COLORS  = ['#22c55e','#f59e0b','#3b82f6','#ef4444']
+const SPEED_COLORS    = ['#34d399','#60a5fa','#fb923c','#c084fc','#94a3b8']
+const ZONE_COLORS     = ['#6366f1','#f59e0b','#22c55e','#ef4444','#3b82f6','#8b5cf6','#ec4899','#14b8a6']
+
+const SPEED_LABEL_MAP: Record<string, string> = {
+  f: 'Nhanh', n: 'Thường', l: 'Thấp', hen: 'Hẹn lịch', mai_bao_lai: 'Báo lại'
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SVG → base64 PNG helper
+// SVG → base64 PNG (hi-res)
 // ─────────────────────────────────────────────────────────────────────────────
 async function svgToBase64(svgEl: SVGSVGElement): Promise<string> {
   return new Promise(resolve => {
-    const w = svgEl.clientWidth || 800
+    const w = svgEl.clientWidth  || 800
     const h = svgEl.clientHeight || 300
+    const scale = 2 // hi-res
     const clone = svgEl.cloneNode(true) as SVGSVGElement
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-    clone.setAttribute('width', String(w * 2))
-    clone.setAttribute('height', String(h * 2))
+    clone.setAttribute('width',  String(w * scale))
+    clone.setAttribute('height', String(h * scale))
     const rect = document.createElementNS('http://www.w3.org/2000/svg','rect')
-    rect.setAttribute('width', '100%'); rect.setAttribute('height','100%'); rect.setAttribute('fill','white')
+    rect.setAttribute('width','100%'); rect.setAttribute('height','100%'); rect.setAttribute('fill','white')
     clone.insertBefore(rect, clone.firstChild)
     const svgStr = new XMLSerializer().serializeToString(clone)
     const blob   = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
@@ -53,10 +65,10 @@ async function svgToBase64(svgEl: SVGSVGElement): Promise<string> {
     const img    = new Image()
     img.onload = () => {
       const canvas = document.createElement('canvas')
-      canvas.width = w * 2; canvas.height = h * 2
+      canvas.width = w * scale; canvas.height = h * scale
       const ctx = canvas.getContext('2d')!
-      ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height)
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      ctx.fillStyle = 'white'; ctx.fillRect(0,0,canvas.width,canvas.height)
+      ctx.drawImage(img,0,0,canvas.width,canvas.height)
       URL.revokeObjectURL(url)
       resolve(canvas.toDataURL('image/png'))
     }
@@ -66,26 +78,41 @@ async function svgToBase64(svgEl: SVGSVGElement): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Component
+// Small helpers
+// ─────────────────────────────────────────────────────────────────────────────
+function SectionHeader({ icon, title }: { icon: string; title: string }) {
+  return (
+    <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
+      <span className="text-lg">{icon}</span>
+      <h3 className="font-bold text-gray-800 text-sm uppercase tracking-widest">{title}</h3>
+    </div>
+  )
+}
+
+function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color: string }) {
+  return (
+    <div className={`rounded-xl border p-4 ${color}`}>
+      <div className="text-3xl font-bold">{value}</div>
+      <div className="text-sm mt-0.5 opacity-80">{label}</div>
+      {sub && <div className="text-lg font-semibold mt-1 opacity-90">{sub}</div>}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main component
 // ─────────────────────────────────────────────────────────────────────────────
 export default function WeeklyReportTab() {
-  // i18n
-  const [lang, setLang] = useState<'vi'|'en'>('vi')
-  useEffect(() => {
-    try { const s = localStorage.getItem('repair_lang') as 'vi'|'en'; if (s==='en'||s==='vi') setLang(s) } catch {/**/}
-  }, [])
-  const t = (vi: string, en: string) => lang === 'vi' ? vi : en
-
   function defaultWeek() {
     const now = new Date(); const day = now.getDay()
     const offset = day === 0 ? -6 : 1 - day
     const mon = new Date(now); mon.setDate(now.getDate() + offset)
     const fmt = (d: Date) => d.toISOString().split('T')[0]
-    return { from: fmt(mon), to: fmt(now) }
+    return { from: fmt(mon), to: fmt(new Date()) }
   }
   const dw = defaultWeek()
   const [from, setFrom]             = useState(dw.from)
-  const [to, setTo]                 = useState(dw.to)
+  const [to,   setTo]               = useState(dw.to)
   const [repairData, setRepairData] = useState<WeeklySummary | null>(null)
   const [repairErr,  setRepairErr]  = useState<ErrorMatrix | null>(null)
   const [hotroData,  setHotroData]  = useState<HotroDetail | null>(null)
@@ -93,10 +120,15 @@ export default function WeeklyReportTab() {
   const [genLoading, setGenLoading] = useState(false)
   const [genStatus,  setGenStatus]  = useState('')
 
-  const chartRepairRef  = useRef<HTMLDivElement>(null)
-  const chartRepairRef2 = useRef<HTMLDivElement>(null)
-  const chartHotroRef   = useRef<HTMLDivElement>(null)
-  const chartHotroRef2  = useRef<HTMLDivElement>(null)
+  // Chart refs for screenshot
+  const refs = {
+    repairOutcome:   useRef<HTMLDivElement>(null),
+    repairByDevice:  useRef<HTMLDivElement>(null),
+    hotroDaily:      useRef<HTMLDivElement>(null),
+    hotroStaff:      useRef<HTMLDivElement>(null),
+    hotroZone:       useRef<HTMLDivElement>(null),
+    hotroSpeed:      useRef<HTMLDivElement>(null),
+  }
 
   async function load() {
     setLoading(true)
@@ -119,12 +151,7 @@ export default function WeeklyReportTab() {
 
   async function captureCharts() {
     const images: { id: string; base64: string }[] = []
-    for (const { id, ref } of [
-      { id: 'repair_outcome',   ref: chartRepairRef  },
-      { id: 'repair_by_device', ref: chartRepairRef2 },
-      { id: 'hotro_daily',      ref: chartHotroRef   },
-      { id: 'hotro_staff',      ref: chartHotroRef2  },
-    ]) {
+    for (const [id, ref] of Object.entries(refs)) {
       const svg = ref.current?.querySelector('svg')
       if (!svg) continue
       const base64 = await svgToBase64(svg as SVGSVGElement)
@@ -136,10 +163,10 @@ export default function WeeklyReportTab() {
   async function handleGenerateWord() {
     if (!repairData || !hotroData) return
     setGenLoading(true)
-    setGenStatus(t('Đang chụp biểu đồ...', 'Capturing charts...'))
+    setGenStatus('Đang chụp biểu đồ...')
     try {
       const allChartImages = await captureCharts()
-      setGenStatus(t('Đang tạo file Word...', 'Generating Word file...'))
+      setGenStatus('Đang tạo file Word...')
       const weekLabel = `${from.split('-').reverse().join('/')} – ${to.split('-').reverse().join('/')}`
       const res = await fetch('/api/reports/weekly-docx', {
         method: 'POST',
@@ -150,6 +177,9 @@ export default function WeeklyReportTab() {
             days:        hotroData.days,
             errMatrix:   hotroData.errMatrix,
             staffNames:  hotroData.staffNames,
+            totals:      hotroData.totals,
+            byZone:      hotroData.byZone ?? [],
+            byType:      hotroData.byType ?? [],
             chartImages: allChartImages.filter(i => i.id.startsWith('hotro')),
           },
           repair: {
@@ -166,7 +196,7 @@ export default function WeeklyReportTab() {
           },
         }),
       })
-      if (!res.ok) { alert(t('Lỗi tạo file báo cáo', 'Error generating report')); return }
+      if (!res.ok) { alert('Lỗi tạo file báo cáo'); return }
       const blob = await res.blob()
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement('a')
@@ -175,379 +205,419 @@ export default function WeeklyReportTab() {
       setGenStatus('')
     } catch (e) {
       console.error(e)
-      alert(t('Lỗi khi tạo file', 'Error generating file'))
+      alert('Lỗi khi tạo file')
       setGenStatus('')
     } finally {
       setGenLoading(false)
     }
   }
 
+  // ── Derived data ────────────────────────────────────────────────────────────
+
   const outcomeData = repairData ? [
-    { name: t('Đã sửa','Repaired'),   value: repairData.repaired, pct: repairData.repairedPct },
-    { name: t('Bảo hành','Warranty'), value: repairData.warranty, pct: repairData.warrantyPct },
-    { name: t('Không lỗi','No Fault'),value: repairData.noFault,  pct: repairData.noFaultPct  },
-    { name: t('Báo phế','Broken'),    value: repairData.broken,   pct: repairData.brokenPct   },
+    { name: 'Đã sửa',   value: repairData.repaired, pct: repairData.repairedPct },
+    { name: 'Bảo hành', value: repairData.warranty, pct: repairData.warrantyPct },
+    { name: 'Không lỗi',value: repairData.noFault,  pct: repairData.noFaultPct  },
+    { name: 'Báo phế',  value: repairData.broken,   pct: repairData.brokenPct   },
   ] : []
 
-  const colorMap: Record<string, { bg: string; text: string; border: string }> = {
-    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200' },
-    amber:   { bg: 'bg-amber-50',   text: 'text-amber-600',   border: 'border-amber-200'   },
-    blue:    { bg: 'bg-blue-50',    text: 'text-blue-600',    border: 'border-blue-200'    },
-    red:     { bg: 'bg-red-50',     text: 'text-red-600',     border: 'border-red-200'     },
-  }
-  const outcomeCards = repairData ? [
-    { label: t('Đã sửa xong','Repaired'), count: repairData.repaired, pct: repairData.repairedPct, color: 'emerald' },
-    { label: t('Gửi bảo hành','Warranty'),count: repairData.warranty, pct: repairData.warrantyPct, color: 'amber'   },
-    { label: t('Không lỗi','No Fault'),   count: repairData.noFault,  pct: repairData.noFaultPct,  color: 'blue'    },
-    { label: t('Báo phế','Broken'),       count: repairData.broken,   pct: repairData.brokenPct,   color: 'red'     },
-  ] : []
+  const speedData = hotroData?.totals ? [
+    { name: 'Nhanh',    value: hotroData.totals.fast,      color: '#34d399' },
+    { name: 'Thường',   value: hotroData.totals.normal,    color: '#60a5fa' },
+    { name: 'Thấp',     value: hotroData.totals.slow,      color: '#fb923c' },
+    { name: 'Hẹn lịch', value: hotroData.totals.scheduled, color: '#c084fc' },
+    { name: 'Báo lại',  value: hotroData.totals.followup,  color: '#94a3b8' },
+  ].filter(d => d.value > 0) : []
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">{t('Báo cáo tuần','Weekly Report')}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{t('Tổng hợp Sửa chữa & Hỗ trợ kỹ thuật','Repair & Tech Support Summary')}</p>
+          <h1 className="text-xl font-bold text-gray-900">Báo cáo tuần</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Tổng hợp Sửa chữa & Hỗ trợ kỹ thuật — preview trước khi xuất Word</p>
         </div>
-        <button onClick={() => { setLang(l => l === 'vi' ? 'en' : 'vi'); try { localStorage.setItem('repair_lang', lang === 'vi' ? 'en' : 'vi') } catch {/**/} }}
-          className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
-          {lang === 'vi' ? 'EN' : 'VI'}
-        </button>
       </div>
 
-      {/* ── Controls ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-3 items-end">
+      {/* ── Controls ───────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap gap-3 items-end bg-white border border-gray-200 rounded-xl p-4">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">{t('Từ ngày','From')}</label>
+          <label className="block text-xs text-gray-500 mb-1">Từ ngày</label>
           <input type="date" value={from} onChange={e => setFrom(e.target.value)}
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">{t('Đến ngày','To')}</label>
+          <label className="block text-xs text-gray-500 mb-1">Đến ngày</label>
           <input type="date" value={to} onChange={e => setTo(e.target.value)}
             className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
         </div>
         <button onClick={load} disabled={loading}
-          className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
-          {loading ? t('Đang tải...','Loading...') : t('Xem','View')}
+          className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
+          {loading ? 'Đang tải...' : '🔍 Xem báo cáo'}
         </button>
         <button onClick={handleGenerateWord} disabled={!repairData || !hotroData || genLoading}
-          className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium flex items-center gap-2 shadow-sm">
-          📄 {genLoading ? (genStatus || t('Đang tạo...','Generating...')) : t('Tải báo cáo tuần (.docx)','Download Weekly Report (.docx)')}
+          className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium flex items-center gap-2 shadow-sm ml-auto">
+          📄 {genLoading ? (genStatus || 'Đang tạo...') : 'Xuất báo cáo tuần (.docx)'}
         </button>
       </div>
 
-      {loading && <div className="text-center py-12 text-gray-400">{t('Đang tải dữ liệu...','Loading...')}</div>}
+      {loading && (
+        <div className="text-center py-16 text-gray-400">
+          <div className="text-4xl mb-3 animate-pulse">📊</div>
+          <p>Đang tải dữ liệu từ dashboard...</p>
+        </div>
+      )}
 
+      {/* ══════════════════════════════════════════════════════════════════
+          SECTION A — PHẦN SỬA CHỮA
+      ══════════════════════════════════════════════════════════════════ */}
       {repairData && !loading && (
-        <>
-          {/* ══ PHẦN SỬA CHỮA ══════════════════════════════════════════════ */}
-          <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-5">
-            <h3 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">
-              🔧 {t('Tổng hợp sửa chữa','Repair Summary')}
-            </h3>
+        <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-6">
+          <SectionHeader icon="🔧" title={`Tổng hợp sửa chữa — ${from.split('-').reverse().join('/')} → ${to.split('-').reverse().join('/')}`} />
 
-            {/* Outcome Cards */}
-            <div>
-              <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">
-                {t('OUTCOME SUMMARY','OUTCOME SUMMARY')} — {repairData.total.toLocaleString()} {t('HOÀN THÀNH','DELIVERED')}
-              </p>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {outcomeCards.map(c => {
-                  const col = colorMap[c.color]
-                  return (
-                    <div key={c.color} className={`rounded-xl border p-4 ${col.bg} ${col.border}`}>
-                      <div className={`text-3xl font-bold ${col.text}`}>{c.count}</div>
-                      <div className="text-sm text-gray-600 mt-0.5">{c.label}</div>
-                      <div className={`text-xl font-semibold ${col.text} mt-1`}>{c.pct}%</div>
-                    </div>
-                  )
-                })}
-              </div>
-              {repairData.total > 0 && (
-                <div className="mt-3 flex rounded-full overflow-hidden h-2 gap-px">
-                  <div className="bg-emerald-500" style={{ width: `${repairData.repairedPct}%` }} />
-                  <div className="bg-amber-500"   style={{ width: `${repairData.warrantyPct}%` }} />
-                  <div className="bg-blue-500"    style={{ width: `${repairData.noFaultPct}%` }} />
-                  <div className="bg-red-500"     style={{ width: `${repairData.brokenPct}%` }} />
-                </div>
-              )}
+          {/* Outcome cards */}
+          <div>
+            <p className="text-xs text-gray-400 mb-2 uppercase tracking-widest">OUTCOME SUMMARY — {repairData.total} thiết bị hoàn thành</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <StatCard label="Đã sửa xong" value={repairData.repaired} sub={`${repairData.repairedPct}%`} color="bg-emerald-50 border border-emerald-200 text-emerald-700" />
+              <StatCard label="Gửi bảo hành" value={repairData.warranty} sub={`${repairData.warrantyPct}%`} color="bg-amber-50 border border-amber-200 text-amber-700" />
+              <StatCard label="Không lỗi" value={repairData.noFault} sub={`${repairData.noFaultPct}%`} color="bg-blue-50 border border-blue-200 text-blue-700" />
+              <StatCard label="Báo phế" value={repairData.broken} sub={`${repairData.brokenPct}%`} color="bg-red-50 border border-red-200 text-red-700" />
             </div>
-
-            {/* Charts row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div ref={chartRepairRef} className="bg-gray-50 rounded-xl p-3">
-                <p className="text-xs font-medium text-gray-500 mb-2 uppercase">{t('Kết quả','Outcome')}</p>
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={outcomeData} dataKey="value" cx="50%" cy="50%" outerRadius={80}
-                      label={({ name, pct }) => `${name} ${pct}%`} labelLine={false}>
-                      {outcomeData.map((_, i) => <Cell key={i} fill={OUTCOME_COLORS[i]} />)}
-                    </Pie>
-                    <Tooltip formatter={(v: number, n: string) => [v, n]} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div ref={chartRepairRef2} className="bg-gray-50 rounded-xl p-3">
-                <p className="text-xs font-medium text-gray-500 mb-2 uppercase">{t('Theo thiết bị','By Device')}</p>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={repairData.byProduct} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="product" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar dataKey="repaired" stackId="a" fill="#22c55e" name={t('Sửa xong','Repaired')} />
-                    <Bar dataKey="warranty" stackId="a" fill="#f59e0b" name={t('Bảo hành','Warranty')} />
-                    <Bar dataKey="noFault"  stackId="a" fill="#3b82f6" name={t('Không lỗi','No Fault')} />
-                    <Bar dataKey="broken"   stackId="a" fill="#ef4444" name={t('Báo phế','Broken')} radius={[3,3,0,0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* By Device Table */}
-            {repairData.byProduct.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">{t('THEO LOẠI THIẾT BỊ','BY DEVICE TYPE')}</p>
-                <div className="overflow-x-auto rounded-xl border border-gray-200">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('Thiết bị','Device')}</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{t('Hoàn thành','Delivered')}</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-emerald-600 uppercase">{t('Sửa xong','Repaired')}</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-amber-600 uppercase">{t('Bảo hành','Warranty')}</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-blue-600 uppercase">{t('Không lỗi','No Fault')}</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-red-600 uppercase">{t('Báo phế','Broken')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {repairData.byProduct.map((row, i) => (
-                        <tr key={row.product} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
-                          <td className="px-4 py-2.5 font-medium text-gray-700">{row.product}</td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-gray-800">{row.delivered}</td>
-                          <td className="px-4 py-2.5 text-right text-emerald-600 font-medium">{row.repaired || '—'}</td>
-                          <td className="px-4 py-2.5 text-right text-amber-600 font-medium">{row.warranty || '—'}</td>
-                          <td className="px-4 py-2.5 text-right text-blue-600 font-medium">{row.noFault || '—'}</td>
-                          <td className="px-4 py-2.5 text-right text-red-600 font-medium">{row.broken || '—'}</td>
-                        </tr>
-                      ))}
-                      <tr className="bg-gray-100 font-semibold border-t-2 border-gray-200">
-                        <td className="px-4 py-2.5 text-gray-800">{t('Tổng cộng','Total')}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-800">{repairData.total}</td>
-                        <td className="px-4 py-2.5 text-right text-emerald-700">{repairData.repaired}</td>
-                        <td className="px-4 py-2.5 text-right text-amber-700">{repairData.warranty}</td>
-                        <td className="px-4 py-2.5 text-right text-blue-700">{repairData.noFault}</td>
-                        <td className="px-4 py-2.5 text-right text-red-700">{repairData.broken}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Error × Device matrix (repair hashtags) */}
-            {repairErr && repairErr.errors.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">
-                  {t('LỖI THEO THIẾT BỊ (từ ghi chú #hashtag)','ERRORS BY DEVICE (from #hashtag notes)')}
-                </p>
-                <div className="overflow-x-auto rounded-xl border border-gray-200 text-xs">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-slate-800 text-white">
-                        <th className="text-left px-3 py-2 font-semibold">{t('Lỗi','Error')}</th>
-                        {repairErr.devices.map(d => <th key={d} className="px-3 py-2 font-semibold text-center">{d}</th>)}
-                        <th className="px-3 py-2 font-semibold text-center">{t('Tổng','Total')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {repairErr.errors.map((err, ri) => (
-                        <tr key={err} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                          <td className="px-3 py-2 font-medium text-gray-700">{err}</td>
-                          {repairErr.devices.map(dev => (
-                            <td key={dev} className="px-3 py-2 text-center text-gray-600">
-                              {repairErr.matrix[err]?.[dev] || '—'}
-                            </td>
-                          ))}
-                          <td className="px-3 py-2 text-center font-semibold text-gray-800">
-                            {repairErr.totalByError[err] || '—'}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr className="bg-blue-50 font-semibold border-t border-blue-200">
-                        <td className="px-3 py-2 text-gray-800">{t('Tổng','Total')}</td>
-                        {repairErr.devices.map(dev => (
-                          <td key={dev} className="px-3 py-2 text-center text-gray-800">
-                            {repairErr.totalByDevice[dev] || '—'}
-                          </td>
-                        ))}
-                        <td className="px-3 py-2 text-center text-gray-800">
-                          {Object.values(repairErr.totalByError).reduce((s,v) => s+v, 0)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {repairData.total === 0 && (
-              <div className="text-center py-10 text-gray-400 text-sm">
-                {t('Không có thiết bị nào hoàn thành trong khoảng thời gian này.','No completed devices in this date range.')}
+            {repairData.total > 0 && (
+              <div className="mt-3 flex rounded-full overflow-hidden h-2.5 gap-px">
+                <div className="bg-emerald-500 transition-all" style={{ width: `${repairData.repairedPct}%` }} />
+                <div className="bg-amber-500   transition-all" style={{ width: `${repairData.warrantyPct}%` }} />
+                <div className="bg-blue-500    transition-all" style={{ width: `${repairData.noFaultPct}%` }} />
+                <div className="bg-red-500     transition-all" style={{ width: `${repairData.brokenPct}%` }} />
               </div>
             )}
           </div>
 
-          {/* ══ PHẦN HỖ TRỢ KỸ THUẬT ═════════════════════════════════════ */}
-          {hotroData && (
-            <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-5">
-              <h3 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">
-                🎧 {t('Tổng hợp Hỗ trợ kỹ thuật','Technical Support Summary')}
-              </h3>
+          {/* Charts row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div ref={refs.repairOutcome} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Phân bổ kết quả</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={outcomeData} dataKey="value" cx="50%" cy="50%" outerRadius={80}
+                    label={({ name, pct }) => `${name} ${pct}%`} labelLine={false}>
+                    {outcomeData.map((_, i) => <Cell key={i} fill={OUTCOME_COLORS[i]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: number, n: string) => [v, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div ref={refs.repairByDevice} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Kết quả theo thiết bị</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={repairData.byProduct} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="product" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="repaired" stackId="a" fill="#22c55e" name="Sửa xong" />
+                  <Bar dataKey="warranty" stackId="a" fill="#f59e0b" name="Bảo hành" />
+                  <Bar dataKey="noFault"  stackId="a" fill="#3b82f6" name="Không lỗi" />
+                  <Bar dataKey="broken"   stackId="a" fill="#ef4444" name="Báo phế" radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
 
-              {/* KPI row */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 text-center">
-                  <div className="text-2xl font-bold text-blue-700">{hotroData.totals.total}</div>
-                  <div className="text-xs text-blue-600 mt-0.5">{t('Tổng yêu cầu','Total Requests')}</div>
-                </div>
-                <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-center">
-                  <div className="text-2xl font-bold text-emerald-700">{hotroData.totals.fastPct}%</div>
-                  <div className="text-xs text-emerald-600 mt-0.5">{t('Tỉ lệ nhanh','Fast Rate')}</div>
-                </div>
-                <div className="rounded-xl bg-violet-50 border border-violet-200 p-3 text-center">
-                  <div className="text-2xl font-bold text-violet-700">{hotroData.staffNames.length}</div>
-                  <div className="text-xs text-violet-600 mt-0.5">{t('Nhân viên','Staff')}</div>
-                </div>
+          {/* By Device table */}
+          {repairData.byProduct.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">BẢNG CHI TIẾT THEO THIẾT BỊ</p>
+              <div className="overflow-x-auto rounded-xl border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-800 text-white text-xs">
+                      <th className="text-left px-4 py-3 font-semibold uppercase">Thiết bị</th>
+                      <th className="text-right px-4 py-3 font-semibold uppercase">Hoàn thành</th>
+                      <th className="text-right px-4 py-3 font-semibold text-emerald-300 uppercase">Sửa xong</th>
+                      <th className="text-right px-4 py-3 font-semibold text-amber-300 uppercase">Bảo hành</th>
+                      <th className="text-right px-4 py-3 font-semibold text-blue-300 uppercase">Không lỗi</th>
+                      <th className="text-right px-4 py-3 font-semibold text-red-300 uppercase">Báo phế</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {repairData.byProduct.map((row, i) => (
+                      <tr key={row.product} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                        <td className="px-4 py-2.5 font-medium text-gray-700">{row.product}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-gray-800">{row.delivered}</td>
+                        <td className="px-4 py-2.5 text-right text-emerald-600 font-medium">{row.repaired || '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-amber-600 font-medium">{row.warranty || '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-blue-600 font-medium">{row.noFault || '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-red-600 font-medium">{row.broken || '—'}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-slate-50 font-bold border-t-2 border-gray-300 text-sm">
+                      <td className="px-4 py-2.5 text-gray-800">Tổng cộng</td>
+                      <td className="px-4 py-2.5 text-right text-gray-800">{repairData.total}</td>
+                      <td className="px-4 py-2.5 text-right text-emerald-700">{repairData.repaired}</td>
+                      <td className="px-4 py-2.5 text-right text-amber-700">{repairData.warranty}</td>
+                      <td className="px-4 py-2.5 text-right text-blue-700">{repairData.noFault}</td>
+                      <td className="px-4 py-2.5 text-right text-red-700">{repairData.broken}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-
-              {/* Charts row */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div ref={chartHotroRef} className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs font-medium text-gray-500 mb-2 uppercase">{t('Yêu cầu theo ngày','Daily Requests')}</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={hotroData.days} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="date" tickFormatter={d => d.slice(5).replace('-','/')} tick={{ fontSize: 10 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip labelFormatter={d => `Ngày ${d}`} />
-                      <Bar dataKey="fast"      stackId="a" fill="#34d399" name={t('Nhanh','Fast')} />
-                      <Bar dataKey="normal"    stackId="a" fill="#60a5fa" name={t('Thường','Normal')} />
-                      <Bar dataKey="slow"      stackId="a" fill="#fb923c" name={t('Thấp','Slow')} />
-                      <Bar dataKey="scheduled" stackId="a" fill="#c084fc" name={t('Hẹn','Scheduled')} radius={[3,3,0,0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div ref={chartHotroRef2} className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs font-medium text-gray-500 mb-2 uppercase">{t('Yêu cầu theo nhân viên','Requests by Staff')}</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart
-                      data={hotroData.staffNames.map(s => ({ name: s, count: hotroData.totals.byStaff[s] ?? 0 }))}
-                      margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip />
-                      <Bar dataKey="count" name={t('Yêu cầu','Requests')} fill="#6366f1" radius={[4,4,0,0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Daily detail table */}
-              {hotroData.days.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">{t('CHI TIẾT THEO NGÀY','DAILY DETAIL')}</p>
-                  <div className="overflow-x-auto rounded-xl border border-gray-200 text-xs">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-slate-800 text-white">
-                          <th className="text-left px-3 py-2">{t('Ngày','Date')}</th>
-                          <th className="px-3 py-2 text-center">{t('Tổng','Total')}</th>
-                          <th className="px-3 py-2 text-center text-emerald-300">{t('Nhanh','Fast')}</th>
-                          <th className="px-3 py-2 text-center text-blue-300">{t('Thường','Normal')}</th>
-                          <th className="px-3 py-2 text-center text-orange-300">{t('Thấp','Slow')}</th>
-                          {hotroData.staffNames.map(s => <th key={s} className="px-3 py-2 text-center">{s}</th>)}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {hotroData.days.map((d, i) => (
-                          <tr key={d.date} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                            <td className="px-3 py-2 font-medium text-gray-700">{d.date.slice(5).replace('-','/')}</td>
-                            <td className="px-3 py-2 text-center font-semibold text-gray-800">{d.total}</td>
-                            <td className="px-3 py-2 text-center text-emerald-600">{d.fast || '—'}</td>
-                            <td className="px-3 py-2 text-center text-blue-600">{d.normal || '—'}</td>
-                            <td className="px-3 py-2 text-center text-orange-600">{d.slow || '—'}</td>
-                            {hotroData.staffNames.map(s => (
-                              <td key={s} className="px-3 py-2 text-center text-gray-600">{d.staff[s] || '—'}</td>
-                            ))}
-                          </tr>
-                        ))}
-                        <tr className="bg-blue-50 font-semibold border-t-2 border-blue-200">
-                          <td className="px-3 py-2 text-gray-800">{t('Tổng','Total')}</td>
-                          <td className="px-3 py-2 text-center text-gray-800">{hotroData.totals.total}</td>
-                          <td className="px-3 py-2 text-center text-emerald-700">{hotroData.totals.fast}</td>
-                          <td className="px-3 py-2 text-center text-blue-700">{hotroData.days.reduce((s,d) => s+d.normal,0)}</td>
-                          <td className="px-3 py-2 text-center text-orange-700">{hotroData.days.reduce((s,d) => s+d.slow,0)}</td>
-                          {hotroData.staffNames.map(s => (
-                            <td key={s} className="px-3 py-2 text-center text-gray-800">{hotroData.totals.byStaff[s] ?? '—'}</td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Error × Device matrix (ho tro) */}
-              {hotroData.errMatrix.errors.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">{t('LỖI × THIẾT BỊ','ERROR × DEVICE')}</p>
-                  <div className="overflow-x-auto rounded-xl border border-gray-200 text-xs">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-slate-800 text-white">
-                          <th className="text-left px-3 py-2">{t('Lỗi','Error')}</th>
-                          {hotroData.errMatrix.devices.map(d => <th key={d} className="px-3 py-2 text-center">{d}</th>)}
-                          <th className="px-3 py-2 text-center">{t('Tổng','Total')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {hotroData.errMatrix.errors.map((err, ri) => (
-                          <tr key={err} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                            <td className="px-3 py-2 font-medium text-gray-700">{err}</td>
-                            {hotroData.errMatrix.devices.map(dev => (
-                              <td key={dev} className="px-3 py-2 text-center text-gray-600">
-                                {hotroData.errMatrix.matrix[err]?.[dev] || '—'}
-                              </td>
-                            ))}
-                            <td className="px-3 py-2 text-center font-semibold text-gray-800">
-                              {hotroData.errMatrix.totalByError[err]}
-                            </td>
-                          </tr>
-                        ))}
-                        <tr className="bg-blue-50 font-semibold border-t border-blue-200">
-                          <td className="px-3 py-2 text-gray-800">{t('Tổng','Total')}</td>
-                          {hotroData.errMatrix.devices.map(dev => (
-                            <td key={dev} className="px-3 py-2 text-center text-gray-800">
-                              {hotroData.errMatrix.totalByDevice[dev] || '—'}
-                            </td>
-                          ))}
-                          <td className="px-3 py-2 text-center text-gray-800">
-                            {Object.values(hotroData.errMatrix.totalByError).reduce((s,v) => s+v,0)}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
             </div>
           )}
-        </>
+
+          {/* Repair Error matrix */}
+          {repairErr && repairErr.errors.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">LỖI THEO THIẾT BỊ (ghi chú #hashtag)</p>
+              <div className="overflow-x-auto rounded-xl border border-gray-200 text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-800 text-white">
+                      <th className="text-left px-3 py-2 font-semibold">Lỗi</th>
+                      {repairErr.devices.map(d => <th key={d} className="px-3 py-2 font-semibold text-center">{d}</th>)}
+                      <th className="px-3 py-2 font-semibold text-center">Tổng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {repairErr.errors.map((err, ri) => (
+                      <tr key={err} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="px-3 py-2 font-medium text-gray-700">{err}</td>
+                        {repairErr.devices.map(dev => (
+                          <td key={dev} className="px-3 py-2 text-center text-gray-600">
+                            {repairErr.matrix[err]?.[dev] || '—'}
+                          </td>
+                        ))}
+                        <td className="px-3 py-2 text-center font-semibold text-gray-800">{repairErr.totalByError[err] || '—'}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-blue-50 font-semibold border-t border-blue-200">
+                      <td className="px-3 py-2 text-gray-800">Tổng</td>
+                      {repairErr.devices.map(dev => (
+                        <td key={dev} className="px-3 py-2 text-center text-gray-800">{repairErr.totalByDevice[dev] || '—'}</td>
+                      ))}
+                      <td className="px-3 py-2 text-center text-gray-800">
+                        {Object.values(repairErr.totalByError).reduce((s,v) => s+v, 0)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {repairData.total === 0 && (
+            <div className="text-center py-10 text-gray-400 text-sm">
+              Không có thiết bị nào hoàn thành trong khoảng thời gian này.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          SECTION B — HỖ TRỢ KỸ THUẬT
+      ══════════════════════════════════════════════════════════════════ */}
+      {hotroData && !loading && (
+        <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-6">
+          <SectionHeader icon="🎧" title={`Tổng hợp Hỗ trợ kỹ thuật — ${from.split('-').reverse().join('/')} → ${to.split('-').reverse().join('/')}`} />
+
+          {/* KPI row */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <StatCard label="Tổng yêu cầu"  value={hotroData.totals.total}   color="bg-blue-50 border border-blue-200 text-blue-700" />
+            <StatCard label="Tỉ lệ nhanh"   value={`${hotroData.totals.fastPct}%`} color="bg-emerald-50 border border-emerald-200 text-emerald-700" />
+            <StatCard label="Nhanh"          value={hotroData.totals.fast}    color="bg-emerald-50 border border-emerald-100 text-emerald-600" />
+            <StatCard label="Hẹn lịch"       value={hotroData.totals.scheduled ?? 0} color="bg-violet-50 border border-violet-200 text-violet-700" />
+            <StatCard label="Nhân viên"      value={hotroData.staffNames.length} color="bg-slate-50 border border-slate-200 text-slate-700" />
+          </div>
+
+          {/* Charts: Daily + Staff */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div ref={refs.hotroDaily} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Yêu cầu theo ngày</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={hotroData.days} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" tickFormatter={d => d.slice(5).replace('-','/')} tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip labelFormatter={d => `Ngày ${d}`} />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  <Bar dataKey="fast"      stackId="a" fill="#34d399" name="Nhanh" />
+                  <Bar dataKey="normal"    stackId="a" fill="#60a5fa" name="Thường" />
+                  <Bar dataKey="slow"      stackId="a" fill="#fb923c" name="Thấp" />
+                  <Bar dataKey="scheduled" stackId="a" fill="#c084fc" name="Hẹn lịch" radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div ref={refs.hotroStaff} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Theo nhân viên</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart
+                  data={hotroData.staffNames.map(s => ({ name: s, count: hotroData.totals.byStaff[s] ?? 0 }))}
+                  margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="count" name="Yêu cầu" fill="#6366f1" radius={[4,4,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Charts: Zone breakdown + Speed pie */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {(hotroData.byZone?.length ?? 0) > 0 && (
+              <div ref={refs.hotroZone} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Theo văn phòng / khu vực</p>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart
+                    data={hotroData.byZone.slice(0, 12).map(z => ({ name: z.zone || '(trống)', count: z.count }))}
+                    layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis type="number" tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={80} />
+                    <Tooltip />
+                    <Bar dataKey="count" name="Yêu cầu" radius={[0,4,4,0]}>
+                      {hotroData.byZone.slice(0,12).map((_, i) => (
+                        <Cell key={i} fill={ZONE_COLORS[i % ZONE_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {speedData.length > 0 && (
+              <div ref={refs.hotroSpeed} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Phân bổ tốc độ xử lý</p>
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie data={speedData} dataKey="value" cx="50%" cy="50%" outerRadius={80}
+                      label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+                      {speedData.map((d, i) => <Cell key={i} fill={d.color || SPEED_COLORS[i]} />)}
+                    </Pie>
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          {/* Ticket type breakdown */}
+          {(hotroData.byType?.length ?? 0) > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">PHÂN LOẠI YÊU CẦU</p>
+              <div className="flex flex-wrap gap-2">
+                {hotroData.byType.map((t, i) => (
+                  <div key={t.type} className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-sm">
+                    <span className="w-2 h-2 rounded-full inline-block" style={{ background: ZONE_COLORS[i % ZONE_COLORS.length] }} />
+                    <span className="text-gray-700 font-medium">{t.type || '(chưa phân loại)'}</span>
+                    <span className="text-gray-500">{t.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Daily detail table */}
+          {hotroData.days.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">CHI TIẾT THEO NGÀY</p>
+              <div className="overflow-x-auto rounded-xl border border-gray-200 text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-800 text-white">
+                      <th className="text-left px-3 py-2 font-semibold">Ngày</th>
+                      <th className="px-3 py-2 text-center font-semibold">Tổng</th>
+                      <th className="px-3 py-2 text-center text-emerald-300 font-semibold">Nhanh</th>
+                      <th className="px-3 py-2 text-center text-blue-300 font-semibold">Thường</th>
+                      <th className="px-3 py-2 text-center text-orange-300 font-semibold">Thấp</th>
+                      <th className="px-3 py-2 text-center text-violet-300 font-semibold">Hẹn</th>
+                      {hotroData.staffNames.map(s => <th key={s} className="px-3 py-2 text-center font-semibold">{s}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hotroData.days.map((d, i) => (
+                      <tr key={d.date} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="px-3 py-2 font-medium text-gray-700">{d.date.slice(5).replace('-','/')}</td>
+                        <td className="px-3 py-2 text-center font-semibold text-gray-800">{d.total}</td>
+                        <td className="px-3 py-2 text-center text-emerald-600">{d.fast || '—'}</td>
+                        <td className="px-3 py-2 text-center text-blue-600">{d.normal || '—'}</td>
+                        <td className="px-3 py-2 text-center text-orange-600">{d.slow || '—'}</td>
+                        <td className="px-3 py-2 text-center text-violet-600">{d.scheduled || '—'}</td>
+                        {hotroData.staffNames.map(s => (
+                          <td key={s} className="px-3 py-2 text-center text-gray-600">{d.staff[s] || '—'}</td>
+                        ))}
+                      </tr>
+                    ))}
+                    <tr className="bg-blue-50 font-semibold border-t-2 border-blue-200">
+                      <td className="px-3 py-2 text-gray-800">Tổng</td>
+                      <td className="px-3 py-2 text-center text-gray-800">{hotroData.totals.total}</td>
+                      <td className="px-3 py-2 text-center text-emerald-700">{hotroData.totals.fast}</td>
+                      <td className="px-3 py-2 text-center text-blue-700">{hotroData.days.reduce((s,d) => s+d.normal,0)}</td>
+                      <td className="px-3 py-2 text-center text-orange-700">{hotroData.days.reduce((s,d) => s+d.slow,0)}</td>
+                      <td className="px-3 py-2 text-center text-violet-700">{hotroData.days.reduce((s,d) => s+(d.scheduled||0),0)}</td>
+                      {hotroData.staffNames.map(s => (
+                        <td key={s} className="px-3 py-2 text-center text-gray-800">{hotroData.totals.byStaff[s] ?? '—'}</td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Error × Device matrix */}
+          {hotroData.errMatrix.errors.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">BẢNG LỖI × THIẾT BỊ</p>
+              <div className="overflow-x-auto rounded-xl border border-gray-200 text-xs">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-800 text-white">
+                      <th className="text-left px-3 py-2 font-semibold">Lỗi</th>
+                      {hotroData.errMatrix.devices.map(d => <th key={d} className="px-3 py-2 text-center font-semibold">{d}</th>)}
+                      <th className="px-3 py-2 text-center font-semibold">Tổng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hotroData.errMatrix.errors.map((err, ri) => (
+                      <tr key={err} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="px-3 py-2 font-medium text-gray-700">{err}</td>
+                        {hotroData.errMatrix.devices.map(dev => (
+                          <td key={dev} className="px-3 py-2 text-center text-gray-600">
+                            {hotroData.errMatrix.matrix[err]?.[dev] || '—'}
+                          </td>
+                        ))}
+                        <td className="px-3 py-2 text-center font-semibold text-gray-800">{hotroData.errMatrix.totalByError[err]}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-blue-50 font-semibold border-t border-blue-200">
+                      <td className="px-3 py-2 text-gray-800">Tổng</td>
+                      {hotroData.errMatrix.devices.map(dev => (
+                        <td key={dev} className="px-3 py-2 text-center text-gray-800">{hotroData.errMatrix.totalByDevice[dev] || '—'}</td>
+                      ))}
+                      <td className="px-3 py-2 text-center text-gray-800">
+                        {Object.values(hotroData.errMatrix.totalByError).reduce((s,v) => s+v,0)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Prompt to load */}
+      {!loading && !repairData && !hotroData && (
+        <div className="text-center py-20 text-gray-400">
+          <div className="text-5xl mb-4">📋</div>
+          <p className="text-sm">Chọn khoảng thời gian và nhấn <strong>Xem báo cáo</strong> để tải dữ liệu</p>
+        </div>
       )}
     </div>
   )

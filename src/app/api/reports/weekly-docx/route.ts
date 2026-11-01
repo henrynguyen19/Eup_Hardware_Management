@@ -66,12 +66,21 @@ interface ByProductRow {
   broken: number
 }
 
+interface HotroTotals {
+  total: number; fast: number; normal: number; slow: number
+  scheduled: number; followup: number; fastPct: number
+  byStaff: Record<string, number>
+}
+
 interface ReportBody {
   weekLabel: string
   hotro: {
     days:       DayRow[]
     errMatrix:  ErrorMatrix
     staffNames: string[]
+    totals?:    HotroTotals
+    byZone?:    { zone: string; count: number }[]
+    byType?:    { type: string; count: number }[]
     chartImages: { id: string; base64: string }[]
   }
   repair: {
@@ -219,22 +228,31 @@ function imageXml(
 
 function buildSectionVI(body: ReportBody): string {
   const { hotro, weekLabel } = body
-  const { days, errMatrix, staffNames, chartImages } = hotro
-  const total      = days.reduce((s, d) => s + d.total, 0)
-  const totalFast  = days.reduce((s, d) => s + d.fast,  0)
-  const fastPct    = total ? Math.round(totalFast / total * 100) : 0
+  const { days, errMatrix, staffNames, chartImages, totals, byZone, byType } = hotro
+  const total      = totals?.total ?? days.reduce((s, d) => s + d.total, 0)
+  const totalFast  = totals?.fast  ?? days.reduce((s, d) => s + d.fast,  0)
+  const fastPct    = totals?.fastPct ?? (total ? Math.round(totalFast / total * 100) : 0)
   const staffTotals = staffNames.reduce((acc, s) => {
-    acc[s] = days.reduce((sum, d) => sum + (d.staff[s] ?? 0), 0)
+    acc[s] = totals?.byStaff?.[s] ?? days.reduce((sum, d) => sum + (d.staff[s] ?? 0), 0)
     return acc
   }, {} as Record<string, number>)
 
   const xmlParts: string[] = []
 
-  // KPI line
-  xmlParts.push(paraXml(
-    `Tuần: ${weekLabel}  |  Tổng: ${total}  |  Nhanh: ${fastPct}%  |  ${staffNames.map(s => `${s}: ${staffTotals[s]}`).join('  ')}`,
-    { size: 18, color: '444444' }
-  ))
+  // KPI summary cards row (4-column table)
+  const kpiData = [
+    { label: 'Tổng YC',   value: String(total),         color: '3b82f6' },
+    { label: 'Tỉ lệ nhanh', value: `${fastPct}%`,       color: '22c55e' },
+    { label: 'Nhanh',      value: String(totalFast),     color: '22c55e' },
+    { label: 'Nhân viên',  value: String(staffNames.length), color: '8b5cf6' },
+  ]
+  const kpiW = 2250
+  const kpiRows = [
+    kpiData.map(k => cellXml(k.value, { bold: true, size: 40, color: `#${k.color}`, bg: `#${k.color}11`, align: 'center', width: kpiW })).join(''),
+    kpiData.map(k => cellXml(k.label, { size: 18, color: `#${k.color}`, bg: `#${k.color}08`, align: 'center', width: kpiW })).join(''),
+  ]
+  xmlParts.push(paraXml(`Tuần: ${weekLabel}  |  ${staffNames.map(s => `${s}: ${staffTotals[s]}`).join('  ')}`, { size: 18, color: '444444' }))
+  xmlParts.push(tableXml(kpiRows, [kpiW, kpiW, kpiW, kpiW]))
 
   // ── Daily detail table ──
   const dayCols = ['Ngày','Tổng','Nhanh','Thường','Thấp','Hẹn', ...staffNames]
@@ -302,6 +320,50 @@ function buildSectionVI(body: ReportBody): string {
   ]
   mxRows.push(mxTotalCells.join(''))
   xmlParts.push(tableXml(mxRows, mxColW))
+
+  // ── Zone breakdown ──
+  if (byZone && byZone.length > 0) {
+    xmlParts.push(paraXml(''))
+    xmlParts.push(paraXml('Phân bổ theo văn phòng / khu vực:', { bold: true, size: 18 }))
+    const zoneColW = [2400, 1000, 1000]
+    const zoneHdr = [headerCell('Văn phòng', '1E3A5F', zoneColW[0]), headerCell('Số YC', '1E3A5F', zoneColW[1]), headerCell('Tỉ lệ', '1E3A5F', zoneColW[2])].join('')
+    const zoneRows: string[] = [zoneHdr]
+    byZone.forEach((z, ri) => {
+      const bg = ri % 2 ? '#F0F4F8' : '#FFFFFF'
+      const pct = total ? Math.round(z.count / total * 100) : 0
+      zoneRows.push([
+        cellXml(z.zone || '(chưa phân loại)', { align: 'left', size: 16, bg: `#${bg.replace('#','')}`, width: zoneColW[0] }),
+        cellXml(z.count, { bold: true, size: 16, bg: `#${bg.replace('#','')}`, width: zoneColW[1] }),
+        cellXml(`${pct}%`, { size: 16, color: '#3b82f6', bg: `#${bg.replace('#','')}`, width: zoneColW[2] }),
+      ].join(''))
+    })
+    const zoneTotal = byZone.reduce((s, z) => s + z.count, 0)
+    zoneRows.push([
+      cellXml('Tổng', { bold: true, align: 'left', size: 16, bg: '#DBEAFE', width: zoneColW[0] }),
+      cellXml(zoneTotal, { bold: true, size: 16, bg: '#DBEAFE', width: zoneColW[1] }),
+      cellXml('100%', { bold: true, size: 16, bg: '#DBEAFE', width: zoneColW[2] }),
+    ].join(''))
+    xmlParts.push(tableXml(zoneRows, zoneColW))
+  }
+
+  // ── Ticket type breakdown ──
+  if (byType && byType.length > 0) {
+    xmlParts.push(paraXml(''))
+    xmlParts.push(paraXml('Phân loại yêu cầu:', { bold: true, size: 18 }))
+    const typeColW = [2400, 1000, 1000]
+    const typeHdr = [headerCell('Loại yêu cầu', '1E3A5F', typeColW[0]), headerCell('Số YC', '1E3A5F', typeColW[1]), headerCell('Tỉ lệ', '1E3A5F', typeColW[2])].join('')
+    const typeRows: string[] = [typeHdr]
+    byType.forEach((t, ri) => {
+      const bg = ri % 2 ? '#F0F4F8' : '#FFFFFF'
+      const pct = total ? Math.round(t.count / total * 100) : 0
+      typeRows.push([
+        cellXml(t.type || '(chưa phân loại)', { align: 'left', size: 16, bg: `#${bg.replace('#','')}`, width: typeColW[0] }),
+        cellXml(t.count, { bold: true, size: 16, bg: `#${bg.replace('#','')}`, width: typeColW[1] }),
+        cellXml(`${pct}%`, { size: 16, color: '#6366f1', bg: `#${bg.replace('#','')}`, width: typeColW[2] }),
+      ].join(''))
+    })
+    xmlParts.push(tableXml(typeRows, typeColW))
+  }
 
   // ── Chart images ──
   for (const img of chartImages) {

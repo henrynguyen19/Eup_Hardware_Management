@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
   // Lấy tất cả tickets trong khoảng thời gian
   const { data, error } = await sb()
     .from('ho_tro_tickets')
-    .select('ticket_date, speed_tag, staff_name, zone, device_error_pairs')
+    .select('ticket_date, speed_tag, staff_name, zone, ticket_type, device_error_pairs')
     .gte('ticket_date', from)
     .lte('ticket_date', to)
     .order('ticket_date', { ascending: true })
@@ -98,6 +98,10 @@ export async function GET(req: NextRequest) {
   // Staff set
   const staffSet = new Set<string>()
 
+  // ── Zone + ticket_type aggregation ──
+  const zoneMap: Record<string, number> = {}
+  const typeMap: Record<string, number> = {}
+
   for (const row of rows) {
     const date = row.ticket_date as string
     const d = getDay(date)
@@ -115,6 +119,14 @@ export async function GET(req: NextRequest) {
       staffSet.add(staff)
       d.staff[staff] = (d.staff[staff] ?? 0) + 1
     }
+
+    // Zone aggregation
+    const zone = (row.zone as string | null) ?? ''
+    if (zone) zoneMap[zone] = (zoneMap[zone] ?? 0) + 1
+
+    // Ticket type aggregation
+    const ticketType = (row.ticket_type as string | null) ?? ''
+    if (ticketType) typeMap[ticketType] = (typeMap[ticketType] ?? 0) + 1
 
     // Parse device_error_pairs — key format: "DeviceName×ErrorName"
     const pairs = row.device_error_pairs as Record<string, number> | null
@@ -181,11 +193,23 @@ export async function GET(req: NextRequest) {
   errors.sort((a, b) => (totalByError[b] ?? 0) - (totalByError[a] ?? 0))
   devices.sort((a, b) => (totalByDevice[b] ?? 0) - (totalByDevice[a] ?? 0))
 
+  // Speed tag totals
+  const normal    = rows.filter(r => r.speed_tag === 'n').length
+  const slow      = rows.filter(r => r.speed_tag === 'l').length
+  const scheduled = rows.filter(r => r.speed_tag === 'hen').length
+  const followup  = rows.filter(r => r.speed_tag === 'mai_bao_lai').length
+
+  // Sort zone & type by count desc
+  const byZone = Object.entries(zoneMap).sort((a, b) => b[1] - a[1]).map(([zone, count]) => ({ zone, count }))
+  const byType = Object.entries(typeMap).sort((a, b) => b[1] - a[1]).map(([type, count]) => ({ type, count }))
+
   return NextResponse.json({
     from, to,
     days,
     staffNames,
-    totals: { total, fast, fastPct: total ? Math.round(fast / total * 100) : 0, byStaff },
+    totals: { total, fast, normal, slow, scheduled, followup, fastPct: total ? Math.round(fast / total * 100) : 0, byStaff },
     errMatrix: { errors, devices, matrix, totalByError, totalByDevice },
+    byZone,
+    byType,
   })
 }
