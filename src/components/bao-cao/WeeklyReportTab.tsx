@@ -476,45 +476,79 @@ export default function WeeklyReportTab() {
             </div>
           )}
 
-          {/* Repair Error matrix */}
-          {repairErr && repairErr.errors.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">LỖI THEO THIẾT BỊ (ghi chú #hashtag)</p>
-              <div className="overflow-x-auto rounded-xl border border-gray-200 text-xs">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-slate-800 text-white">
-                      <th className="text-left px-3 py-2 font-semibold">Lỗi</th>
-                      {repairErr.devices.map(d => <th key={d} className="px-3 py-2 font-semibold text-center">{d}</th>)}
-                      <th className="px-3 py-2 font-semibold text-center">Tổng</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {repairErr.errors.map((err, ri) => (
-                      <tr key={err} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                        <td className="px-3 py-2 font-medium text-gray-700">{err}</td>
-                        {repairErr.devices.map(dev => (
-                          <td key={dev} className="px-3 py-2 text-center text-gray-600">
-                            {repairErr.matrix[err]?.[dev] || '—'}
+          {/* Repair Error heatmap matrix — Device × Fault (rows=device, cols=fault) */}
+          {repairErr && repairErr.errors.length > 0 && (() => {
+            const total = Object.values(repairErr.totalByError).reduce((s,v) => s+v, 0)
+            // heatmap color: green intensity based on % of device total
+            function heatBg(count: number, deviceTotal: number) {
+              if (!count) return 'transparent'
+              const pct = count / (deviceTotal || 1)
+              if (pct >= 0.7) return '#16a34a'   // dark green
+              if (pct >= 0.4) return '#22c55e'
+              if (pct >= 0.2) return '#86efac'
+              return '#dcfce7'                     // light green
+            }
+            function heatColor(count: number, deviceTotal: number) {
+              if (!count) return ''
+              const pct = count / (deviceTotal || 1)
+              return pct >= 0.4 ? 'text-white' : 'text-green-900'
+            }
+            return (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">
+                  FAULT MATRIX BY DEVICE ({total} cases)
+                </p>
+                <div className="overflow-x-auto rounded-xl border border-gray-200 text-xs">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-600 min-w-[90px]">Device</th>
+                        {repairErr.errors.map(err => (
+                          <th key={err} className="px-2 py-2.5 font-semibold text-gray-600 text-center whitespace-nowrap">{err}</th>
+                        ))}
+                        <th className="px-3 py-2.5 font-bold text-gray-700 text-center">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {repairErr.devices.map(dev => {
+                        const devTotal = repairErr.totalByDevice[dev] ?? 0
+                        return (
+                          <tr key={dev} className="border-b border-gray-100 hover:bg-gray-50/50">
+                            <td className="px-3 py-2.5 font-bold text-blue-600">{dev}</td>
+                            {repairErr.errors.map(err => {
+                              const count = repairErr.matrix[err]?.[dev] ?? 0
+                              const pct   = devTotal ? Math.round(count / devTotal * 100) : 0
+                              return (
+                                <td key={err} className="px-2 py-2.5 text-center"
+                                  style={{ background: heatBg(count, devTotal) }}>
+                                  {count ? (
+                                    <div className={`font-bold leading-tight ${heatColor(count, devTotal)}`}>{count}</div>
+                                  ) : null}
+                                  {count ? (
+                                    <div className={`text-[10px] leading-tight ${heatColor(count, devTotal)} opacity-80`}>{pct}%</div>
+                                  ) : <span className="text-gray-300">—</span>}
+                                </td>
+                              )
+                            })}
+                            <td className="px-3 py-2.5 text-center font-bold text-gray-800">{devTotal || '—'}</td>
+                          </tr>
+                        )
+                      })}
+                      <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
+                        <td className="px-3 py-2.5 text-gray-700">Total</td>
+                        {repairErr.errors.map(err => (
+                          <td key={err} className="px-2 py-2.5 text-center text-gray-700">
+                            {repairErr.totalByError[err] || '—'}
                           </td>
                         ))}
-                        <td className="px-3 py-2 text-center font-semibold text-gray-800">{repairErr.totalByError[err] || '—'}</td>
+                        <td className="px-3 py-2.5 text-center font-bold text-gray-800">{total}</td>
                       </tr>
-                    ))}
-                    <tr className="bg-blue-50 font-semibold border-t border-blue-200">
-                      <td className="px-3 py-2 text-gray-800">Tổng</td>
-                      {repairErr.devices.map(dev => (
-                        <td key={dev} className="px-3 py-2 text-center text-gray-800">{repairErr.totalByDevice[dev] || '—'}</td>
-                      ))}
-                      <td className="px-3 py-2 text-center text-gray-800">
-                        {Object.values(repairErr.totalByError).reduce((s,v) => s+v, 0)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {repairData.total === 0 && (
             <div className="text-center py-10 text-gray-400 text-sm">
