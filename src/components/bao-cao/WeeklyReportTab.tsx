@@ -34,6 +34,16 @@ interface HotroDetail {
   byDirection: { direction: string; count: number }[]
 }
 
+interface SheetsKV { key: string; count: number }
+interface SheetsSummary {
+  from: string; to: string; totalRequests: number; daysFound: number
+  resolution: SheetsKV[]
+  channels:   SheetsKV[]
+  errors:     SheetsKV[]
+  devices:    SheetsKV[]
+  locations:  SheetsKV[]
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,6 +53,16 @@ const ZONE_COLORS     = ['#6366f1','#f59e0b','#22c55e','#ef4444','#3b82f6','#8b5
 
 const SPEED_LABEL_MAP: Record<string, string> = {
   f: 'Nhanh', n: 'Thường', l: 'Thấp', hen: 'Hẹn lịch', mai_bao_lai: 'Báo lại'
+}
+
+const DIRECTION_LABEL_MAP: Record<string, string> = {
+  i: 'Inbound (Khách gọi vào)',
+  o: 'Outbound (NV gọi ra)',
+}
+
+const CHANNEL_COLORS = ['#60a5fa', '#34d399', '#f59e0b', '#c084fc', '#fb923c']
+const CHANNEL_LABELS: Record<string, string> = {
+  'Zalo': 'Zalo', 'Hotline': 'Hotline', 'Ngay nghi': 'Ngày nghỉ',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,10 +134,11 @@ export default function WeeklyReportTab() {
   const dw = defaultWeek()
   const [from, setFrom]             = useState(dw.from)
   const [to,   setTo]               = useState(dw.to)
-  const [repairData, setRepairData] = useState<WeeklySummary | null>(null)
-  const [repairErr,  setRepairErr]  = useState<ErrorMatrix | null>(null)
-  const [hotroData,  setHotroData]  = useState<HotroDetail | null>(null)
-  const [loading,    setLoading]    = useState(false)
+  const [repairData,  setRepairData]  = useState<WeeklySummary | null>(null)
+  const [repairErr,   setRepairErr]   = useState<ErrorMatrix | null>(null)
+  const [hotroData,   setHotroData]   = useState<HotroDetail | null>(null)
+  const [sheetsData,  setSheetsData]  = useState<SheetsSummary | null>(null)
+  const [loading,     setLoading]     = useState(false)
   const [genLoading, setGenLoading] = useState(false)
   const [genStatus,  setGenStatus]  = useState('')
 
@@ -129,20 +150,24 @@ export default function WeeklyReportTab() {
     hotroStaff:       useRef<HTMLDivElement>(null),
     hotroZone:        useRef<HTMLDivElement>(null),
     hotroSpeed:       useRef<HTMLDivElement>(null),
+    hotroChannel:     useRef<HTMLDivElement>(null),
     hotroDirection:   useRef<HTMLDivElement>(null),
+    hotroError:       useRef<HTMLDivElement>(null),
   }
 
   async function load() {
     setLoading(true)
     try {
-      const [r1, r2, r3] = await Promise.all([
+      const [r1, r2, r3, r4] = await Promise.all([
         fetch(`/api/repair-tracking/weekly-summary?from=${from}&to=${to}`).then(r => r.json()),
         fetch(`/api/repair-tracking/weekly-error-matrix?from=${from}&to=${to}`).then(r => r.json()),
         fetch(`/api/ho-tro/weekly-detail?from=${from}&to=${to}`).then(r => r.json()),
+        fetch(`/api/ho-tro/weekly-sheets-summary?from=${from}&to=${to}`).then(r => r.json()),
       ])
       if (!r1.error) setRepairData(r1)
       if (!r2.error) setRepairErr(r2)
       if (!r3.error) setHotroData(r3)
+      if (!r4.error) setSheetsData(r4)
     } catch (e) {
       console.error('WeeklyReportTab load error:', e)
     } finally {
@@ -224,13 +249,34 @@ export default function WeeklyReportTab() {
     { name: 'Báo phế',  value: repairData.broken,   pct: repairData.brokenPct   },
   ] : []
 
-  const speedData = hotroData?.totals ? [
-    { name: 'Nhanh',    value: hotroData.totals.fast,      color: '#34d399' },
-    { name: 'Thường',   value: hotroData.totals.normal,    color: '#60a5fa' },
-    { name: 'Thấp',     value: hotroData.totals.slow,      color: '#fb923c' },
-    { name: 'Hẹn lịch', value: hotroData.totals.scheduled, color: '#c084fc' },
-    { name: 'Báo lại',  value: hotroData.totals.followup,  color: '#94a3b8' },
+  // Speed data từ Google Sheets (resolution: Fast/Normal/Low/Hen/Mai bao lai)
+  const resolutionMap = Object.fromEntries((sheetsData?.resolution ?? []).map(r => [r.key, r.count]))
+  const speedData = sheetsData ? [
+    { name: 'Nhanh',    value: resolutionMap['Fast']         ?? 0, color: '#34d399' },
+    { name: 'Thường',   value: resolutionMap['Normal']       ?? 0, color: '#60a5fa' },
+    { name: 'Thấp',     value: resolutionMap['Low']          ?? 0, color: '#fb923c' },
+    { name: 'Hẹn lịch', value: resolutionMap['Hen']          ?? 0, color: '#c084fc' },
+    { name: 'Báo lại',  value: resolutionMap['Mai bao lai']  ?? 0, color: '#94a3b8' },
   ].filter(d => d.value > 0) : []
+
+  // Channel data từ Sheets
+  const channelData = (sheetsData?.channels ?? []).map((c, i) => ({
+    name:  CHANNEL_LABELS[c.key] ?? c.key,
+    value: c.count,
+    color: CHANNEL_COLORS[i % CHANNEL_COLORS.length],
+  }))
+
+  // Error data từ Sheets (lọc key bỏ những cái rỗng)
+  const errorBarData = (sheetsData?.errors ?? [])
+    .filter(e => e.key && e.key !== '0' && e.count > 0)
+    .slice(0, 12)
+    .map(e => ({ name: e.key, value: e.count }))
+
+  // Direction với label đẹp
+  const directionData = (hotroData?.byDirection ?? []).map(d => ({
+    name:  DIRECTION_LABEL_MAP[d.direction] ?? d.direction || 'Khác',
+    value: d.count,
+  }))
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -511,16 +557,16 @@ export default function WeeklyReportTab() {
 
           {/* Nguồn tiếp nhận (direction) + Phân loại ticket type */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {(hotroData.byDirection?.length ?? 0) > 0 && (
+            {directionData.length > 0 && (
               <div ref={refs.hotroDirection} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
                 <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Nguồn tiếp nhận yêu cầu</p>
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
                     <Pie
-                      data={hotroData.byDirection.map(d => ({ name: d.direction || 'Khác', value: d.count }))}
+                      data={directionData}
                       dataKey="value" cx="50%" cy="50%" outerRadius={75}
                       label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
-                      {hotroData.byDirection.map((_, i) => (
+                      {directionData.map((_, i) => (
                         <Cell key={i} fill={ZONE_COLORS[i % ZONE_COLORS.length]} />
                       ))}
                     </Pie>
@@ -547,6 +593,39 @@ export default function WeeklyReportTab() {
                     )
                   })}
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* Kênh tiếp nhận (Zalo/Hotline) + Phân bổ lỗi từ Sheets */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {channelData.length > 0 && (
+              <div ref={refs.hotroChannel} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Kênh tiếp nhận</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie data={channelData} dataKey="value" cx="50%" cy="50%" outerRadius={75}
+                      label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+                      {channelData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                    </Pie>
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {errorBarData.length > 0 && (
+              <div ref={refs.hotroError} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Phân bổ loại lỗi (từ Sheets)</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={errorBarData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis type="number" tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={50} />
+                    <Tooltip />
+                    <Bar dataKey="value" name="Số lần" fill="#6366f1" radius={[0,4,4,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             )}
           </div>
