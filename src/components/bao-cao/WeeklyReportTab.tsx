@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import {
-  BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, ComposedChart, LineChart, PieChart, Pie, Line, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList, ResponsiveContainer,
 } from 'recharts'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,21 +50,19 @@ interface SheetsSummary {
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 const OUTCOME_COLORS  = ['#22c55e','#f59e0b','#3b82f6','#ef4444']
-const SPEED_COLORS    = ['#34d399','#60a5fa','#fb923c','#c084fc','#94a3b8']
-const ZONE_COLORS     = ['#6366f1','#f59e0b','#22c55e','#ef4444','#3b82f6','#8b5cf6','#ec4899','#14b8a6']
+const DEVICE_COLORS   = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#10b981','#f97316','#6366f1','#14b8a6']
+const ERROR_PIE_COLORS= ['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#06b6d4','#ec4899','#10b981','#f97316','#6366f1','#14b8a6','#e11d48','#84cc16']
+const PIE_COLORS      = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316']
+// Speed colors matching HoTro: Fast=green, Normal=amber, Low=red, Hẹn=purple, MBL=pink
+const SPEED_STACK_COLORS = ['#22c55e','#f59e0b','#ef4444','#8b5cf6','#ec4899']
 
-const SPEED_LABEL_MAP: Record<string, string> = {
-  f: 'Nhanh', n: 'Thường', l: 'Thấp', hen: 'Hẹn lịch', mai_bao_lai: 'Báo lại'
+const STAFF_COLORS: Record<string, string> = {
+  Kane: '#3b82f6', Stefan: '#a855f7', Shiro: '#22c55e', Irene: '#ec4899', Blue: '#f97316',
 }
 
 const DIRECTION_LABEL_MAP: Record<string, string> = {
   i: 'Inbound (Khách gọi vào)',
   o: 'Outbound (NV gọi ra)',
-}
-
-const CHANNEL_COLORS = ['#60a5fa', '#34d399', '#f59e0b', '#c084fc', '#fb923c']
-const CHANNEL_LABELS: Record<string, string> = {
-  'Zalo': 'Zalo', 'Hotline': 'Hotline', 'Từ trợ lý': 'Từ trợ lý', 'Ngay nghi': 'Ngày nghỉ',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -251,26 +249,50 @@ export default function WeeklyReportTab() {
     { name: 'Báo phế',  value: repairData.broken,   pct: repairData.brokenPct   },
   ] : []
 
-  // Speed data từ CRM tickets (speed_tag: fast/normal/low/hen/mai_bao_lai)
-  const speedData = hotroData?.totals ? [
-    { name: 'Nhanh',    value: hotroData.totals.fast,      color: '#34d399' },
-    { name: 'Thường',   value: hotroData.totals.normal,    color: '#60a5fa' },
-    { name: 'Thấp',     value: hotroData.totals.slow,      color: '#fb923c' },
-    { name: 'Hẹn lịch', value: hotroData.totals.scheduled, color: '#c084fc' },
-    { name: 'Báo lại',  value: hotroData.totals.followup,  color: '#94a3b8' },
-  ].filter(d => d.value > 0) : []
-
-  // Channel data từ hashtag trong CS_Memo (#zalo / #hotline)
-  const channelData = (hotroData?.byChannel ?? []).map((c, i) => ({
-    name:  CHANNEL_LABELS[c.channel] ?? c.channel,
-    value: c.count,
-    color: CHANNEL_COLORS[i % CHANNEL_COLORS.length],
+  // Chart 1: ComposedChart daily — Bar(Tổng YC) + Line(Hẹn & MB lại)
+  const dailyComposedData = (hotroData?.days ?? []).map(d => ({
+    date: d.date.slice(5).replace('-','/'),
+    'Tổng YC': d.total,
+    'Hẹn & MB lại': (d.scheduled ?? 0) + (d.followup ?? 0),
   }))
 
-  // Error data từ hashtag trong CS_Memo (#nc, #gsm, #gps...)
-  const errorBarData = (hotroData?.byHashtagErr ?? [])
-    .filter(e => e.error && e.count > 0)
-    .slice(0, 12)
+  // Chart 2: Stacked resolution bars per day (matching HoTro exactly)
+  const resolutionData = (hotroData?.days ?? []).map(d => ({
+    date: d.date.slice(5).replace('-','/'),
+    '#f Fast': d.fast,
+    '#n Normal': d.normal,
+    '#l Low': d.slow,
+    'Hẹn': d.scheduled ?? 0,
+    'Mai báo lại': d.followup ?? 0,
+  }))
+
+  // Chart 3: % Cần theo dõi per day
+  const pendingPctData = (hotroData?.days ?? []).map(d => ({
+    date: d.date.slice(5).replace('-','/'),
+    'Cần theo dõi (%)': d.total > 0 ? Math.round(((d.scheduled ?? 0) + (d.followup ?? 0)) / d.total * 100) : 0,
+  }))
+
+  // Chart 5: Device pie from errMatrix.totalByDevice
+  const devicePieData = hotroData
+    ? Object.entries(hotroData.errMatrix.totalByDevice).sort((a,b) => b[1]-a[1]).map(([name,value]) => ({ name, value }))
+    : []
+
+  // Chart 6: Zone vertical bar
+  const locationBarData = (hotroData?.byZone ?? []).slice(0,10).map(z => ({
+    name: z.zone || '(trống)',
+    value: z.count,
+  }))
+
+  // Chart 7: Channel pie (aggregate — no per-day channel data available)
+  const channelPieData = (hotroData?.byChannel ?? []).map((c, i) => ({
+    name: c.channel,
+    value: c.count,
+    color: ['#6366f1','#22c55e','#f97316'][i] ?? PIE_COLORS[i],
+  }))
+
+  // Chart 8: Error donut from hashtag errors
+  const errorDonutData = (hotroData?.byHashtagErr ?? [])
+    .filter(e => e.error && e.count > 0).slice(0, 12)
     .map(e => ({ name: e.error, value: e.count }))
 
   // Direction với label đẹp
@@ -483,153 +505,172 @@ export default function WeeklyReportTab() {
             <StatCard label="Nhân viên"      value={hotroData.staffNames.length} color="bg-slate-50 border border-slate-200 text-slate-700" />
           </div>
 
-          {/* Charts: Daily + Staff */}
+          {/* Chart 1 (full width): ComposedChart — Tổng YC/ngày + Hẹn & MB lại line */}
+          <div ref={refs.hotroDaily} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+            <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Tổng số yêu cầu theo ngày</p>
+            <ResponsiveContainer width="100%" height={170}>
+              <ComposedChart data={dailyComposedData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 9 }} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 9 }} />
+                <Bar dataKey="Tổng YC" fill="#3b82f6" />
+                <Line type="monotone" dataKey="Hẹn & MB lại" stroke="#ef4444" dot={false} strokeWidth={2} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Chart 2 + 3: Stacked resolution + Pending % */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div ref={refs.hotroDaily} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Yêu cầu theo ngày</p>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={hotroData.days} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="date" tickFormatter={d => d.slice(5).replace('-','/')} tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip labelFormatter={d => `Ngày ${d}`} />
-                  <Legend wrapperStyle={{ fontSize: 10 }} />
-                  <Bar dataKey="fast"      stackId="a" fill="#34d399" name="Nhanh" />
-                  <Bar dataKey="normal"    stackId="a" fill="#60a5fa" name="Thường" />
-                  <Bar dataKey="slow"      stackId="a" fill="#fb923c" name="Thấp" />
-                  <Bar dataKey="scheduled" stackId="a" fill="#c084fc" name="Hẹn lịch" radius={[3,3,0,0]} />
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Thời gian xử lý theo ngày</p>
+              <ResponsiveContainer width="100%" height={170}>
+                <BarChart data={resolutionData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="date" tick={{ fontSize: 9 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 9 }} />
+                  <Bar dataKey="#f Fast"     stackId="a" fill={SPEED_STACK_COLORS[0]} />
+                  <Bar dataKey="#n Normal"   stackId="a" fill={SPEED_STACK_COLORS[1]} />
+                  <Bar dataKey="#l Low"      stackId="a" fill={SPEED_STACK_COLORS[2]} />
+                  <Bar dataKey="Hẹn"        stackId="a" fill={SPEED_STACK_COLORS[3]} />
+                  <Bar dataKey="Mai báo lại" stackId="a" fill={SPEED_STACK_COLORS[4]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div ref={refs.hotroStaff} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Theo nhân viên</p>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart
-                  data={hotroData.staffNames.map(s => ({ name: s, count: hotroData.totals.byStaff[s] ?? 0 }))}
-                  margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">% Cần theo dõi theo ngày</p>
+              <ResponsiveContainer width="100%" height={170}>
+                <LineChart data={pendingPctData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="date" tick={{ fontSize: 9 }} />
+                  <YAxis tick={{ fontSize: 10 }} unit="%" />
                   <Tooltip />
-                  <Bar dataKey="count" name="Yêu cầu" fill="#6366f1" radius={[4,4,0,0]} />
-                </BarChart>
+                  <Line type="monotone" dataKey="Cần theo dõi (%)" stroke="#ef4444" dot={{ r: 2 }} strokeWidth={2} />
+                </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Charts: Zone + Direction pie + Speed pie */}
+          {/* Chart 4 + 6: Staff bar + Zone/Office vertical bar */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {(hotroData.byZone?.length ?? 0) > 0 && (
+            <div ref={refs.hotroStaff} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Yêu cầu theo nhân viên</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart
+                  data={hotroData.staffNames.map(s => ({ name: s, value: hotroData.totals.byStaff[s] ?? 0 }))}
+                  margin={{ top: 20, right: 20, bottom: 10, left: -10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 13 }} />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Bar dataKey="value" name="Yêu cầu" radius={[5,5,0,0]}>
+                    {hotroData.staffNames.map((s, i) => (
+                      <Cell key={i} fill={STAFF_COLORS[s] ?? PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                    <LabelList dataKey="value" position="top" style={{ fontSize: 13, fill: '#1e293b', fontWeight: 700 }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            {locationBarData.length > 0 && (
               <div ref={refs.hotroZone} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Theo văn phòng / khu vực</p>
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Yêu cầu theo văn phòng</p>
                 <ResponsiveContainer width="100%" height={220}>
-                  <BarChart
-                    data={hotroData.byZone.slice(0, 12).map(z => ({ name: z.zone || '(trống)', count: z.count }))}
-                    layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis type="number" tick={{ fontSize: 10 }} />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={80} />
+                  <BarChart data={locationBarData} margin={{ top: 20, right: 20, bottom: 10, left: -10 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-15} textAnchor="end" height={45} />
+                    <YAxis tick={{ fontSize: 12 }} />
                     <Tooltip />
-                    <Bar dataKey="count" name="Yêu cầu" radius={[0,4,4,0]}>
-                      {hotroData.byZone.slice(0,12).map((_, i) => (
-                        <Cell key={i} fill={ZONE_COLORS[i % ZONE_COLORS.length]} />
+                    <Bar dataKey="value" name="Số yêu cầu" radius={[5,5,0,0]}>
+                      {locationBarData.map((_, i) => (
+                        <Cell key={i} fill="#0891b2" />
                       ))}
+                      <LabelList dataKey="value" position="top" style={{ fontSize: 13, fill: '#1e293b', fontWeight: 700 }} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
-            {speedData.length > 0 && (
-              <div ref={refs.hotroSpeed} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Phân bổ tốc độ xử lý</p>
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={speedData} dataKey="value" cx="50%" cy="50%" outerRadius={80}
-                      label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
-                      {speedData.map((d, i) => <Cell key={i} fill={d.color || SPEED_COLORS[i]} />)}
-                    </Pie>
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
           </div>
 
-          {/* Nguồn tiếp nhận (direction) + Phân loại ticket type */}
+          {/* Chart 5 + 8: Device pie + Error donut */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {directionData.length > 0 && (
-              <div ref={refs.hotroDirection} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Nguồn tiếp nhận yêu cầu</p>
-                <ResponsiveContainer width="100%" height={200}>
+            {devicePieData.length > 0 && (
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Tỷ lệ lỗi theo thiết bị</p>
+                <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
-                    <Pie
-                      data={directionData}
-                      dataKey="value" cx="50%" cy="50%" outerRadius={75}
-                      label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
-                      {directionData.map((_, i) => (
-                        <Cell key={i} fill={ZONE_COLORS[i % ZONE_COLORS.length]} />
+                    <Pie data={devicePieData} cx="50%" cy="50%" outerRadius={90} dataKey="value"
+                      label={({ percent }) => percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''} labelLine>
+                      {devicePieData.map((_, i) => (
+                        <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: 10 }} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
             )}
-            {(hotroData.byType?.length ?? 0) > 0 && (
-              <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Phân loại yêu cầu</p>
-                <div className="space-y-1.5 mt-1">
-                  {hotroData.byType.map((t, i) => {
-                    const total = hotroData.byType.reduce((s, x) => s + x.count, 0)
-                    const pct   = total ? Math.round(t.count / total * 100) : 0
-                    return (
-                      <div key={t.type} className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: ZONE_COLORS[i % ZONE_COLORS.length] }} />
-                        <span className="text-xs text-gray-700 flex-1 truncate">{t.type || '(chưa phân loại)'}</span>
-                        <span className="text-xs font-semibold text-gray-800 w-8 text-right">{t.count}</span>
-                        <span className="text-xs text-gray-400 w-8 text-right">{pct}%</span>
-                      </div>
-                    )
-                  })}
-                </div>
+            {errorDonutData.length > 0 && (
+              <div ref={refs.hotroError} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Tỷ lệ loại lỗi trong tuần</p>
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie data={errorDonutData} cx="50%" cy="50%" innerRadius={50} outerRadius={90}
+                      dataKey="value"
+                      label={({ name, percent }) => percent > 0.06 ? `${(percent * 100).toFixed(0)}%` : ''}
+                      labelLine={false} fontSize={9}>
+                      {errorDonutData.map((_, i) => (
+                        <Cell key={i} fill={ERROR_PIE_COLORS[i % ERROR_PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 10 }} />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
             )}
           </div>
 
-          {/* Kênh tiếp nhận (Zalo/Hotline) + Phân bổ lỗi từ Sheets */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {channelData.length > 0 && (
+          {/* Chart 7: Kênh tiếp nhận (aggregate pie) */}
+          {channelPieData.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div ref={refs.hotroChannel} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Kênh tiếp nhận</p>
-                <ResponsiveContainer width="100%" height={200}>
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Kênh tiếp nhận yêu cầu</p>
+                <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
-                    <Pie data={channelData} dataKey="value" cx="50%" cy="50%" outerRadius={75}
-                      label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
-                      {channelData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                    <Pie data={channelPieData} cx="50%" cy="50%" outerRadius={90} dataKey="value"
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine>
+                      {channelPieData.map((d, i) => <Cell key={i} fill={d.color} />)}
                     </Pie>
                     <Tooltip />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-            )}
-            {errorBarData.length > 0 && (
-              <div ref={refs.hotroError} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Phân bổ loại lỗi (từ Sheets)</p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={errorBarData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis type="number" tick={{ fontSize: 10 }} />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={50} />
-                    <Tooltip />
-                    <Bar dataKey="value" name="Số lần" fill="#6366f1" radius={[0,4,4,0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
+              {directionData.length > 0 && (
+                <div ref={refs.hotroDirection} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                  <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Nguồn tiếp nhận yêu cầu</p>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie data={directionData} cx="50%" cy="50%" outerRadius={90} dataKey="value"
+                        label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+                        {directionData.map((_, i) => (
+                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Daily detail table */}
           {hotroData.days.length > 0 && (
