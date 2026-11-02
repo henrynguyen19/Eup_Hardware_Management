@@ -25,7 +25,7 @@ interface ErrorMatrix {
 
 interface HotroDetail {
   from: string; to: string
-  days: { date: string; total: number; fast: number; normal: number; slow: number; scheduled: number; followup: number; staff: Record<string, number> }[]
+  days: { date: string; total: number; fast: number; normal: number; slow: number; scheduled: number; followup: number; staff: Record<string, number>; zalo: number; hotline: number; troLy: number }[]
   staffNames: string[]
   totals: { total: number; fast: number; normal: number; slow: number; scheduled: number; followup: number; fastPct: number; byStaff: Record<string, number> }
   errMatrix: ErrorMatrix
@@ -283,12 +283,16 @@ export default function WeeklyReportTab() {
     value: z.count,
   }))
 
-  // Chart 7: Channel pie (aggregate — no per-day channel data available)
-  const channelPieData = (hotroData?.byChannel ?? []).map((c, i) => ({
-    name: c.channel,
-    value: c.count,
-    color: ['#6366f1','#22c55e','#f97316'][i] ?? PIE_COLORS[i],
-  }))
+  // Chart 7: Channel % per day (LineChart giống HoTro dashboard)
+  const channelLineData = (hotroData?.days ?? []).map(d => {
+    const t = d.total || 1
+    return {
+      date: d.date.slice(5).replace('-','/'),
+      'Trợ lý (%)': Math.round((d.troLy ?? 0) / t * 100),
+      'Zalo (%)':   Math.round((d.zalo   ?? 0) / t * 100),
+      'Hotline (%)':Math.round((d.hotline ?? 0) / t * 100),
+    }
+  })
 
   // Chart 8: Error donut from hashtag errors
   const errorDonutData = (hotroData?.byHashtagErr ?? [])
@@ -636,39 +640,22 @@ export default function WeeklyReportTab() {
             )}
           </div>
 
-          {/* Chart 7: Kênh tiếp nhận (aggregate pie) */}
-          {channelPieData.length > 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div ref={refs.hotroChannel} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Kênh tiếp nhận yêu cầu</p>
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={channelPieData} cx="50%" cy="50%" outerRadius={90} dataKey="value"
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine>
-                      {channelPieData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                    </Pie>
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              {directionData.length > 0 && (
-                <div ref={refs.hotroDirection} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                  <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Nguồn tiếp nhận yêu cầu</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <PieChart>
-                      <Pie data={directionData} cx="50%" cy="50%" outerRadius={90} dataKey="value"
-                        label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
-                        {directionData.map((_, i) => (
-                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
+          {/* Chart 7: Kênh tiếp nhận theo ngày (LineChart % giống HoTro dashboard) */}
+          {channelLineData.length > 0 && (
+            <div ref={refs.hotroChannel} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">% Kênh tiếp nhận theo ngày</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={channelLineData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="date" tick={{ fontSize: 9 }} />
+                  <YAxis tick={{ fontSize: 10 }} unit="%" />
+                  <Tooltip formatter={(v: number) => `${v}%`} />
+                  <Legend wrapperStyle={{ fontSize: 9 }} />
+                  <Line type="monotone" dataKey="Trợ lý (%)"  stroke="#6366f1" dot={false} strokeWidth={2} />
+                  <Line type="monotone" dataKey="Zalo (%)"    stroke="#22c55e" dot={false} strokeWidth={2} />
+                  <Line type="monotone" dataKey="Hotline (%)" stroke="#f97316" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           )}
 

@@ -82,12 +82,12 @@ export async function GET(req: NextRequest) {
   // ── Tổng hợp theo ngày ──
   const dayMap = new Map<string, {
     total: number; fast: number; normal: number; slow: number; scheduled: number; followup: number;
-    staff: Record<string, number>
+    staff: Record<string, number>; zalo: number; hotline: number; troLy: number;
   }>()
 
   function getDay(date: string) {
     if (!dayMap.has(date)) dayMap.set(date, {
-      total: 0, fast: 0, normal: 0, slow: 0, scheduled: 0, followup: 0, staff: {}
+      total: 0, fast: 0, normal: 0, slow: 0, scheduled: 0, followup: 0, staff: {}, zalo: 0, hotline: 0, troLy: 0,
     })
     return dayMap.get(date)!
   }
@@ -142,10 +142,13 @@ export async function GET(req: NextRequest) {
     const memo = (row.reply as string | null ?? '').toLowerCase()
     if (/#zalo\b/.test(memo) || memo.includes('zalo')) {
       channelMap['Zalo'] = (channelMap['Zalo'] ?? 0) + 1
+      d.zalo++
     } else if (/#hotline\b/.test(memo) || memo.includes('hotline')) {
       channelMap['Hotline'] = (channelMap['Hotline'] ?? 0) + 1
+      d.hotline++
     } else {
       channelMap['Từ trợ lý'] = (channelMap['Từ trợ lý'] ?? 0) + 1
+      d.troLy++
     }
 
     // Error hashtags từ CS_Memo
@@ -190,7 +193,7 @@ export async function GET(req: NextRequest) {
       date,
       total: d.total, fast: d.fast, normal: d.normal,
       slow: d.slow, scheduled: d.scheduled, followup: d.followup,
-      staff: d.staff,
+      staff: d.staff, zalo: d.zalo, hotline: d.hotline, troLy: d.troLy,
     }))
 
   // Staff names sorted (prefer known order)
