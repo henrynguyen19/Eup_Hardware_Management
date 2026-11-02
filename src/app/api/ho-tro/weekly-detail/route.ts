@@ -138,12 +138,14 @@ export async function GET(req: NextRequest) {
     const dir = (row.direction as string | null) ?? ''
     if (dir) directionMap[dir] = (directionMap[dir] ?? 0) + 1
 
-    // Channel từ hashtag trong CS_Memo (reply) — #zalo hoặc #hotline
+    // Channel từ hashtag trong CS_Memo (reply) — #zalo hoặc #hotline, mặc định = Từ trợ lý
     const memo = (row.reply as string | null ?? '').toLowerCase()
     if (/#zalo\b/.test(memo) || memo.includes('zalo')) {
       channelMap['Zalo'] = (channelMap['Zalo'] ?? 0) + 1
     } else if (/#hotline\b/.test(memo) || memo.includes('hotline')) {
       channelMap['Hotline'] = (channelMap['Hotline'] ?? 0) + 1
+    } else {
+      channelMap['Từ trợ lý'] = (channelMap['Từ trợ lý'] ?? 0) + 1
     }
 
     // Error hashtags từ CS_Memo

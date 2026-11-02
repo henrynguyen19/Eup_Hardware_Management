@@ -64,7 +64,7 @@ const DIRECTION_LABEL_MAP: Record<string, string> = {
 
 const CHANNEL_COLORS = ['#60a5fa', '#34d399', '#f59e0b', '#c084fc', '#fb923c']
 const CHANNEL_LABELS: Record<string, string> = {
-  'Zalo': 'Zalo', 'Hotline': 'Hotline', 'Ngay nghi': 'Ngày nghỉ',
+  'Zalo': 'Zalo', 'Hotline': 'Hotline', 'Từ trợ lý': 'Từ trợ lý', 'Ngay nghi': 'Ngày nghỉ',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
