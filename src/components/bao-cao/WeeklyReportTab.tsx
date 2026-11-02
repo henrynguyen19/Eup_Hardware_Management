@@ -29,9 +29,11 @@ interface HotroDetail {
   staffNames: string[]
   totals: { total: number; fast: number; normal: number; slow: number; scheduled: number; followup: number; fastPct: number; byStaff: Record<string, number> }
   errMatrix: ErrorMatrix
-  byZone:      { zone: string; count: number }[]
-  byType:      { type: string; count: number }[]
-  byDirection: { direction: string; count: number }[]
+  byZone:       { zone: string; count: number }[]
+  byType:       { type: string; count: number }[]
+  byDirection:  { direction: string; count: number }[]
+  byChannel:    { channel: string; count: number }[]
+  byHashtagErr: { error: string; count: number }[]
 }
 
 interface SheetsKV { key: string; count: number }
@@ -249,28 +251,27 @@ export default function WeeklyReportTab() {
     { name: 'Báo phế',  value: repairData.broken,   pct: repairData.brokenPct   },
   ] : []
 
-  // Speed data từ Google Sheets (resolution: Fast/Normal/Low/Hen/Mai bao lai)
-  const resolutionMap = Object.fromEntries((sheetsData?.resolution ?? []).map(r => [r.key, r.count]))
-  const speedData = sheetsData ? [
-    { name: 'Nhanh',    value: resolutionMap['Fast']         ?? 0, color: '#34d399' },
-    { name: 'Thường',   value: resolutionMap['Normal']       ?? 0, color: '#60a5fa' },
-    { name: 'Thấp',     value: resolutionMap['Low']          ?? 0, color: '#fb923c' },
-    { name: 'Hẹn lịch', value: resolutionMap['Hen']          ?? 0, color: '#c084fc' },
-    { name: 'Báo lại',  value: resolutionMap['Mai bao lai']  ?? 0, color: '#94a3b8' },
+  // Speed data từ CRM tickets (speed_tag: fast/normal/low/hen/mai_bao_lai)
+  const speedData = hotroData?.totals ? [
+    { name: 'Nhanh',    value: hotroData.totals.fast,      color: '#34d399' },
+    { name: 'Thường',   value: hotroData.totals.normal,    color: '#60a5fa' },
+    { name: 'Thấp',     value: hotroData.totals.slow,      color: '#fb923c' },
+    { name: 'Hẹn lịch', value: hotroData.totals.scheduled, color: '#c084fc' },
+    { name: 'Báo lại',  value: hotroData.totals.followup,  color: '#94a3b8' },
   ].filter(d => d.value > 0) : []
 
-  // Channel data từ Sheets
-  const channelData = (sheetsData?.channels ?? []).map((c, i) => ({
-    name:  CHANNEL_LABELS[c.key] ?? c.key,
+  // Channel data từ hashtag trong CS_Memo (#zalo / #hotline)
+  const channelData = (hotroData?.byChannel ?? []).map((c, i) => ({
+    name:  CHANNEL_LABELS[c.channel] ?? c.channel,
     value: c.count,
     color: CHANNEL_COLORS[i % CHANNEL_COLORS.length],
   }))
 
-  // Error data từ Sheets (lọc key bỏ những cái rỗng)
-  const errorBarData = (sheetsData?.errors ?? [])
-    .filter(e => e.key && e.key !== '0' && e.count > 0)
+  // Error data từ hashtag trong CS_Memo (#nc, #gsm, #gps...)
+  const errorBarData = (hotroData?.byHashtagErr ?? [])
+    .filter(e => e.error && e.count > 0)
     .slice(0, 12)
-    .map(e => ({ name: e.key, value: e.count }))
+    .map(e => ({ name: e.error, value: e.count }))
 
   // Direction với label đẹp
   const directionData = (hotroData?.byDirection ?? []).map(d => ({

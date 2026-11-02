@@ -66,9 +66,10 @@ export async function GET(req: NextRequest) {
   const to   = sp.get('to')   || defaultTo
 
   // Lấy tickets CRM trong khoảng thời gian (chỉ CRM mới có speed_tag, device_error_pairs)
+  // Lấy thêm `reply` để parse hashtag #zalo/#hotline/#nc/#gsm... từ CS_Memo
   const { data, error } = await sb()
     .from('ho_tro_tickets')
-    .select('ticket_date, speed_tag, staff_name, zone, ticket_type, direction, device_error_pairs')
+    .select('ticket_date, speed_tag, staff_name, zone, ticket_type, direction, device_error_pairs, reply')
     .like('sheet_row_key', 'crm:%')
     .gte('ticket_date', from)
     .lte('ticket_date', to)
@@ -99,10 +100,12 @@ export async function GET(req: NextRequest) {
   // Staff set
   const staffSet = new Set<string>()
 
-  // ── Zone + ticket_type + direction (nguồn tiếp nhận) aggregation ──
+  // ── Zone + ticket_type + direction + channel + hashtag error aggregation ──
   const zoneMap:      Record<string, number> = {}
   const typeMap:      Record<string, number> = {}
   const directionMap: Record<string, number> = {}
+  const channelMap:   Record<string, number> = {}
+  const hashtagErrMap:Record<string, number> = {}
 
   for (const row of rows) {
     const date = row.ticket_date as string
@@ -110,11 +113,12 @@ export async function GET(req: NextRequest) {
     d.total++
 
     const tag = row.speed_tag as string
-    if (tag === 'f')           d.fast++
-    else if (tag === 'n')      d.normal++
-    else if (tag === 'l')      d.slow++
-    else if (tag === 'hen')    d.scheduled++
-    else if (tag === 'mai_bao_lai') d.followup++
+    // CRM sync lưu 'fast'/'normal'/'low' (từ parseSpeedTag), Sheets lưu 'f'/'n'/'l'
+    if      (tag === 'fast'   || tag === 'f') d.fast++
+    else if (tag === 'normal' || tag === 'n') d.normal++
+    else if (tag === 'low'    || tag === 'l') d.slow++
+    else if (tag === 'hen')                   d.scheduled++
+    else if (tag === 'mai_bao_lai')           d.followup++
 
     const staff = row.staff_name as string
     if (staff) {
@@ -130,9 +134,28 @@ export async function GET(req: NextRequest) {
     const ticketType = (row.ticket_type as string | null) ?? ''
     if (ticketType) typeMap[ticketType] = (typeMap[ticketType] ?? 0) + 1
 
-    // Direction (nguồn tiếp nhận: zalo, phone, email...)
+    // Direction (nguồn tiếp nhận: i=Inbound, o=Outbound)
     const dir = (row.direction as string | null) ?? ''
     if (dir) directionMap[dir] = (directionMap[dir] ?? 0) + 1
+
+    // Channel từ hashtag trong CS_Memo (reply) — #zalo hoặc #hotline
+    const memo = (row.reply as string | null ?? '').toLowerCase()
+    if (/#zalo\b/.test(memo) || memo.includes('zalo')) {
+      channelMap['Zalo'] = (channelMap['Zalo'] ?? 0) + 1
+    } else if (/#hotline\b/.test(memo) || memo.includes('hotline')) {
+      channelMap['Hotline'] = (channelMap['Hotline'] ?? 0) + 1
+    }
+
+    // Error hashtags từ CS_Memo
+    const HASH_ERR: [RegExp, string][] = [
+      [/#nc\b/, 'No Connect'], [/#pw\b/, 'Power'], [/#rfid\b/, 'RFID'],
+      [/#gps\b/, 'GPS'], [/#gsm\b/, 'GSM'], [/#acc\b/, 'ACC'],
+      [/#sp\b/, 'Support'], [/#sd\b/, 'SD Card'], [/#roaming\b/, 'Roaming'],
+      [/#dms\b/, 'DMS'], [/#adas\b/, 'ADAS'], [/#io\b/, 'I/O'],
+    ]
+    for (const [re, label] of HASH_ERR) {
+      if (re.test(memo)) hashtagErrMap[label] = (hashtagErrMap[label] ?? 0) + 1
+    }
 
     // Parse device_error_pairs — key format: "DeviceName×ErrorName"
     const pairs = row.device_error_pairs as Record<string, number> | null
@@ -176,7 +199,7 @@ export async function GET(req: NextRequest) {
 
   // Build totals
   const total = rows.length
-  const fast  = rows.filter(r => r.speed_tag === 'f').length
+  const fast  = rows.filter(r => r.speed_tag === 'fast' || r.speed_tag === 'f').length
   const byStaff: Record<string, number> = {}
   for (const s of staffSet) byStaff[s] = rows.filter(r => r.staff_name === s).length
 
@@ -199,16 +222,18 @@ export async function GET(req: NextRequest) {
   errors.sort((a, b) => (totalByError[b] ?? 0) - (totalByError[a] ?? 0))
   devices.sort((a, b) => (totalByDevice[b] ?? 0) - (totalByDevice[a] ?? 0))
 
-  // Speed tag totals
-  const normal    = rows.filter(r => r.speed_tag === 'n').length
-  const slow      = rows.filter(r => r.speed_tag === 'l').length
+  // Speed tag totals — CRM lưu 'fast'/'normal'/'low', Sheets lưu 'f'/'n'/'l'
+  const normal    = rows.filter(r => r.speed_tag === 'normal'  || r.speed_tag === 'n').length
+  const slow      = rows.filter(r => r.speed_tag === 'low'     || r.speed_tag === 'l').length
   const scheduled = rows.filter(r => r.speed_tag === 'hen').length
   const followup  = rows.filter(r => r.speed_tag === 'mai_bao_lai').length
 
   // Sort zone & type by count desc
-  const byZone      = Object.entries(zoneMap).sort((a, b) => b[1] - a[1]).map(([zone, count]) => ({ zone, count }))
-  const byType      = Object.entries(typeMap).sort((a, b) => b[1] - a[1]).map(([type, count]) => ({ type, count }))
-  const byDirection = Object.entries(directionMap).sort((a, b) => b[1] - a[1]).map(([direction, count]) => ({ direction, count }))
+  const byZone       = Object.entries(zoneMap).sort((a, b) => b[1] - a[1]).map(([zone, count]) => ({ zone, count }))
+  const byType       = Object.entries(typeMap).sort((a, b) => b[1] - a[1]).map(([type, count]) => ({ type, count }))
+  const byDirection  = Object.entries(directionMap).sort((a, b) => b[1] - a[1]).map(([direction, count]) => ({ direction, count }))
+  const byChannel    = Object.entries(channelMap).sort((a, b) => b[1] - a[1]).map(([channel, count]) => ({ channel, count }))
+  const byHashtagErr = Object.entries(hashtagErrMap).sort((a, b) => b[1] - a[1]).map(([error, count]) => ({ error, count }))
 
   return NextResponse.json({
     from, to,
@@ -219,5 +244,7 @@ export async function GET(req: NextRequest) {
     byZone,
     byType,
     byDirection,
+    byChannel,
+    byHashtagErr,
   })
 }
