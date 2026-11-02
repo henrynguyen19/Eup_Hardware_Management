@@ -404,6 +404,37 @@ export default function WeeklyReportTab() {
             </div>
           </div>
 
+          {/* Stacked % bar: tỷ lệ outcome theo từng thiết bị */}
+          {repairData.byProduct.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Tỷ lệ kết quả theo thiết bị (%)</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart
+                  data={repairData.byProduct.map(p => {
+                    const t = p.delivered || 1
+                    return {
+                      name: p.product,
+                      'Sửa xong':  Math.round(p.repaired  / t * 100),
+                      'Bảo hành':  Math.round(p.warranty  / t * 100),
+                      'Không lỗi': Math.round(p.noFault   / t * 100),
+                      'Báo phế':   Math.round(p.broken    / t * 100),
+                    }
+                  })}
+                  margin={{ top: 20, right: 20, bottom: 5, left: -10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
+                  <Tooltip formatter={(v: number) => `${v}%`} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Sửa xong"  stackId="a" fill="#22c55e" />
+                  <Bar dataKey="Bảo hành"  stackId="a" fill="#f59e0b" />
+                  <Bar dataKey="Không lỗi" stackId="a" fill="#3b82f6" />
+                  <Bar dataKey="Báo phế"   stackId="a" fill="#ef4444" radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
           {/* By Device table */}
           {repairData.byProduct.length > 0 && (
             <div>
@@ -600,22 +631,41 @@ export default function WeeklyReportTab() {
             )}
           </div>
 
-          {/* Chart 5 + 8: Device pie + Error donut */}
+          {/* Chart 5: Device pie (full width) */}
+          {devicePieData.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Tỷ lệ lỗi theo thiết bị</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={devicePieData} cx="50%" cy="50%" outerRadius={90} dataKey="value"
+                    label={({ name, percent }) => percent > 0.04 ? `${name} ${(percent * 100).toFixed(0)}%` : ''} labelLine>
+                    {devicePieData.map((_, i) => (
+                      <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Chart 7 + 8: Kênh tiếp nhận LineChart + Error donut — cùng hàng */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {devicePieData.length > 0 && (
-              <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Tỷ lệ lỗi theo thiết bị</p>
+            {channelLineData.length > 0 && (
+              <div ref={refs.hotroChannel} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">% Kênh tiếp nhận theo ngày</p>
                 <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={devicePieData} cx="50%" cy="50%" outerRadius={90} dataKey="value"
-                      label={({ percent }) => percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''} labelLine>
-                      {devicePieData.map((_, i) => (
-                        <Cell key={i} fill={DEVICE_COLORS[i % DEVICE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 10 }} />
-                  </PieChart>
+                  <LineChart data={channelLineData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="date" tick={{ fontSize: 9 }} />
+                    <YAxis tick={{ fontSize: 10 }} unit="%" />
+                    <Tooltip formatter={(v: number) => `${v}%`} />
+                    <Legend wrapperStyle={{ fontSize: 9 }} />
+                    <Line type="monotone" dataKey="Trợ lý (%)"  stroke="#6366f1" dot={{ r: 2 }} strokeWidth={2} />
+                    <Line type="monotone" dataKey="Zalo (%)"    stroke="#22c55e" dot={{ r: 2 }} strokeWidth={2} />
+                    <Line type="monotone" dataKey="Hotline (%)" stroke="#f97316" dot={{ r: 2 }} strokeWidth={2} />
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
             )}
@@ -639,25 +689,6 @@ export default function WeeklyReportTab() {
               </div>
             )}
           </div>
-
-          {/* Chart 7: Kênh tiếp nhận theo ngày (LineChart % giống HoTro dashboard) */}
-          {channelLineData.length > 0 && (
-            <div ref={refs.hotroChannel} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">% Kênh tiếp nhận theo ngày</p>
-              <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={channelLineData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="date" tick={{ fontSize: 9 }} />
-                  <YAxis tick={{ fontSize: 10 }} unit="%" />
-                  <Tooltip formatter={(v: number) => `${v}%`} />
-                  <Legend wrapperStyle={{ fontSize: 9 }} />
-                  <Line type="monotone" dataKey="Trợ lý (%)"  stroke="#6366f1" dot={false} strokeWidth={2} />
-                  <Line type="monotone" dataKey="Zalo (%)"    stroke="#22c55e" dot={false} strokeWidth={2} />
-                  <Line type="monotone" dataKey="Hotline (%)" stroke="#f97316" dot={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
 
           {/* Daily detail table */}
           {hotroData.days.length > 0 && (
