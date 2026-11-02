@@ -275,7 +275,7 @@ export default function WeeklyReportTab() {
 
   // Direction với label đẹp
   const directionData = (hotroData?.byDirection ?? []).map(d => ({
-    name:  DIRECTION_LABEL_MAP[d.direction] ?? d.direction || 'Khác',
+    name:  DIRECTION_LABEL_MAP[d.direction] ?? (d.direction || 'Khác'),
     value: d.count,
   }))
 
