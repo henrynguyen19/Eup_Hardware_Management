@@ -29,8 +29,9 @@ interface HotroDetail {
   staffNames: string[]
   totals: { total: number; fast: number; normal: number; slow: number; scheduled: number; followup: number; fastPct: number; byStaff: Record<string, number> }
   errMatrix: ErrorMatrix
-  byZone: { zone: string; count: number }[]
-  byType: { type: string; count: number }[]
+  byZone:      { zone: string; count: number }[]
+  byType:      { type: string; count: number }[]
+  byDirection: { direction: string; count: number }[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,12 +123,13 @@ export default function WeeklyReportTab() {
 
   // Chart refs for screenshot
   const refs = {
-    repairOutcome:   useRef<HTMLDivElement>(null),
-    repairByDevice:  useRef<HTMLDivElement>(null),
-    hotroDaily:      useRef<HTMLDivElement>(null),
-    hotroStaff:      useRef<HTMLDivElement>(null),
-    hotroZone:       useRef<HTMLDivElement>(null),
-    hotroSpeed:      useRef<HTMLDivElement>(null),
+    repairOutcome:    useRef<HTMLDivElement>(null),
+    repairByDevice:   useRef<HTMLDivElement>(null),
+    hotroDaily:       useRef<HTMLDivElement>(null),
+    hotroStaff:       useRef<HTMLDivElement>(null),
+    hotroZone:        useRef<HTMLDivElement>(null),
+    hotroSpeed:       useRef<HTMLDivElement>(null),
+    hotroDirection:   useRef<HTMLDivElement>(null),
   }
 
   async function load() {
@@ -178,8 +180,9 @@ export default function WeeklyReportTab() {
             errMatrix:   hotroData.errMatrix,
             staffNames:  hotroData.staffNames,
             totals:      hotroData.totals,
-            byZone:      hotroData.byZone ?? [],
-            byType:      hotroData.byType ?? [],
+            byZone:      hotroData.byZone      ?? [],
+            byType:      hotroData.byType      ?? [],
+            byDirection: hotroData.byDirection ?? [],
             chartImages: allChartImages.filter(i => i.id.startsWith('hotro')),
           },
           repair: {
@@ -467,7 +470,7 @@ export default function WeeklyReportTab() {
             </div>
           </div>
 
-          {/* Charts: Zone breakdown + Speed pie */}
+          {/* Charts: Zone + Direction pie + Speed pie */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {(hotroData.byZone?.length ?? 0) > 0 && (
               <div ref={refs.hotroZone} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
@@ -506,21 +509,47 @@ export default function WeeklyReportTab() {
             )}
           </div>
 
-          {/* Ticket type breakdown */}
-          {(hotroData.byType?.length ?? 0) > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-widest">PHÂN LOẠI YÊU CẦU</p>
-              <div className="flex flex-wrap gap-2">
-                {hotroData.byType.map((t, i) => (
-                  <div key={t.type} className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-sm">
-                    <span className="w-2 h-2 rounded-full inline-block" style={{ background: ZONE_COLORS[i % ZONE_COLORS.length] }} />
-                    <span className="text-gray-700 font-medium">{t.type || '(chưa phân loại)'}</span>
-                    <span className="text-gray-500">{t.count}</span>
-                  </div>
-                ))}
+          {/* Nguồn tiếp nhận (direction) + Phân loại ticket type */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {(hotroData.byDirection?.length ?? 0) > 0 && (
+              <div ref={refs.hotroDirection} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Nguồn tiếp nhận yêu cầu</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={hotroData.byDirection.map(d => ({ name: d.direction || 'Khác', value: d.count }))}
+                      dataKey="value" cx="50%" cy="50%" outerRadius={75}
+                      label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+                      {hotroData.byDirection.map((_, i) => (
+                        <Cell key={i} fill={ZONE_COLORS[i % ZONE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
-            </div>
-          )}
+            )}
+            {(hotroData.byType?.length ?? 0) > 0 && (
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Phân loại yêu cầu</p>
+                <div className="space-y-1.5 mt-1">
+                  {hotroData.byType.map((t, i) => {
+                    const total = hotroData.byType.reduce((s, x) => s + x.count, 0)
+                    const pct   = total ? Math.round(t.count / total * 100) : 0
+                    return (
+                      <div key={t.type} className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: ZONE_COLORS[i % ZONE_COLORS.length] }} />
+                        <span className="text-xs text-gray-700 flex-1 truncate">{t.type || '(chưa phân loại)'}</span>
+                        <span className="text-xs font-semibold text-gray-800 w-8 text-right">{t.count}</span>
+                        <span className="text-xs text-gray-400 w-8 text-right">{pct}%</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Daily detail table */}
           {hotroData.days.length > 0 && (

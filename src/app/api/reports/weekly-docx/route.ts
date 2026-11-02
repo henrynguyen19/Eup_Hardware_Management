@@ -79,8 +79,9 @@ interface ReportBody {
     errMatrix:  ErrorMatrix
     staffNames: string[]
     totals?:    HotroTotals
-    byZone?:    { zone: string; count: number }[]
-    byType?:    { type: string; count: number }[]
+    byZone?:      { zone: string; count: number }[]
+    byType?:      { type: string; count: number }[]
+    byDirection?: { direction: string; count: number }[]
     chartImages: { id: string; base64: string }[]
   }
   repair: {
@@ -228,7 +229,7 @@ function imageXml(
 
 function buildSectionVI(body: ReportBody): string {
   const { hotro, weekLabel } = body
-  const { days, errMatrix, staffNames, chartImages, totals, byZone, byType } = hotro
+  const { days, errMatrix, staffNames, chartImages, totals, byZone, byType, byDirection } = hotro
   const total      = totals?.total ?? days.reduce((s, d) => s + d.total, 0)
   const totalFast  = totals?.fast  ?? days.reduce((s, d) => s + d.fast,  0)
   const fastPct    = totals?.fastPct ?? (total ? Math.round(totalFast / total * 100) : 0)
@@ -363,6 +364,25 @@ function buildSectionVI(body: ReportBody): string {
       ].join(''))
     })
     xmlParts.push(tableXml(typeRows, typeColW))
+  }
+
+  // ── Direction (nguồn tiếp nhận) ──
+  if (byDirection && byDirection.length > 0) {
+    xmlParts.push(paraXml(''))
+    xmlParts.push(paraXml('Nguồn tiếp nhận yêu cầu:', { bold: true, size: 18 }))
+    const dirColW = [2400, 1000, 1000]
+    const dirHdr = [headerCell('Nguồn', '1E3A5F', dirColW[0]), headerCell('Số YC', '1E3A5F', dirColW[1]), headerCell('Tỉ lệ', '1E3A5F', dirColW[2])].join('')
+    const dirRows: string[] = [dirHdr]
+    byDirection.forEach((d, ri) => {
+      const bg = ri % 2 ? '#F0F4F8' : '#FFFFFF'
+      const pct = total ? Math.round(d.count / total * 100) : 0
+      dirRows.push([
+        cellXml(d.direction || 'Khác', { align: 'left', size: 16, bg: `#${bg.replace('#','')}`, width: dirColW[0] }),
+        cellXml(d.count, { bold: true, size: 16, bg: `#${bg.replace('#','')}`, width: dirColW[1] }),
+        cellXml(`${pct}%`, { size: 16, color: '#3b82f6', bg: `#${bg.replace('#','')}`, width: dirColW[2] }),
+      ].join(''))
+    })
+    xmlParts.push(tableXml(dirRows, dirColW))
   }
 
   // ── Chart images ──

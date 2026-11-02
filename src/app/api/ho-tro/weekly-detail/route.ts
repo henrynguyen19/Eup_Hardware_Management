@@ -65,10 +65,11 @@ export async function GET(req: NextRequest) {
   const from = sp.get('from') || defaultFrom
   const to   = sp.get('to')   || defaultTo
 
-  // Lấy tất cả tickets trong khoảng thời gian
+  // Lấy tickets CRM trong khoảng thời gian (chỉ CRM mới có speed_tag, device_error_pairs)
   const { data, error } = await sb()
     .from('ho_tro_tickets')
-    .select('ticket_date, speed_tag, staff_name, zone, ticket_type, device_error_pairs')
+    .select('ticket_date, speed_tag, staff_name, zone, ticket_type, direction, device_error_pairs')
+    .like('sheet_row_key', 'crm:%')
     .gte('ticket_date', from)
     .lte('ticket_date', to)
     .order('ticket_date', { ascending: true })
@@ -98,9 +99,10 @@ export async function GET(req: NextRequest) {
   // Staff set
   const staffSet = new Set<string>()
 
-  // ── Zone + ticket_type aggregation ──
-  const zoneMap: Record<string, number> = {}
-  const typeMap: Record<string, number> = {}
+  // ── Zone + ticket_type + direction (nguồn tiếp nhận) aggregation ──
+  const zoneMap:      Record<string, number> = {}
+  const typeMap:      Record<string, number> = {}
+  const directionMap: Record<string, number> = {}
 
   for (const row of rows) {
     const date = row.ticket_date as string
@@ -127,6 +129,10 @@ export async function GET(req: NextRequest) {
     // Ticket type aggregation
     const ticketType = (row.ticket_type as string | null) ?? ''
     if (ticketType) typeMap[ticketType] = (typeMap[ticketType] ?? 0) + 1
+
+    // Direction (nguồn tiếp nhận: zalo, phone, email...)
+    const dir = (row.direction as string | null) ?? ''
+    if (dir) directionMap[dir] = (directionMap[dir] ?? 0) + 1
 
     // Parse device_error_pairs — key format: "DeviceName×ErrorName"
     const pairs = row.device_error_pairs as Record<string, number> | null
@@ -200,8 +206,9 @@ export async function GET(req: NextRequest) {
   const followup  = rows.filter(r => r.speed_tag === 'mai_bao_lai').length
 
   // Sort zone & type by count desc
-  const byZone = Object.entries(zoneMap).sort((a, b) => b[1] - a[1]).map(([zone, count]) => ({ zone, count }))
-  const byType = Object.entries(typeMap).sort((a, b) => b[1] - a[1]).map(([type, count]) => ({ type, count }))
+  const byZone      = Object.entries(zoneMap).sort((a, b) => b[1] - a[1]).map(([zone, count]) => ({ zone, count }))
+  const byType      = Object.entries(typeMap).sort((a, b) => b[1] - a[1]).map(([type, count]) => ({ type, count }))
+  const byDirection = Object.entries(directionMap).sort((a, b) => b[1] - a[1]).map(([direction, count]) => ({ direction, count }))
 
   return NextResponse.json({
     from, to,
@@ -211,5 +218,6 @@ export async function GET(req: NextRequest) {
     errMatrix: { errors, devices, matrix, totalByError, totalByDevice },
     byZone,
     byType,
+    byDirection,
   })
 }
