@@ -1,8 +1,11 @@
 /**
  * GET /api/ho-tro/weekly-sheets-summary
- * Tổng hợp dữ liệu từ Google Sheets cache (ho_tro_daily_records) cho báo cáo tuần.
- * Trả về: resolution (Fast/Normal/Low/Hen/Mai bao lai), channels (Zalo/Hotline),
- *          errors, devices, locations — aggregate cho khoảng ngày cho trước.
+ * Tổng hợp dữ liệu từ Sheets tickets trong ho_tro_tickets cho báo cáo tuần.
+ *
+ * Sheets tickets có sheet_row_key KHÔNG bắt đầu bằng 'crm:' và chứa
+ * speed_tag thực sự (fast/normal/low/hen/mai_bao_lai) từ hashtag #f/#n/#l.
+ *
+ * CRM tickets (sheet_row_key LIKE 'crm:%') chỉ có speed_tag = hen/mai_bao_lai.
  *
  * Query params:
  *   from=YYYY-MM-DD
@@ -18,13 +21,6 @@ const sb = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
-
-function addRecord(target: Record<string, number>, source: Record<string, number> | null) {
-  if (!source) return
-  for (const [k, v] of Object.entries(source)) {
-    target[k] = (target[k] ?? 0) + (Number(v) || 0)
-  }
-}
 
 export async function GET(req: NextRequest) {
   const supabase = createSupabaseServerClient()
@@ -43,72 +39,78 @@ export async function GET(req: NextRequest) {
   const from = sp.get('from') || defaultFrom
   const to   = sp.get('to')   || defaultTo
 
-  // Lấy tất cả daily records trong khoảng ngày từ DB cache
+  // ── Lấy Sheets tickets (không phải CRM) trong khoảng thời gian ──
+  // Sheets tickets được parsed từ Google Sheets và có speed_tag đầy đủ (fast/normal/low)
   const { data, error } = await sb()
-    .from('ho_tro_daily_records')
-    .select('sort_key, total_requests, resolution, channels, errors, devices, locations, pm_types')
-    .gte('sort_key', from)
-    .lte('sort_key', to)
-    .order('sort_key')
+    .from('ho_tro_tickets')
+    .select('ticket_date, speed_tag, direction, ticket_type')
+    .not('sheet_row_key', 'like', 'crm:%')
+    .gte('ticket_date', from)
+    .lte('ticket_date', to)
+    .order('ticket_date', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const rows = data ?? []
 
-  // Aggregate all JSON fields
-  const resolution: Record<string, number> = {}
-  const channels:   Record<string, number> = {}
-  const errors:     Record<string, number> = {}
-  const devices:    Record<string, number> = {}
-  const locations:  Record<string, number> = {}
-  const pm_types:   Record<string, number> = {}
+  // ── Aggregate ──
+  const resolution: Record<string, number> = {
+    Fast: 0, Normal: 0, Low: 0, Hen: 0, 'Mai bao lai': 0,
+  }
+  const channels: Record<string, number> = { Zalo: 0, Hotline: 0 }
+  const typeMap:  Record<string, number> = {}
   let totalRequests = 0
 
   for (const row of rows) {
-    totalRequests += row.total_requests ?? 0
-    addRecord(resolution, row.resolution)
-    addRecord(channels,   row.channels)
-    addRecord(errors,     row.errors)
-    addRecord(devices,    row.devices)
-    addRecord(locations,  row.locations)
-    addRecord(pm_types,   row.pm_types)
+    totalRequests++
+
+    // Speed
+    const tag = row.speed_tag as string | null
+    if      (tag === 'fast'        || tag === 'f') resolution['Fast']++
+    else if (tag === 'normal'      || tag === 'n') resolution['Normal']++
+    else if (tag === 'low'         || tag === 'l') resolution['Low']++
+    else if (tag === 'hen')                        resolution['Hen']++
+    else if (tag === 'mai_bao_lai')                resolution['Mai bao lai']++
+
+    // Channel từ direction column
+    const dir = (row.direction ?? '').toLowerCase()
+    if      (dir.includes('zalo'))    channels['Zalo']++
+    else if (dir.includes('hotline')) channels['Hotline']++
+
+    // Ticket type
+    const t = row.ticket_type as string | null
+    if (t) typeMap[t] = (typeMap[t] ?? 0) + 1
   }
 
-  // Build sorted arrays for easy chart rendering
-  const resolutionArray = Object.entries(resolution)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([key, count]) => ({ key, count }))
+  // ── Cũng lấy từ ho_tro_daily_records cho errors/devices (cache từ Sheets) ──
+  const { data: cacheRows } = await sb()
+    .from('ho_tro_daily_records')
+    .select('errors, devices, locations')
+    .gte('sort_key', from)
+    .lte('sort_key', to)
 
-  const channelsArray = Object.entries(channels)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([key, count]) => ({ key, count }))
+  const errorsMap:   Record<string, number> = {}
+  const devicesMap:  Record<string, number> = {}
+  const locationsMap:Record<string, number> = {}
 
-  const errorsArray = Object.entries(errors)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([key, count]) => ({ key, count }))
+  for (const row of (cacheRows ?? [])) {
+    for (const [k, v] of Object.entries(row.errors   ?? {})) errorsMap[k]    = (errorsMap[k]    ?? 0) + Number(v)
+    for (const [k, v] of Object.entries(row.devices  ?? {})) devicesMap[k]   = (devicesMap[k]   ?? 0) + Number(v)
+    for (const [k, v] of Object.entries(row.locations ?? {})) locationsMap[k] = (locationsMap[k] ?? 0) + Number(v)
+  }
 
-  const devicesArray = Object.entries(devices)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([key, count]) => ({ key, count }))
-
-  const locationsArray = Object.entries(locations)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([key, count]) => ({ key, count }))
+  const toArray = (m: Record<string, number>) =>
+    Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([key, count]) => ({ key, count }))
 
   return NextResponse.json({
     from, to,
     totalRequests,
-    daysFound: rows.length,
-    resolution: resolutionArray,
-    channels:   channelsArray,
-    errors:     errorsArray,
-    devices:    devicesArray,
-    locations:  locationsArray,
-    pm_types:   Object.entries(pm_types).filter(([,v]) => v > 0).map(([key, count]) => ({ key, count })),
+    sheetsRowsFound: rows.length,
+    resolution: toArray(resolution),
+    channels:   toArray(channels),
+    errors:     toArray(errorsMap),
+    devices:    toArray(devicesMap),
+    locations:  toArray(locationsMap),
+    byType:     toArray(typeMap),
   })
 }
