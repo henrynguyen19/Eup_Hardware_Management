@@ -29,7 +29,7 @@ async function crmCall(
   try {
     const resp = await fetch(CRM_SOAP_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...(process.env.PROXY_SECRET ? { 'x-proxy-secret': process.env.PROXY_SECRET } : {}) },
       body: form.toString(),
       signal: AbortSignal.timeout(12_000),
     })
