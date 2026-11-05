@@ -41,9 +41,11 @@ async function crmLookupStaff(staffId: number): Promise<{
   form.append('IDENTITY', identity)
 
   try {
+    const _hdrs: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' }
+    if (process.env.PROXY_SECRET) _hdrs['x-proxy-secret'] = process.env.PROXY_SECRET
     const resp = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: _hdrs,
       body: form.toString(),
       signal: AbortSignal.timeout(10_000),
     })
