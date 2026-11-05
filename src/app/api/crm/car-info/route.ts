@@ -11,6 +11,10 @@ import { callCrmSoap } from '@/lib/crm-utils'
 export const runtime     = 'nodejs'
 export const maxDuration = 30
 
+// ── In-memory cache: cust_imid → { data, expiresAt } — TTL 30 phút ──
+const carInfoCache = new Map<string, { data: unknown[]; expiresAt: number }>()
+const CACHE_TTL_MS = 30 * 60 * 1000
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = createSupabaseServerClient()
@@ -21,6 +25,12 @@ export async function POST(req: NextRequest) {
     const custImid = body.cust_imid
     if (!custImid && custImid !== 0) {
       return NextResponse.json({ error: 'Thiếu cust_imid' }, { status: 400 })
+    }
+
+    const cacheKey = String(custImid)
+    const cached = carInfoCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      return NextResponse.json({ ok: true, data: cached.data, total: cached.data.length, fromCache: true })
     }
 
     const session = await getCRMSessionForUser(user.id)
@@ -34,7 +44,9 @@ export async function POST(req: NextRequest) {
       30_000
     )
 
-    return NextResponse.json({ ok: true, data: records, total: records.length })
+    carInfoCache.set(cacheKey, { data: records, expiresAt: Date.now() + CACHE_TTL_MS })
+
+    return NextResponse.json({ ok: true, data: records, total: records.length, fromCache: false })
   } catch (err) {
     const msg = String(err)
     console.error('[crm/car-info]', msg)

@@ -77,8 +77,23 @@ export async function POST(req: NextRequest) {
 
   const db = adminClient()
 
-  const body = await req.json().catch(() => ({})) as { fromYear?: number }
-  const fromYear = body.fromYear ?? 2024
+  const body = await req.json().catch(() => ({})) as { fromYear?: number; fromMonth?: string; toMonth?: string }
+
+  // ── Giới hạn cứng: tối đa 2 tháng mỗi lần gọi sync-all ──
+  const MAX_MONTHS = 2
+  const now0 = new Date()
+
+  // Hỗ trợ fromMonth/toMonth (YYYY-MM) thay vì fromYear để kiểm soát chính xác hơn
+  if (body.fromMonth) {
+    const [fy, fm] = body.fromMonth.split('-').map(Number)
+    const toDate   = body.toMonth ? (() => { const [ty, tm] = body.toMonth!.split('-').map(Number); return new Date(ty, tm - 1) })() : now0
+    const fromDate = new Date(fy, fm - 1)
+    const diffMonths = (toDate.getFullYear() - fromDate.getFullYear()) * 12 + (toDate.getMonth() - fromDate.getMonth()) + 1
+    if (diffMonths > MAX_MONTHS)
+      return NextResponse.json({ error: `Chỉ được sync tối đa ${MAX_MONTHS} tháng mỗi lần (bạn chọn ${diffMonths} tháng)` }, { status: 400 })
+  }
+
+  const fromYear = body.fromYear ?? now0.getFullYear()
 
   // Lấy session admin
   const session = await getCRMSessionForUser(user.id)
