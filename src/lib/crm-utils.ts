@@ -29,9 +29,12 @@ export async function callCrmSoap<T = Record<string, unknown>>(
   form.append('SESSION_ID', sessionId)
   form.append('IDENTITY',   identity)
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' }
+  if (process.env.PROXY_SECRET) headers['x-proxy-secret'] = process.env.PROXY_SECRET
+
   const resp = await fetch(url, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers,
     body:    form.toString(),
     signal:  AbortSignal.timeout(timeoutMs),
   })
