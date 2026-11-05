@@ -1,16 +1,26 @@
 /**
  * POST /api/kho/van-hanh
- * Các thao tác vận hành kho: thu hồi, gửi thẻ RFID, tra cứu TB, báo cáo SIM, tồn kho
- * Body: { action, imeis: string[], ... }
+ * Các thao tác vận hành kho: thu hồi, gửi thẻ RFID, tra cứu TB, báo cáo SIM,
+ * tồn kho, gửi đi SC.
+ *
+ * Body: { action, imeis?: string[], warehouseIds?: string[], stockupKind?: string }
+ *
+ * Write actions (admin only): thu-hoi, the-rfid, gui-sc
+ * Read actions (all auth users): sim-card, tra-cuu, ton-kho
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { getCRMSessionForUser } from '@/lib/crm-session'
+import { isAdminUser } from '@/lib/auth-helpers'
 
 export const runtime     = 'nodejs'
 export const maxDuration = 120
 
-const CRM_URL = () => process.env.CRM_SOAP_URL ?? ''
+const MAX_ITEMS = 200 // giới hạn tối đa mỗi request
+
+const WRITE_ACTIONS = new Set(['thu-hoi', 'the-rfid', 'gui-sc'])
+
+function crmUrl() { return process.env.CRM_SOAP_URL ?? '' }
 
 async function crmCall(
   methodName: string,
@@ -19,7 +29,7 @@ async function crmCall(
   identity: string,
   timeoutMs = 15_000
 ): Promise<{ ok: boolean; result: unknown; error?: string }> {
-  const url = CRM_URL()
+  const url = crmUrl()
   if (!url) return { ok: false, result: null, error: 'Thiếu CRM_SOAP_URL' }
   const form = new URLSearchParams()
   form.append('MethodName', methodName)
@@ -46,15 +56,14 @@ async function crmCall(
   }
 }
 
-// ── Xử lý batch IMEIs song song theo chunks ──────────────────────────────────
 async function processBatch<T>(
-  imeis: string[],
+  items: string[],
   chunkSize: number,
-  handler: (imei: string) => Promise<T>
+  handler: (item: string) => Promise<T>
 ): Promise<T[]> {
   const results: T[] = []
-  for (let i = 0; i < imeis.length; i += chunkSize) {
-    const chunk = imeis.slice(i, i + chunkSize)
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize)
     const chunkResults = await Promise.all(chunk.map(handler))
     results.push(...chunkResults)
   }
@@ -69,19 +78,32 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as {
     action?: string
     imeis?: string[]
-    // tồn kho params
-    warehouseId?: string
-    productNumbers?: string[]
+    warehouseIds?: string[]
+    stockupKind?: string
   }
 
-  const { action, imeis = [] } = body
+  const { action } = body
   if (!action) return NextResponse.json({ error: 'Thiếu action' }, { status: 400 })
+
+  // ── Admin check cho write operations ─────────────────────────────────────
+  if (WRITE_ACTIONS.has(action)) {
+    const admin = await isAdminUser(user.id)
+    if (!admin) {
+      return NextResponse.json(
+        { error: `Thao tác '${action}' chỉ dành cho Admin` },
+        { status: 403 }
+      )
+    }
+  }
+
+  const imeis = (body.imeis ?? []).slice(0, MAX_ITEMS)
+  const warehouseIds = (body.warehouseIds ?? []).slice(0, MAX_ITEMS)
 
   const { sessionId, identity } = await getCRMSessionForUser(user.id)
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // 1. THU HỒI THIẾT BỊ — UpdateBackFactory
-  // ────────────────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // 1. THU HỒI THIẾT BỊ — UpdateBackFactory (TransStock: 303)
+  // ══════════════════════════════════════════════════════════════════════════
   if (action === 'thu-hoi') {
     if (!imeis.length) return NextResponse.json({ error: 'Cần ít nhất 1 IMEI' }, { status: 400 })
     const results = await processBatch(imeis, 5, async (imei) => {
@@ -90,15 +112,17 @@ export async function POST(req: NextRequest) {
         TransStock: '303',
         BF_DeviceCode: imei,
       }, sessionId, identity, 15_000)
-      return { imei, ok: r.ok, error: r.error, result: r.result }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const item = Array.isArray(r.result) && r.result.length > 0 ? (r.result[0] as any) : null
+      return { imei, ok: r.ok && !!item, status: item?.Status ?? null, error: r.ok ? (item ? undefined : 'Không tìm thấy thiết bị') : r.error }
     })
     const success = results.filter(r => r.ok).length
     return NextResponse.json({ ok: true, action, results, success, fail: results.length - success })
   }
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // 2. GỬI THẺ RFID — TransferWareHouse
-  // ────────────────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // 2. GỬI THẺ RFID — TransferWareHouse (WH_ID: 267)
+  // ══════════════════════════════════════════════════════════════════════════
   if (action === 'the-rfid') {
     if (!imeis.length) return NextResponse.json({ error: 'Cần ít nhất 1 IMEI' }, { status: 400 })
     const results = await processBatch(imeis, 10, async (imei) => {
@@ -110,21 +134,25 @@ export async function POST(req: NextRequest) {
         StockupKind: '0',
         TransferCode: imei,
       }, sessionId, identity, 12_000)
-      return { imei, ok: r.ok, error: r.error, result: r.result }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const item = Array.isArray(r.result) && r.result.length > 0 ? (r.result[0] as any) : null
+      const updateResult: string = item?.UpdateResult ?? ''
+      const ok = r.ok && updateResult !== 'ThisBarcodeNotExist' && !!item
+      return { imei, ok, updateResult: updateResult || null, error: ok ? undefined : (r.error ?? updateResult ?? 'Không thành công') }
     })
     const success = results.filter(r => r.ok).length
     return NextResponse.json({ ok: true, action, results, success, fail: results.length - success })
   }
 
-  // ────────────────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
   // 3. BÁO CÁO SIM — GetSimCard
-  // ────────────────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
   if (action === 'sim-card') {
     if (!imeis.length) return NextResponse.json({ error: 'Cần ít nhất 1 IMEI' }, { status: 400 })
     const results = await processBatch(imeis, 10, async (imei) => {
       const r = await crmCall('GetSimCard', { SimBarcode: imei }, sessionId, identity, 12_000)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const item = (Array.isArray(r.result) && r.result.length > 0) ? (r.result[0] as any) : null
+      const item = Array.isArray(r.result) && r.result.length > 0 ? (r.result[0] as any) : null
       return {
         imei,
         ok: r.ok && !!item,
@@ -139,52 +167,155 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, action, results })
   }
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // 4. TRA CỨU THIẾT BỊ — GetStockupDetail (kind 0, fallback kind 2)
-  // ────────────────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // 4. TRA CỨU THIẾT BỊ — GetStockupDetail (kind 0 → 2 → 3) + GetCarList
+  // ══════════════════════════════════════════════════════════════════════════
   if (action === 'tra-cuu') {
     if (!imeis.length) return NextResponse.json({ error: 'Cần ít nhất 1 IMEI' }, { status: 400 })
     const results = await processBatch(imeis, 10, async (imei) => {
-      // Thử kind 0 trước
-      let r = await crmCall('GetStockupDetail', { Barcode: imei, StockupKind: '0' }, sessionId, identity, 12_000)
-      // Fallback kind 2 nếu không tìm thấy
-      if (!r.ok || !Array.isArray(r.result) || r.result.length === 0) {
-        r = await crmCall('GetStockupDetail', { Barcode: imei, StockupKind: '2' }, sessionId, identity, 12_000)
+      // Thử lần lượt kind 0 → 2 → 3
+      let item: Record<string, unknown> | null = null
+      for (const kind of ['0', '2', '3']) {
+        const r = await crmCall('GetStockupDetail', { Barcode: imei, StockupKind: kind }, sessionId, identity, 12_000)
+        if (r.ok && Array.isArray(r.result) && r.result.length > 0) {
+          item = r.result[0] as Record<string, unknown>
+          break
+        }
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const item = (Array.isArray(r.result) && r.result.length > 0) ? (r.result[0] as any) : null
+
+      if (!item) {
+        return { imei, ok: false, error: 'Không tìm thấy thiết bị ở cả 3 loại kho' }
+      }
+
+      const carUnicode = String(item.CarUnicode ?? '').trim()
+
+      // Lấy SIM + HDD từ GetCarList nếu có CarUnicode
+      let simBarcode: string | null = null
+      let hddBarcode: string | null = null
+      let hddTypeName: string | null = null
+
+      if (carUnicode) {
+        const carR = await crmCall('GetCarList', { Unicode: carUnicode, Used: 'null' }, sessionId, identity, 12_000)
+        if (carR.ok && Array.isArray(carR.result) && carR.result.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const devices: any[] = (carR.result[0] as any).Devices ?? []
+          const simDev = devices.find((d: Record<string, unknown>) => d.QP_ProductKindName === 'Sim Card')
+          const hddDev = devices.find((d: Record<string, unknown>) => d.QP_ProductKindName === 'Hard Disk')
+          simBarcode  = simDev ? String(simDev.Device_Code ?? '') || null : null
+          hddBarcode  = hddDev ? String(hddDev.Device_Code ?? '') || null : null
+          hddTypeName = hddDev ? String(hddDev.Device_TypeName ?? '') || null : null
+        }
+      }
+
       return {
         imei,
-        ok: !!item,
-        productName: item?.ProductName ?? null,
-        productBarcode: item?.ProductBarcode ?? null,
-        sourceStock: item?.SourceStock ?? null,
-        destStock: item?.DestStock ?? null,
-        status: item?.Status ?? null,
-        updateTime: item?.UpdateTime ?? null,
-        updateMan: item?.UpdateMan ?? null,
-        updateAction: item?.UpdateAction ?? null,
-        carUnicode: item?.CarUnicode ?? null,
-        technicianName: item?.TechnicianName ?? null,
-        error: item ? undefined : (r.error ?? 'Không tìm thấy thiết bị'),
+        ok: true,
+        productName:    String(item.ProductName    ?? ''),
+        productBarcode: String(item.ProductBarcode ?? ''),
+        sourceStock:    String(item.SourceStock    ?? ''),
+        destStock:      String(item.DestStock      ?? ''),
+        status:         String(item.Status         ?? ''),
+        updateTime:     String(item.UpdateTime     ?? ''),
+        updateMan:      String(item.UpdateMan      ?? ''),
+        updateAction:   String(item.UpdateAction   ?? ''),
+        carUnicode:     carUnicode || null,
+        simBarcode,
+        hddBarcode,
+        hddTypeName,
       }
     })
     return NextResponse.json({ ok: true, action, results })
   }
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // 5. TỒN KHO theo IMEI — GetWarehouseQueue per device
-  // ────────────────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // 5. TỒN KHO — GetStockupList (input: warehouse IDs, trả về by product)
+  // ══════════════════════════════════════════════════════════════════════════
   if (action === 'ton-kho') {
+    if (!warehouseIds.length) return NextResponse.json({ error: 'Cần ít nhất 1 Warehouse ID' }, { status: 400 })
+    const stockupKind = body.stockupKind ?? '' // '' = all, '0' = loại 0, '2' = loại 2, '-1' = loại -1
+
+    const results = await processBatch(warehouseIds, 5, async (whId) => {
+      const param: Record<string, unknown> = { WH_ID: whId }
+      if (stockupKind !== '') param.StockupKind = stockupKind
+
+      const r = await crmCall('GetStockupList', param, sessionId, identity, 20_000)
+      if (!r.ok || !Array.isArray(r.result)) {
+        return { whId, ok: false, whName: null, products: [], error: r.error }
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const products = r.result as any[]
+      const whName: string = products[0]?.WH_Name ?? whId
+
+      // Gom nhóm theo ProductNumber
+      const totals: Record<string, { wait: number; use: number; notUse: number; productName: string }> = {}
+      for (const p of products) {
+        const code = String(p.ProductNumber ?? '')
+        if (!code) continue
+        if (!totals[code]) totals[code] = { wait: 0, use: 0, notUse: 0, productName: String(p.ProductName ?? '') }
+        totals[code].wait   += Number(p.WaitCount   ?? 0)
+        totals[code].use    += Number(p.CanUseCount  ?? 0)
+        totals[code].notUse += Number(p.NotUseCount  ?? 0)
+      }
+
+      return {
+        whId, ok: true, whName,
+        products: Object.entries(totals).map(([code, v]) => ({ code, ...v })),
+        total: products.length,
+      }
+    })
+
+    return NextResponse.json({ ok: true, action, results })
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 6. GỬI ĐI SỬA CHỮA — GetDeviceRepair → UpdateDeviceRepair
+  //    WH_ID: "3" (kho sửa chữa), RepairType: "Repairing"
+  // ══════════════════════════════════════════════════════════════════════════
+  if (action === 'gui-sc') {
     if (!imeis.length) return NextResponse.json({ error: 'Cần ít nhất 1 IMEI' }, { status: 400 })
     const results = await processBatch(imeis, 5, async (imei) => {
-      const r = await crmCall('GetWarehouseQueue', {
-        Device_Code: imei,
-        Staff_ID: identity,
+      // Bước 1: Lấy Repair_ID lớn nhất
+      const r1 = await crmCall('GetDeviceRepair', { Device_Code: imei }, sessionId, identity, 15_000)
+      if (!r1.ok || !Array.isArray(r1.result) || r1.result.length === 0) {
+        return { imei, ok: false, repairId: null, deviceId: null, updateResult: null, error: r1.error ?? 'Không tìm thấy ticket sửa chữa' }
+      }
+
+      // Lấy ticket có Repair_ID lớn nhất (mới nhất)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ticket = (r1.result as any[]).reduce((max, cur) =>
+        Number(cur.Repair_ID) > Number(max.Repair_ID) ? cur : max
+      )
+      const repairId = ticket.Repair_ID
+      const deviceId = ticket.Device_ID
+
+      // Bước 2: UpdateDeviceRepair
+      const r2 = await crmCall('UpdateDeviceRepair', {
+        Repair_ID:             repairId,
+        Description:           null,
+        Technician:            identity,
+        WH_ID:                 '3',
+        RepairType:            'Repairing',
+        Device_ID:             deviceId,
+        Repair_FinishReasonID: null,
       }, sessionId, identity, 15_000)
-      return { imei, ok: r.ok, data: r.result, error: r.error }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const item = Array.isArray(r2.result) && r2.result.length > 0 ? (r2.result[0] as any) : null
+      const updateResult: string = item?.UpdateResult ?? ''
+      const ok = r2.ok && !!item
+
+      return {
+        imei,
+        ok,
+        repairId: String(repairId),
+        deviceId: String(deviceId),
+        updateResult: updateResult || null,
+        error: ok ? undefined : (r2.error ?? 'Cập nhật thất bại'),
+      }
     })
-    return NextResponse.json({ ok: true, action, results })
+    const success = results.filter(r => r.ok).length
+    return NextResponse.json({ ok: true, action, results, success, fail: results.length - success })
   }
 
   return NextResponse.json({ error: `Action không hợp lệ: ${action}` }, { status: 400 })
