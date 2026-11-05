@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { getCRMSessionForUser } from '@/lib/crm-session'
-import { isAdminUser } from '@/lib/auth-helpers'
+import { isAdminUser, getUserPermKeys } from '@/lib/auth-helpers'
 
 export const runtime     = 'nodejs'
 export const maxDuration = 120
@@ -85,12 +85,16 @@ export async function POST(req: NextRequest) {
   const { action } = body
   if (!action) return NextResponse.json({ error: 'Thiếu action' }, { status: 400 })
 
-  // ── Admin check cho write operations ─────────────────────────────────────
+  // ── Quyền cho write operations: Admin HOẶC kho_daily:write ──────────────
   if (WRITE_ACTIONS.has(action)) {
-    const admin = await isAdminUser(user.id)
-    if (!admin) {
+    const [admin, permKeys] = await Promise.all([
+      isAdminUser(user.id),
+      getUserPermKeys(user.id),
+    ])
+    const canWrite = admin || permKeys.has('kho_daily:write')
+    if (!canWrite) {
       return NextResponse.json(
-        { error: `Thao tác '${action}' chỉ dành cho Admin` },
+        { error: `Thao tác '${action}' yêu cầu quyền kho_daily:write hoặc Admin` },
         { status: 403 }
       )
     }
