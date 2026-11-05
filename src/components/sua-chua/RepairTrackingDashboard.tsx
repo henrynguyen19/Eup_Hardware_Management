@@ -174,7 +174,7 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
     return months
   }
 
-  const MAX_HIST_MONTHS = 2
+  const MAX_HIST_MONTHS = 1
 
   async function doHistorySync() {
     if (!histFrom || !histTo || histFrom > histTo) {
@@ -423,8 +423,8 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
         </summary>
         <div className="mt-3 bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3">
           <p className="text-xs text-purple-700">
-            {t('Sync từng tháng từ CRM. Tối đa 2 tháng mỗi lần để tránh quá tải server (mỗi tháng ~30–60s).',
-               'Syncs month-by-month from CRM. Max 2 months per run to avoid server overload (~30–60s each).')}
+            {t('Sync 1 tháng từ CRM mỗi lần để tránh quá tải server (~30–60s mỗi lần).',
+               'Syncs 1 month from CRM per run to avoid server overload (~30–60s each).')}
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div>
