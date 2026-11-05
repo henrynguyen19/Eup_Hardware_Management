@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as { fromYear?: number; fromMonth?: string; toMonth?: string }
 
   // ── Giới hạn cứng: tối đa 2 tháng mỗi lần gọi sync-all ──
-  const MAX_MONTHS = 2
+  const MAX_MONTHS = 1
   const now0 = new Date()
 
   // Hỗ trợ fromMonth/toMonth (YYYY-MM) thay vì fromYear để kiểm soát chính xác hơn
