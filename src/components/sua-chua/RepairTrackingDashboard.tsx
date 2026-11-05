@@ -152,7 +152,10 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
   const [staleLog, setStaleLog] = useState<string[]>([])
 
   // ── Sync lịch sử cũ theo tháng ──
-  const [histFrom, setHistFrom] = useState('2023-01')
+  const [histFrom, setHistFrom] = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 1)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  })
   const [histTo,   setHistTo]   = useState(() => {
     const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
   })
@@ -171,12 +174,21 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
     return months
   }
 
+  const MAX_HIST_MONTHS = 2
+
   async function doHistorySync() {
     if (!histFrom || !histTo || histFrom > histTo) {
       setErr(t('Vui lòng chọn khoảng tháng hợp lệ','Please select a valid month range')); return
     }
     const months = genMonths(histFrom, histTo)
     if (months.length === 0) return
+    if (months.length > MAX_HIST_MONTHS) {
+      setErr(t(
+        `Tối đa ${MAX_HIST_MONTHS} tháng mỗi lần để tránh quá tải CRM. Hiện tại: ${months.length} tháng.`,
+        `Max ${MAX_HIST_MONTHS} months per sync to avoid CRM overload. Currently: ${months.length} months.`
+      ))
+      return
+    }
 
     histStopRef.current = false
     setHistStop(false)
@@ -411,8 +423,8 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
         </summary>
         <div className="mt-3 bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3">
           <p className="text-xs text-purple-700">
-            {t('Tự động sync từng tháng một từ CRM. Phù hợp để lấy lịch sử từ 2022-2024. Có thể mất 5-15 phút tùy số tháng.',
-               'Auto-syncs one month at a time from CRM. Good for recovering 2022-2024 history. May take 5-15 min depending on range.')}
+            {t('Sync từng tháng từ CRM. Tối đa 2 tháng mỗi lần để tránh quá tải server (mỗi tháng ~30–60s).',
+               'Syncs month-by-month from CRM. Max 2 months per run to avoid server overload (~30–60s each).')}
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div>
@@ -425,9 +437,14 @@ function SyncCRMPanel({ onSynced, t }: { onSynced: () => void; t: (vi:string,en:
               <input type="month" value={histTo} onChange={e => setHistTo(e.target.value)}
                 className="border border-purple-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-300" />
             </div>
-            <div className="text-xs text-purple-500 self-end pb-2">
+            <div className="text-xs self-end pb-2">
               {histFrom && histTo && histFrom <= histTo
-                ? `≈ ${genMonths(histFrom, histTo).length} ${t('tháng','months')}`
+                ? (() => {
+                    const n = genMonths(histFrom, histTo).length
+                    return n > MAX_HIST_MONTHS
+                      ? <span className="text-red-500 font-semibold">⚠ {n} {t('tháng — vượt giới hạn 2','months — exceeds limit of 2')}</span>
+                      : <span className="text-purple-500">≈ {n} {t('tháng','months')}</span>
+                  })()
                 : ''}
             </div>
           </div>
