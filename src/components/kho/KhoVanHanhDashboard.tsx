@@ -327,23 +327,44 @@ function BaoCaoTonKho() {
 // ── Báo cáo thành phẩm WH Admin ──────────────────────────────────────────────
 type WH2 = { WH_ID: number | string; WH_Name: string; WH_WHCID: number; WHC_Name: string }
 
-// Thiết bị hiển thị mặc định trong báo cáo — khớp theo ProductName (case-insensitive, includes)
+// Thiết bị hiển thị mặc định — khớp theo ProductName (case-insensitive, includes)
+// Dùng tên/từ khóa thực từ CRM
 const DEFAULT_PRODUCT_KEYWORDS = [
-  'VN88-4G(H)', // kiểm tra trước để tránh match nhầm VN88-4G
-  'VN88-4G',
+  // VN88 family
+  'VN88',       // VN88-4G, VN88-4G(H)
+  'SM-F6N',     // SM-F6N 4G-DVR(VN_HM) = VN88-4G(H) variant
+
+  // GoTrack / Go-168 / S400
+  'GoTrack',    // GoTrack S400, GoTrack S400E, GoTrack 168, ...
   'Go-168',
-  'S400',
+  'S400',       // dự phòng nếu không dùng GoTrack prefix
+
+  // MT99
   'MT99',
-  'Streamax C43',
-  'Streamax H5',
+
+  // Streamax
+  'MDVR-C43',   // Streamax MDVR-C43, Streamax MDVR-C43-CAT1
+  'MDVR-H5',    // Streamax MDVR-H5
+
+  // VR-88
   'VR-88',
-  'DSM Camera',
-  'ADAS Camera',
-  'Smartbox H',
-  'Temperature',
+  'VR88',
+
+  // DSM / ADAS
+  'DSM',        // DSM Camera
+  'ADAS',       // ADAS Camera
+
+  // Smartbox
+  'Smartbox',   // Smartbox H, SmarboxN
+
+  // Temperature
+  'Temperature', // One-Wire Temperature
+
+  // Bewin / Fuel / SmarboxN
   'Bewin',
+  'bewin',
   'Fuel',
-  'SmarboxN',
+  'fuel',
 ]
 
 function matchesDefault(name: string): boolean {
