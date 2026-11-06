@@ -322,5 +322,83 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, action, results, success, fail: results.length - success })
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // 7. DANH SÁCH KHO — GetWarehouse (phân nhóm theo WH_WHCID)
+  // ══════════════════════════════════════════════════════════════════════════
+  if (action === 'ds-kho') {
+    const r = await crmCall('GetWarehouse', {
+      WHC_ID: null,
+      WHM_ManagerType: null,
+      WHM_Manager: null,
+    }, sessionId, identity, 20_000)
+    if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 500 })
+    return NextResponse.json({ ok: true, action, warehouses: r.result })
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 8. BÁO CÁO TỒN KHO CUỐI THÁNG — GetStockupList × WH_WHCID × StockupKind
+  //    Gọi với WH_WHCID (nhóm kho) thay vì WH_ID đơn lẻ
+  //    StockupKind: -1 (thành phẩm), 0 (mã IMEI), 2 (phụ kiện đi kèm)
+  // ══════════════════════════════════════════════════════════════════════════
+  if (action === 'ton-kho-bao-cao') {
+    const { khoList } = body as {
+      khoList?: Array<{ whcId: string; label: string }>
+    }
+    if (!khoList?.length) return NextResponse.json({ error: 'Cần ít nhất 1 kho' }, { status: 400 })
+
+    const STOCKUP_KINDS = ['-1', '0', '2']
+    const KIND_LABEL: Record<string, string> = { '-1': 'Thành phẩm', '0': 'IMEI', '2': 'Phụ kiện' }
+
+    // Map: whcId → productNumber → { name, wait, use, notUse }
+    const data: Record<string, Record<string, { name: string; wait: number; use: number; notUse: number }>> = {}
+    // Collect all product codes seen across all kho
+    const allProducts = new Set<string>()
+
+    for (const kho of khoList) {
+      data[kho.whcId] = {}
+
+      for (const kind of STOCKUP_KINDS) {
+        const r = await crmCall('GetStockupList', {
+          WH_WHCID: kho.whcId,
+          WH_ID: 'null',
+          StockupKind: kind,
+        }, sessionId, identity, 30_000)
+
+        if (!r.ok || !Array.isArray(r.result)) continue
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const p of r.result as any[]) {
+          const code = String(p.ProductNumber ?? '').trim()
+          if (!code) continue
+          allProducts.add(code)
+          if (!data[kho.whcId][code]) {
+            data[kho.whcId][code] = { name: String(p.ProductName ?? ''), wait: 0, use: 0, notUse: 0 }
+          }
+          data[kho.whcId][code].wait    += Number(p.WaitCount    ?? 0)
+          data[kho.whcId][code].use     += Number(p.CanUseCount  ?? 0)
+          data[kho.whcId][code].notUse  += Number(p.NotUseCount  ?? 0)
+        }
+      }
+    }
+
+    // Build sorted product list (by first occurrence name)
+    const productNames: Record<string, string> = {}
+    for (const khoId of Object.keys(data)) {
+      for (const [code, v] of Object.entries(data[khoId])) {
+        if (!productNames[code] && v.name) productNames[code] = v.name
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      action,
+      products: Array.from(allProducts).sort(),
+      productNames,
+      kindLabel: KIND_LABEL,
+      khoList,
+      data,
+    })
+  }
+
   return NextResponse.json({ error: `Action không hợp lệ: ${action}` }, { status: 400 })
 }
