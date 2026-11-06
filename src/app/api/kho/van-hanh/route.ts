@@ -437,5 +437,78 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // 9. BÁO CÁO THÀNH PHẨM — Pivot: Sản phẩm × (Chưa TP / Thành phẩm / Không dùng)
+  //    mainWhIds: các kho tính Thành phẩm (kind -1,2) + Chưa TP (kind 0)
+  //    brokenWhIds: kho Tổng Repair + Repair Eup → "Không dùng được"
+  // ══════════════════════════════════════════════════════════════════════════
+  if (action === 'bao-cao-thanh-pham') {
+    const { mainWhIds, brokenWhIds, whNames: whNamesIn } = body as {
+      mainWhIds?: string[]
+      brokenWhIds?: string[]
+      whNames?: Record<string, string>
+    }
+    const allWhIds = [...(mainWhIds ?? []), ...(brokenWhIds ?? [])]
+    if (!allWhIds.length) return NextResponse.json({ error: 'Cần ít nhất 1 kho' }, { status: 400 })
+    if (allWhIds.length > 60) return NextResponse.json({ error: 'Tối đa 60 kho / lần' }, { status: 400 })
+
+    const KINDS = ['-1', '0', '2']
+
+    // productCode → { chuaTP, thanhPham, khongDung, name }
+    const data: Record<string, { chuaTP: number; thanhPham: number; khongDung: number; name: string }> = {}
+
+    function getEntry(code: string, name: string) {
+      if (!data[code]) data[code] = { chuaTP: 0, thanhPham: 0, khongDung: 0, name: '' }
+      if (name && !data[code].name) data[code].name = name
+      return data[code]
+    }
+
+    // Query main khos
+    for (const whId of (mainWhIds ?? [])) {
+      for (const kind of KINDS) {
+        const r = await crmCall('GetStockupList', { WH_ID: whId, StockupKind: kind }, sessionId, identity, 20_000)
+        if (!r.ok || !Array.isArray(r.result)) continue
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const p of r.result as any[]) {
+          const code = String(p.ProductNumber ?? '').trim()
+          if (!code) continue
+          const entry = getEntry(code, String(p.ProductName ?? ''))
+          const total = Number(p.WaitCount ?? 0) + Number(p.CanUseCount ?? 0) + Number(p.NotUseCount ?? 0)
+          if (kind === '0') entry.chuaTP += total
+          else entry.thanhPham += total // kind -1 or 2
+        }
+      }
+    }
+
+    // Query broken khos (Không dùng được)
+    for (const whId of (brokenWhIds ?? [])) {
+      for (const kind of KINDS) {
+        const r = await crmCall('GetStockupList', { WH_ID: whId, StockupKind: kind }, sessionId, identity, 20_000)
+        if (!r.ok || !Array.isArray(r.result)) continue
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const p of r.result as any[]) {
+          const code = String(p.ProductNumber ?? '').trim()
+          if (!code) continue
+          const entry = getEntry(code, String(p.ProductName ?? ''))
+          entry.khongDung += Number(p.WaitCount ?? 0) + Number(p.CanUseCount ?? 0) + Number(p.NotUseCount ?? 0)
+        }
+      }
+    }
+
+    // Filter out products with zero across all categories
+    const products = Object.keys(data)
+      .filter(c => { const e = data[c]; return e.chuaTP + e.thanhPham + e.khongDung > 0 })
+      .sort()
+
+    return NextResponse.json({
+      ok: true, action,
+      products,
+      data,
+      mainWhIds: mainWhIds ?? [],
+      brokenWhIds: brokenWhIds ?? [],
+      whNames: whNamesIn ?? {},
+    })
+  }
+
   return NextResponse.json({ error: `Action không hợp lệ: ${action}` }, { status: 400 })
 }

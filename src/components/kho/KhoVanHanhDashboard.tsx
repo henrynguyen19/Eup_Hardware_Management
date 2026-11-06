@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 
 type TabId = 'thu-hoi' | 'the-rfid' | 'sim-card' | 'tra-cuu' | 'ton-kho' | 'gui-sc'
-type TonKhoMode = 'tra-cuu' | 'bao-cao'
+type TonKhoMode = 'tra-cuu' | 'bao-cao' | 'thanh-pham'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function parseList(raw: string): string[] {
@@ -324,6 +324,314 @@ function BaoCaoTonKho() {
   )
 }
 
+// ── Báo cáo thành phẩm WH Admin ──────────────────────────────────────────────
+type WH2 = { WH_ID: number | string; WH_Name: string; WH_WHCID: number; WHC_Name: string }
+
+function BaoCaoThanhPhamWH() {
+  const [loading, setLoading]     = useState(false)
+  const [warehouses, setWarehouses] = useState<WH2[]>([])
+  const [loaded, setLoaded]       = useState(false)
+  const [mainSet, setMainSet]     = useState<Set<string>>(new Set())
+  const [brokenSet, setBrokenSet] = useState<Set<string>>(new Set())
+  const [report, setReport]       = useState<null | {
+    products: string[]
+    data: Record<string, { chuaTP: number; thanhPham: number; khongDung: number; name: string }>
+    whNames: Record<string, string>
+    mainWhIds: string[]
+    brokenWhIds: string[]
+  }>(null)
+  const [error, setError]         = useState('')
+  const [nameFilter, setNameFilter] = useState('')
+
+  // Chỉ hiện Repair + Company group
+  const relevantWhs = warehouses.filter(w =>
+    w.WHC_Name?.toLowerCase().includes('repair') ||
+    w.WHC_Name?.toLowerCase().includes('company') ||
+    w.WH_WHCID === -2 || w.WH_WHCID === 1
+  )
+
+  // Auto-detect kho "Không dùng được": Tổng Repair + Repair Eup
+  function isDefaultBroken(wh: WH2) {
+    const n = (wh.WH_Name ?? '').toLowerCase()
+    return n.includes('tổng repair') || n.includes('tong repair') || n.includes('repair eup')
+  }
+
+  async function loadWarehouses() {
+    setLoading(true); setError('')
+    try {
+      const r = await fetch('/api/kho/van-hanh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ds-kho' }),
+      })
+      const json = await r.json()
+      if (!json.ok || !Array.isArray(json.warehouses)) {
+        setError('Không tải được danh sách kho: ' + (json.error ?? JSON.stringify(json._debug_keys ?? '')))
+      } else {
+        const all = json.warehouses as WH2[]
+        setWarehouses(all)
+        setLoaded(true)
+        // Auto-select: relevant khos split into main vs broken
+        const main = new Set<string>()
+        const broken = new Set<string>()
+        all.filter(w =>
+          w.WHC_Name?.toLowerCase().includes('repair') ||
+          w.WHC_Name?.toLowerCase().includes('company') ||
+          w.WH_WHCID === -2 || w.WH_WHCID === 1
+        ).forEach(w => {
+          const id = String(w.WH_ID)
+          if (isDefaultBroken(w)) broken.add(id)
+          else main.add(id)
+        })
+        setMainSet(main)
+        setBrokenSet(broken)
+      }
+    } catch (e) { setError(String(e)) }
+    setLoading(false)
+  }
+
+  function toggleMain(id: string) {
+    setMainSet(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+    setBrokenSet(prev => { const s = new Set(prev); s.delete(id); return s })
+  }
+  function toggleBroken(id: string) {
+    setBrokenSet(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+    setMainSet(prev => { const s = new Set(prev); s.delete(id); return s })
+  }
+
+  async function runReport() {
+    if (!mainSet.size && !brokenSet.size) { alert('Chọn ít nhất 1 kho'); return }
+    setLoading(true); setReport(null); setError('')
+    const whNames: Record<string, string> = {}
+    warehouses.forEach(w => { whNames[String(w.WH_ID)] = w.WH_Name })
+    try {
+      const r = await fetch('/api/kho/van-hanh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'bao-cao-thanh-pham',
+          mainWhIds: Array.from(mainSet),
+          brokenWhIds: Array.from(brokenSet),
+          whNames,
+        }),
+      })
+      const json = await r.json()
+      if (!json.ok) setError(json.error ?? 'Lỗi không xác định')
+      else setReport(json)
+    } catch (e) { setError(String(e)) }
+    setLoading(false)
+  }
+
+  async function exportExcel() {
+    if (!report) return
+    const { utils, writeFile } = await import('xlsx')
+    const filter = nameFilter.trim().toLowerCase()
+    const products = report.products.filter(c => {
+      if (!filter) return true
+      return (report.data[c]?.name ?? c).toLowerCase().includes(filter) || c.toLowerCase().includes(filter)
+    })
+
+    const header = ['Loại', ...products.map(c => report.data[c]?.name || c), 'Tổng']
+    const makeRow = (label: string, getter: (c: string) => number) => {
+      let total = 0
+      const cells: (string | number)[] = [label]
+      products.forEach(c => { const v = getter(c); cells.push(v); total += v })
+      cells.push(total)
+      return cells
+    }
+
+    const rows = [
+      header,
+      makeRow('Chưa thành phẩm (半成品)', c => report.data[c]?.chuaTP ?? 0),
+      makeRow('Thành phẩm (成品)', c => report.data[c]?.thanhPham ?? 0),
+      makeRow('Không dùng được (不可使用)', c => report.data[c]?.khongDung ?? 0),
+      makeRow('Tổng 合計', c => (report.data[c]?.chuaTP ?? 0) + (report.data[c]?.thanhPham ?? 0) + (report.data[c]?.khongDung ?? 0)),
+    ]
+
+    const ws = utils.aoa_to_sheet(rows)
+    const wb = utils.book_new()
+    utils.book_append_sheet(wb, ws, 'BC Thành phẩm')
+    const now = new Date()
+    writeFile(wb, `BCThanhPham_WH_Admin_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}.xlsx`)
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  if (!loaded) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+        <div className="mb-3 text-sm text-gray-600 font-medium">📋 Báo cáo thành phẩm — Warehouse Admin / Hardware Machine</div>
+        <p className="text-sm text-gray-500 mb-4">Tải kho từ CRM → chọn kho chính (Thành phẩm/Chưa TP) và kho hỏng (Không dùng được) → xuất báo cáo</p>
+        <button onClick={loadWarehouses} disabled={loading}
+          className="px-5 py-2 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
+          style={{ background: '#A70A0A' }}>
+          {loading ? '⏳ Đang tải...' : '🏭 Tải danh sách kho'}
+        </button>
+        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+
+  // Group relevant warehouses by category
+  const groups: Record<string, WH2[]> = {}
+  relevantWhs.forEach(w => {
+    const key = w.WHC_Name || `Nhóm ${w.WH_WHCID}`
+    if (!groups[key]) groups[key] = []
+    groups[key].push(w)
+  })
+
+  return (
+    <div className="space-y-4">
+      {/* Warehouse assignment panel */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <span className="font-semibold text-gray-800 text-sm">Phân loại kho cho báo cáo</span>
+          <div className="flex gap-3 text-xs">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-500 inline-block"/><span className="text-gray-600">Kho chính (Thành phẩm + Chưa TP)</span></span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-500 inline-block"/><span className="text-gray-600">Kho hỏng (Không dùng được)</span></span>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
+          {Object.entries(groups).map(([groupName, items]) => (
+            <div key={groupName} className="border border-gray-100 rounded-lg p-2">
+              <div className="text-xs font-bold text-gray-700 pb-1.5 mb-1.5 border-b border-gray-100">{groupName}</div>
+              <div className="space-y-0.5">
+                {items.map(wh => {
+                  const id = String(wh.WH_ID)
+                  const inMain   = mainSet.has(id)
+                  const inBroken = brokenSet.has(id)
+                  return (
+                    <div key={id} className={`flex items-center gap-2 px-1.5 py-1 rounded text-xs ${inBroken ? 'bg-orange-50' : inMain ? 'bg-blue-50' : 'bg-gray-50'}`}>
+                      <span className="flex-1 text-gray-700 font-medium">{wh.WH_Name}</span>
+                      <span className="text-gray-400 font-mono text-[10px]">#{id}</span>
+                      <button
+                        onClick={() => toggleMain(id)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${inMain ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-600 border-blue-300'}`}
+                        title="Kho chính">TP</button>
+                      <button
+                        onClick={() => toggleBroken(id)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${inBroken ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-orange-500 border-orange-300'}`}
+                        title="Không dùng được">KDĐ</button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 text-xs text-gray-400">
+          Kho tô xanh → tính Thành phẩm (kind -1,2) + Chưa TP (kind 0) &nbsp;|&nbsp;
+          Kho tô cam → tính Không dùng được (tất cả kind)
+        </div>
+      </div>
+
+      {/* Run */}
+      <div className="flex gap-3 items-center flex-wrap">
+        <button onClick={runReport} disabled={loading || (!mainSet.size && !brokenSet.size)}
+          className="px-5 py-2.5 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
+          style={{ background: '#A70A0A' }}>
+          {loading ? '⏳ Đang lấy dữ liệu...' : `📊 Xuất báo cáo (${mainSet.size} kho chính + ${brokenSet.size} kho hỏng)`}
+        </button>
+        {error && <span className="text-sm text-red-600">{error}</span>}
+      </div>
+
+      {/* Report */}
+      {report && (() => {
+        const filter = nameFilter.trim().toLowerCase()
+        const products = report.products.filter(c => {
+          if (!filter) return true
+          return (report.data[c]?.name ?? c).toLowerCase().includes(filter) || c.toLowerCase().includes(filter)
+        })
+
+        const rowDef = [
+          { key: 'chuaTP',    label: 'Chưa thành phẩm',    sub: '半成品 (linh kiện mới/零配件)', bg: 'bg-amber-50',   text: 'text-amber-800' },
+          { key: 'thanhPham', label: 'Thành phẩm',          sub: '成品',                         bg: 'bg-emerald-50', text: 'text-emerald-800' },
+          { key: 'khongDung', label: 'Không dùng được',     sub: '不可使用',                     bg: 'bg-red-50',     text: 'text-red-800' },
+        ] as const
+
+        const grand: Record<string, number> = {}
+        products.forEach(c => {
+          grand[c] = (report.data[c]?.chuaTP ?? 0) + (report.data[c]?.thanhPham ?? 0) + (report.data[c]?.khongDung ?? 0)
+        })
+
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <input value={nameFilter} onChange={e => setNameFilter(e.target.value)}
+                placeholder="Lọc theo tên thiết bị (VD: VN88, Streamax...)"
+                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm flex-1 max-w-xs outline-none focus:border-blue-400" />
+              <span className="text-sm text-gray-500">{products.length} sản phẩm</span>
+              <button onClick={exportExcel}
+                className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-semibold"
+                style={{ background: '#217346' }}>
+                📥 Xuất Excel
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+              <table className="text-xs border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 border-b-2 border-gray-300">
+                    <th className="px-4 py-2.5 text-left font-bold text-gray-700 whitespace-nowrap sticky left-0 bg-gray-100 min-w-[180px]" rowSpan={2}>Phân loại</th>
+                    {products.map(c => (
+                      <th key={c} className="px-2 py-2 text-center font-semibold text-blue-700 border-l border-gray-200 whitespace-nowrap max-w-[90px]">
+                        <div className="truncate max-w-[90px]" title={report.data[c]?.name || c}>
+                          {report.data[c]?.name || c}
+                        </div>
+                      </th>
+                    ))}
+                    <th className="px-3 py-2 text-center font-bold text-gray-700 border-l-2 border-gray-400">Tổng<br/>合計</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rowDef.map(row => {
+                    let rowTotal = 0
+                    return (
+                      <tr key={row.key} className={`border-b border-gray-200 ${row.bg}`}>
+                        <td className={`px-4 py-2.5 font-semibold sticky left-0 ${row.bg}`}>
+                          <div className={`font-bold ${row.text}`}>{row.label}</div>
+                          <div className="text-gray-400 text-[10px]">{row.sub}</div>
+                        </td>
+                        {products.map(c => {
+                          const v = report.data[c]?.[row.key] ?? 0
+                          rowTotal += v
+                          return (
+                            <td key={c} className={`px-2 py-2.5 text-center border-l border-gray-100 ${v > 0 ? `${row.text} font-bold` : 'text-gray-200'}`}>
+                              {v || '—'}
+                            </td>
+                          )
+                        })}
+                        <td className={`px-3 py-2.5 text-center font-bold border-l-2 border-gray-400 ${row.text}`}>{rowTotal || '—'}</td>
+                      </tr>
+                    )
+                  })}
+                  {/* Tổng row */}
+                  <tr className="bg-gray-100 border-t-2 border-gray-400 font-bold">
+                    <td className="px-4 py-2.5 sticky left-0 bg-gray-100">
+                      <div className="font-bold text-gray-900">Tổng</div>
+                      <div className="text-gray-400 text-[10px]">合計</div>
+                    </td>
+                    {products.map(c => {
+                      const v = grand[c] ?? 0
+                      return (
+                        <td key={c} className={`px-2 py-2.5 text-center border-l border-gray-200 font-bold ${v > 0 ? 'text-gray-900' : 'text-gray-200'}`}>
+                          {v || '—'}
+                        </td>
+                      )
+                    })}
+                    <td className="px-3 py-2.5 text-center font-bold text-gray-900 border-l-2 border-gray-400">
+                      {Object.values(grand).reduce((a, b) => a + b, 0) || '—'}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
+    </div>
+  )
+}
+
 // ── Tab config ────────────────────────────────────────────────────────────────
 const TABS: { id: TabId; icon: string; label: string; write: boolean; desc: string }[] = [
   { id: 'tra-cuu',  icon: '🔍', label: 'Tra cứu TB',    write: false, desc: 'GetStockupDetail (kind 0→2→3) + GetCarList — xem kho, trạng thái, SIM, thẻ nhớ' },
@@ -609,12 +917,18 @@ export default function KhoVanHanhDashboard() {
               className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition ${tonKhoMode === 'bao-cao' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
               📊 Báo cáo tháng
             </button>
+            <button onClick={() => setTonKhoMode('thanh-pham')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition ${tonKhoMode === 'thanh-pham' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+              📋 BC Thành phẩm
+            </button>
           </div>
         )}
 
-        {/* Báo cáo tháng sub-tab */}
+        {/* Sub-tab: Báo cáo tháng */}
         {isTonKho && tonKhoMode === 'bao-cao' ? (
           <BaoCaoTonKho />
+        ) : isTonKho && tonKhoMode === 'thanh-pham' ? (
+          <BaoCaoThanhPhamWH />
         ) : (
           <>
             {/* Input panel */}
