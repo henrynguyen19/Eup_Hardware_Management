@@ -332,7 +332,6 @@ type WH2 = { WH_ID: number | string; WH_Name: string; WH_WHCID: number; WHC_Name
 const DEFAULT_PRODUCT_KEYWORDS = [
   // VN88 family
   'VN88',       // VN88-4G, VN88-4G(H)
-  'SM-F6N',     // SM-F6N 4G-DVR(VN_HM) = VN88-4G(H) variant
 
   // GoTrack / Go-168 / S400
   'GoTrack',    // GoTrack S400, GoTrack S400E, GoTrack 168, ...
@@ -342,9 +341,10 @@ const DEFAULT_PRODUCT_KEYWORDS = [
   // MT99
   'MT99',
 
-  // Streamax
+  // Streamax family (bao gồm SM-F6N 4G-DVR)
   'MDVR-C43',   // Streamax MDVR-C43, Streamax MDVR-C43-CAT1
   'MDVR-H5',    // Streamax MDVR-H5
+  'SM-F6N',     // SM-F6N 4G-DVR(VN_HM) — họ Streamax
 
   // VR-88
   'VR-88',
