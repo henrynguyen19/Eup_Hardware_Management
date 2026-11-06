@@ -324,15 +324,59 @@ export async function POST(req: NextRequest) {
 
   // ══════════════════════════════════════════════════════════════════════════
   // 7. DANH SÁCH KHO — GetWarehouse (phân nhóm theo WH_WHCID)
+  // Raw fetch để xem toàn bộ response từ CRM (tránh crmCall chỉ lấy json.result)
   // ══════════════════════════════════════════════════════════════════════════
   if (action === 'ds-kho') {
-    const r = await crmCall('GetWarehouse', {
-      WHC_ID: null,
-      WHM_ManagerType: null,
-      WHM_Manager: null,
-    }, sessionId, identity, 20_000)
-    if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 500 })
-    return NextResponse.json({ ok: true, action, warehouses: r.result })
+    const url = crmUrl()
+    if (!url) return NextResponse.json({ ok: false, error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
+
+    const form = new URLSearchParams()
+    form.append('MethodName', 'GetWarehouse')
+    form.append('Param', JSON.stringify({ WHC_ID: null, WHM_ManagerType: null, WHM_Manager: null }))
+    form.append('SESSION_ID', sessionId)
+    form.append('IDENTITY', identity)
+
+    let crmJson: Record<string, unknown> = {}
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          ...(process.env.PROXY_SECRET ? { 'x-proxy-secret': process.env.PROXY_SECRET } : {}),
+        },
+        body: form.toString(),
+        signal: AbortSignal.timeout(20_000),
+      })
+      crmJson = await resp.json() as Record<string, unknown>
+    } catch (e) {
+      return NextResponse.json({ ok: false, error: String(e) }, { status: 500 })
+    }
+
+    if (!crmJson.status || crmJson.status === 0) {
+      return NextResponse.json({
+        ok: false,
+        error: String(crmJson.error ?? crmJson.message ?? 'CRM trả status=0'),
+        _debug: crmJson,
+      }, { status: 500 })
+    }
+
+    // CRM có thể trả list ở nhiều field khác nhau — tìm field nào là array
+    let warehouses: unknown[] | null = null
+    for (const [key, val] of Object.entries(crmJson)) {
+      if (Array.isArray(val) && val.length > 0) {
+        warehouses = val
+        break
+      }
+    }
+    // Fallback nếu result là array rỗng hoặc null
+    if (!warehouses && Array.isArray(crmJson.result)) warehouses = crmJson.result
+
+    return NextResponse.json({
+      ok: true,
+      action,
+      warehouses,
+      _debug_keys: Object.keys(crmJson), // debug: xem CRM trả fields nào
+    })
   }
 
   // ══════════════════════════════════════════════════════════════════════════
