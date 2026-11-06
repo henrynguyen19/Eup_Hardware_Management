@@ -327,34 +327,68 @@ function BaoCaoTonKho() {
 // ── Báo cáo thành phẩm WH Admin ──────────────────────────────────────────────
 type WH2 = { WH_ID: number | string; WH_Name: string; WH_WHCID: number; WHC_Name: string }
 
+// Thiết bị hiển thị mặc định trong báo cáo — khớp theo ProductName (case-insensitive, includes)
+const DEFAULT_PRODUCT_KEYWORDS = [
+  'VN88-4G(H)', // kiểm tra trước để tránh match nhầm VN88-4G
+  'VN88-4G',
+  'Go-168',
+  'S400',
+  'MT99',
+  'Streamax C43',
+  'Streamax H5',
+  'VR-88',
+  'DSM Camera',
+  'ADAS Camera',
+  'Smartbox H',
+  'Temperature',
+  'Bewin',
+  'Fuel',
+  'SmarboxN',
+]
+
+function matchesDefault(name: string): boolean {
+  const n = name.toLowerCase()
+  return DEFAULT_PRODUCT_KEYWORDS.some(kw => n.includes(kw.toLowerCase()))
+}
+
+// Auto-assign kho theo quy tắc mặc định
+function defaultAssign(wh: WH2): 'main' | 'broken' | 'skip' {
+  const name = (wh.WH_Name ?? '').toLowerCase()
+  const isRepairGroup = wh.WH_WHCID === -2 ||
+    (wh.WHC_Name ?? '').toLowerCase().includes('repair') && !(wh.WHC_Name ?? '').toLowerCase().includes('company')
+
+  if (isRepairGroup) return 'broken' // TẤT CẢ kho Repair group → KDĐ
+
+  // Company group — chỉ 3 kho xanh + 2 kho vàng; còn lại bỏ qua
+  if (name.includes('hardware-machine') || name.includes('hardware machine')) return 'main'
+  if (name.includes('warehouse-admin')  || name.includes('warehouse admin'))  return 'main'
+  if (name.includes('old device'))                                            return 'main'
+  if (name.includes('waiting scrap'))                                         return 'broken'
+  if (name.includes('repair eup'))                                            return 'broken'
+  return 'skip' // admin-hcm, da nang-office, binh duong-office, v.v. → không chọn
+}
+
 function BaoCaoThanhPhamWH() {
-  const [loading, setLoading]     = useState(false)
+  const [loading, setLoading]       = useState(false)
   const [warehouses, setWarehouses] = useState<WH2[]>([])
-  const [loaded, setLoaded]       = useState(false)
-  const [mainSet, setMainSet]     = useState<Set<string>>(new Set())
-  const [brokenSet, setBrokenSet] = useState<Set<string>>(new Set())
-  const [report, setReport]       = useState<null | {
+  const [loaded, setLoaded]         = useState(false)
+  const [mainSet, setMainSet]       = useState<Set<string>>(new Set())
+  const [brokenSet, setBrokenSet]   = useState<Set<string>>(new Set())
+  const [report, setReport]         = useState<null | {
     products: string[]
     data: Record<string, { chuaTP: number; thanhPham: number; khongDung: number; name: string }>
-    whNames: Record<string, string>
-    mainWhIds: string[]
-    brokenWhIds: string[]
   }>(null)
-  const [error, setError]         = useState('')
-  const [nameFilter, setNameFilter] = useState('')
+  // Sản phẩm đang hiển thị: set các ProductNumber code đang được tick
+  const [visibleProducts, setVisibleProducts] = useState<Set<string>>(new Set())
+  const [showAllProducts, setShowAllProducts] = useState(false)
+  const [error, setError]           = useState('')
 
-  // Chỉ hiện Repair + Company group
   const relevantWhs = warehouses.filter(w =>
-    w.WHC_Name?.toLowerCase().includes('repair') ||
-    w.WHC_Name?.toLowerCase().includes('company') ||
-    w.WH_WHCID === -2 || w.WH_WHCID === 1
+    defaultAssign(w) !== 'skip' ||
+    // Vẫn hiển thị để user có thể chọn thủ công, nhưng không default-select
+    (w.WHC_Name ?? '').toLowerCase().includes('company') || w.WH_WHCID === 1 ||
+    (w.WHC_Name ?? '').toLowerCase().includes('repair')  || w.WH_WHCID === -2
   )
-
-  // Auto-detect kho "Không dùng được": Tổng Repair + Repair Eup
-  function isDefaultBroken(wh: WH2) {
-    const n = (wh.WH_Name ?? '').toLowerCase()
-    return n.includes('tổng repair') || n.includes('tong repair') || n.includes('repair eup')
-  }
 
   async function loadWarehouses() {
     setLoading(true); setError('')
@@ -371,17 +405,13 @@ function BaoCaoThanhPhamWH() {
         const all = json.warehouses as WH2[]
         setWarehouses(all)
         setLoaded(true)
-        // Auto-select: relevant khos split into main vs broken
         const main = new Set<string>()
         const broken = new Set<string>()
-        all.filter(w =>
-          w.WHC_Name?.toLowerCase().includes('repair') ||
-          w.WHC_Name?.toLowerCase().includes('company') ||
-          w.WH_WHCID === -2 || w.WH_WHCID === 1
-        ).forEach(w => {
+        all.forEach(w => {
           const id = String(w.WH_ID)
-          if (isDefaultBroken(w)) broken.add(id)
-          else main.add(id)
+          const assign = defaultAssign(w)
+          if (assign === 'main')   main.add(id)
+          if (assign === 'broken') broken.add(id)
         })
         setMainSet(main)
         setBrokenSet(broken)
@@ -416,8 +446,17 @@ function BaoCaoThanhPhamWH() {
         }),
       })
       const json = await r.json()
-      if (!json.ok) setError(json.error ?? 'Lỗi không xác định')
-      else setReport(json)
+      if (!json.ok) {
+        setError(json.error ?? 'Lỗi không xác định')
+      } else {
+        setReport(json)
+        // Mặc định chỉ hiện các sản phẩm khớp keyword
+        const defaults = new Set<string>(
+          (json.products as string[]).filter(c => matchesDefault(json.data[c]?.name ?? c))
+        )
+        setVisibleProducts(defaults)
+        setShowAllProducts(false)
+      }
     } catch (e) { setError(String(e)) }
     setLoading(false)
   }
@@ -425,12 +464,7 @@ function BaoCaoThanhPhamWH() {
   async function exportExcel() {
     if (!report) return
     const { utils, writeFile } = await import('xlsx')
-    const filter = nameFilter.trim().toLowerCase()
-    const products = report.products.filter(c => {
-      if (!filter) return true
-      return (report.data[c]?.name ?? c).toLowerCase().includes(filter) || c.toLowerCase().includes(filter)
-    })
-
+    const products = report.products.filter(c => visibleProducts.has(c))
     const header = ['Loại', ...products.map(c => report.data[c]?.name || c), 'Tổng']
     const makeRow = (label: string, getter: (c: string) => number) => {
       let total = 0
@@ -439,7 +473,6 @@ function BaoCaoThanhPhamWH() {
       cells.push(total)
       return cells
     }
-
     const rows = [
       header,
       makeRow('Chưa thành phẩm (半成品)', c => report.data[c]?.chuaTP ?? 0),
@@ -447,7 +480,6 @@ function BaoCaoThanhPhamWH() {
       makeRow('Không dùng được (不可使用)', c => report.data[c]?.khongDung ?? 0),
       makeRow('Tổng 合計', c => (report.data[c]?.chuaTP ?? 0) + (report.data[c]?.thanhPham ?? 0) + (report.data[c]?.khongDung ?? 0)),
     ]
-
     const ws = utils.aoa_to_sheet(rows)
     const wb = utils.book_new()
     utils.book_append_sheet(wb, ws, 'BC Thành phẩm')
@@ -459,8 +491,8 @@ function BaoCaoThanhPhamWH() {
   if (!loaded) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
-        <div className="mb-3 text-sm text-gray-600 font-medium">📋 Báo cáo thành phẩm — Warehouse Admin / Hardware Machine</div>
-        <p className="text-sm text-gray-500 mb-4">Tải kho từ CRM → chọn kho chính (Thành phẩm/Chưa TP) và kho hỏng (Không dùng được) → xuất báo cáo</p>
+        <div className="mb-3 text-sm font-semibold text-gray-700">📋 Báo cáo thành phẩm — Warehouse Admin / Hardware Machine</div>
+        <p className="text-xs text-gray-500 mb-4">3 kho xanh (Company) + 2 kho vàng (Company) + toàn bộ Repair → tự động gán khi tải</p>
         <button onClick={loadWarehouses} disabled={loading}
           className="px-5 py-2 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
           style={{ background: '#A70A0A' }}>
@@ -471,46 +503,50 @@ function BaoCaoThanhPhamWH() {
     )
   }
 
-  // Group relevant warehouses by category
+  // Group by WHC_Name — only show Company and Repair
   const groups: Record<string, WH2[]> = {}
-  relevantWhs.forEach(w => {
-    const key = w.WHC_Name || `Nhóm ${w.WH_WHCID}`
-    if (!groups[key]) groups[key] = []
-    groups[key].push(w)
-  })
+  warehouses
+    .filter(w => {
+      const whc = (w.WHC_Name ?? '').toLowerCase()
+      return whc.includes('company') || whc.includes('repair') || w.WH_WHCID === 1 || w.WH_WHCID === -2
+    })
+    .forEach(w => {
+      const key = w.WHC_Name || `Nhóm ${w.WH_WHCID}`
+      if (!groups[key]) groups[key] = []
+      groups[key].push(w)
+    })
 
   return (
     <div className="space-y-4">
-      {/* Warehouse assignment panel */}
+      {/* Warehouse panel */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <span className="font-semibold text-gray-800 text-sm">Phân loại kho cho báo cáo</span>
           <div className="flex gap-3 text-xs">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-500 inline-block"/><span className="text-gray-600">Kho chính (Thành phẩm + Chưa TP)</span></span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-500 inline-block"/><span className="text-gray-600">Kho hỏng (Không dùng được)</span></span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-blue-500 inline-block"/>Kho chính (Thành phẩm + Chưa TP)</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-orange-400 inline-block"/>Kho hỏng (Không dùng được)</span>
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
           {Object.entries(groups).map(([groupName, items]) => (
             <div key={groupName} className="border border-gray-100 rounded-lg p-2">
-              <div className="text-xs font-bold text-gray-700 pb-1.5 mb-1.5 border-b border-gray-100">{groupName}</div>
+              <div className="text-xs font-bold text-gray-700 pb-1.5 mb-1 border-b border-gray-100 flex items-center justify-between">
+                <span>{groupName}</span>
+                <span className="text-gray-400 font-normal">{items.filter(w => mainSet.has(String(w.WH_ID))).length}TP / {items.filter(w => brokenSet.has(String(w.WH_ID))).length}KDĐ</span>
+              </div>
               <div className="space-y-0.5">
                 {items.map(wh => {
                   const id = String(wh.WH_ID)
                   const inMain   = mainSet.has(id)
                   const inBroken = brokenSet.has(id)
                   return (
-                    <div key={id} className={`flex items-center gap-2 px-1.5 py-1 rounded text-xs ${inBroken ? 'bg-orange-50' : inMain ? 'bg-blue-50' : 'bg-gray-50'}`}>
-                      <span className="flex-1 text-gray-700 font-medium">{wh.WH_Name}</span>
-                      <span className="text-gray-400 font-mono text-[10px]">#{id}</span>
-                      <button
-                        onClick={() => toggleMain(id)}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${inMain ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-600 border-blue-300'}`}
-                        title="Kho chính">TP</button>
-                      <button
-                        onClick={() => toggleBroken(id)}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${inBroken ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-orange-500 border-orange-300'}`}
-                        title="Không dùng được">KDĐ</button>
+                    <div key={id} className={`flex items-center gap-1.5 px-1.5 py-1 rounded text-xs transition ${inBroken ? 'bg-orange-50' : inMain ? 'bg-blue-50' : ''}`}>
+                      <span className="flex-1 text-gray-700">{wh.WH_Name}</span>
+                      <span className="text-gray-300 font-mono text-[10px]">#{id}</span>
+                      <button onClick={() => toggleMain(id)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition ${inMain ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-500 border-blue-200 hover:border-blue-400'}`}>TP</button>
+                      <button onClick={() => toggleBroken(id)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition ${inBroken ? 'bg-orange-400 text-white border-orange-400' : 'bg-white text-orange-400 border-orange-200 hover:border-orange-400'}`}>KDĐ</button>
                     </div>
                   )
                 })}
@@ -518,63 +554,90 @@ function BaoCaoThanhPhamWH() {
             </div>
           ))}
         </div>
-        <div className="mt-2 text-xs text-gray-400">
-          Kho tô xanh → tính Thành phẩm (kind -1,2) + Chưa TP (kind 0) &nbsp;|&nbsp;
-          Kho tô cam → tính Không dùng được (tất cả kind)
+        <div className="mt-2 text-[10px] text-gray-400">
+          Mặc định: Hardware-Machine, WareHouse-Admin, Old Device → TP (xanh) &nbsp;|&nbsp; Waiting Scrap, Repair Eup + toàn bộ Repair → KDĐ (vàng)
         </div>
       </div>
 
-      {/* Run */}
+      {/* Run button */}
       <div className="flex gap-3 items-center flex-wrap">
         <button onClick={runReport} disabled={loading || (!mainSet.size && !brokenSet.size)}
           className="px-5 py-2.5 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
           style={{ background: '#A70A0A' }}>
-          {loading ? '⏳ Đang lấy dữ liệu...' : `📊 Xuất báo cáo (${mainSet.size} kho chính + ${brokenSet.size} kho hỏng)`}
+          {loading ? '⏳ Đang lấy dữ liệu...' : `📊 Xuất báo cáo (${mainSet.size}TP + ${brokenSet.size}KDĐ)`}
         </button>
         {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
 
-      {/* Report */}
+      {/* Product selector + Report */}
       {report && (() => {
-        const filter = nameFilter.trim().toLowerCase()
-        const products = report.products.filter(c => {
-          if (!filter) return true
-          return (report.data[c]?.name ?? c).toLowerCase().includes(filter) || c.toLowerCase().includes(filter)
-        })
+        const displayProducts = report.products.filter(c => visibleProducts.has(c))
+        const hiddenCount = report.products.length - visibleProducts.size
 
         const rowDef = [
-          { key: 'chuaTP',    label: 'Chưa thành phẩm',    sub: '半成品 (linh kiện mới/零配件)', bg: 'bg-amber-50',   text: 'text-amber-800' },
-          { key: 'thanhPham', label: 'Thành phẩm',          sub: '成品',                         bg: 'bg-emerald-50', text: 'text-emerald-800' },
-          { key: 'khongDung', label: 'Không dùng được',     sub: '不可使用',                     bg: 'bg-red-50',     text: 'text-red-800' },
-        ] as const
-
-        const grand: Record<string, number> = {}
-        products.forEach(c => {
-          grand[c] = (report.data[c]?.chuaTP ?? 0) + (report.data[c]?.thanhPham ?? 0) + (report.data[c]?.khongDung ?? 0)
-        })
+          { key: 'chuaTP'    as const, label: 'Chưa thành phẩm', sub: '半成品 (linh kiện mới/零配件)', bg: 'bg-amber-50',   text: 'text-amber-800' },
+          { key: 'thanhPham' as const, label: 'Thành phẩm',       sub: '成品',                         bg: 'bg-emerald-50', text: 'text-emerald-800' },
+          { key: 'khongDung' as const, label: 'Không dùng được',  sub: '不可使用',                     bg: 'bg-red-50',     text: 'text-red-800' },
+        ]
 
         return (
           <div className="space-y-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <input value={nameFilter} onChange={e => setNameFilter(e.target.value)}
-                placeholder="Lọc theo tên thiết bị (VD: VN88, Streamax...)"
-                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm flex-1 max-w-xs outline-none focus:border-blue-400" />
-              <span className="text-sm text-gray-500">{products.length} sản phẩm</span>
+            {/* Product selector */}
+            <div className="bg-white rounded-xl border border-gray-200 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-gray-700">
+                  Chọn thiết bị hiển thị
+                  <span className="ml-2 text-xs text-gray-400 font-normal">{visibleProducts.size}/{report.products.length} đang hiện</span>
+                </span>
+                <div className="flex gap-2">
+                  <button onClick={() => setVisibleProducts(new Set(report.products))} className="text-xs text-blue-600 hover:underline">Chọn tất cả</button>
+                  <button onClick={() => setVisibleProducts(new Set(report.products.filter(c => matchesDefault(report.data[c]?.name ?? c))))} className="text-xs text-gray-500 hover:underline">Mặc định</button>
+                  <button onClick={() => setShowAllProducts(v => !v)} className="text-xs text-gray-500 hover:underline">
+                    {showAllProducts ? '▲ Thu gọn' : `▼ Xem thêm ${hiddenCount} SP`}
+                  </button>
+                </div>
+              </div>
+              <div className={`flex flex-wrap gap-1.5 ${showAllProducts ? '' : 'max-h-24 overflow-hidden'}`}>
+                {report.products.map(c => {
+                  const isVisible = visibleProducts.has(c)
+                  const name = report.data[c]?.name || c
+                  const isDefault = matchesDefault(name)
+                  return (
+                    <button key={c} onClick={() => setVisibleProducts(prev => {
+                      const s = new Set(prev); s.has(c) ? s.delete(c) : s.add(c); return s
+                    })}
+                      className={`px-2 py-0.5 rounded-full text-xs border transition ${
+                        isVisible
+                          ? isDefault ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-700 text-white border-gray-700'
+                          : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'
+                      }`}
+                      title={c}>
+                      {name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Table toolbar */}
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-sm text-gray-500">{displayProducts.length} thiết bị</span>
               <button onClick={exportExcel}
-                className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-semibold"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-semibold"
                 style={{ background: '#217346' }}>
                 📥 Xuất Excel
               </button>
             </div>
 
+            {/* Pivot table */}
             <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
               <table className="text-xs border-collapse">
                 <thead>
                   <tr className="bg-gray-100 border-b-2 border-gray-300">
-                    <th className="px-4 py-2.5 text-left font-bold text-gray-700 whitespace-nowrap sticky left-0 bg-gray-100 min-w-[180px]" rowSpan={2}>Phân loại</th>
-                    {products.map(c => (
-                      <th key={c} className="px-2 py-2 text-center font-semibold text-blue-700 border-l border-gray-200 whitespace-nowrap max-w-[90px]">
-                        <div className="truncate max-w-[90px]" title={report.data[c]?.name || c}>
+                    <th className="px-4 py-2.5 text-left font-bold text-gray-700 whitespace-nowrap sticky left-0 bg-gray-100 min-w-[180px]">Phân loại</th>
+                    {displayProducts.map(c => (
+                      <th key={c} className="px-2 py-2 text-center font-semibold text-blue-700 border-l border-gray-200 whitespace-nowrap">
+                        <div className="max-w-[90px] truncate" title={report.data[c]?.name || c}>
                           {report.data[c]?.name || c}
                         </div>
                       </th>
@@ -587,11 +650,11 @@ function BaoCaoThanhPhamWH() {
                     let rowTotal = 0
                     return (
                       <tr key={row.key} className={`border-b border-gray-200 ${row.bg}`}>
-                        <td className={`px-4 py-2.5 font-semibold sticky left-0 ${row.bg}`}>
+                        <td className={`px-4 py-2.5 sticky left-0 ${row.bg}`}>
                           <div className={`font-bold ${row.text}`}>{row.label}</div>
                           <div className="text-gray-400 text-[10px]">{row.sub}</div>
                         </td>
-                        {products.map(c => {
+                        {displayProducts.map(c => {
                           const v = report.data[c]?.[row.key] ?? 0
                           rowTotal += v
                           return (
@@ -604,14 +667,13 @@ function BaoCaoThanhPhamWH() {
                       </tr>
                     )
                   })}
-                  {/* Tổng row */}
-                  <tr className="bg-gray-100 border-t-2 border-gray-400 font-bold">
+                  <tr className="bg-gray-100 border-t-2 border-gray-400">
                     <td className="px-4 py-2.5 sticky left-0 bg-gray-100">
                       <div className="font-bold text-gray-900">Tổng</div>
                       <div className="text-gray-400 text-[10px]">合計</div>
                     </td>
-                    {products.map(c => {
-                      const v = grand[c] ?? 0
+                    {displayProducts.map(c => {
+                      const v = (report.data[c]?.chuaTP ?? 0) + (report.data[c]?.thanhPham ?? 0) + (report.data[c]?.khongDung ?? 0)
                       return (
                         <td key={c} className={`px-2 py-2.5 text-center border-l border-gray-200 font-bold ${v > 0 ? 'text-gray-900' : 'text-gray-200'}`}>
                           {v || '—'}
@@ -619,7 +681,7 @@ function BaoCaoThanhPhamWH() {
                       )
                     })}
                     <td className="px-3 py-2.5 text-center font-bold text-gray-900 border-l-2 border-gray-400">
-                      {Object.values(grand).reduce((a, b) => a + b, 0) || '—'}
+                      {displayProducts.reduce((s, c) => s + (report.data[c]?.chuaTP ?? 0) + (report.data[c]?.thanhPham ?? 0) + (report.data[c]?.khongDung ?? 0), 0) || '—'}
                     </td>
                   </tr>
                 </tbody>
