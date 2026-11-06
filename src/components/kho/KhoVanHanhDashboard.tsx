@@ -2,7 +2,8 @@
 
 import { useState, useRef, useCallback } from 'react'
 
-type TabId = 'thu-hoi' | 'the-rfid' | 'sim-card' | 'tra-cuu' | 'ton-kho' | 'gui-sc' | 'bao-cao'
+type TabId = 'thu-hoi' | 'the-rfid' | 'sim-card' | 'tra-cuu' | 'ton-kho' | 'gui-sc'
+type TonKhoMode = 'tra-cuu' | 'bao-cao'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function parseList(raw: string): string[] {
@@ -24,59 +25,39 @@ function Cell({ v }: { v: unknown }) {
   return <td className="px-3 py-2 text-sm text-gray-700 whitespace-nowrap">{s}</td>
 }
 
-// ── Tab config ────────────────────────────────────────────────────────────────
-const TABS: { id: TabId; icon: string; label: string; write: boolean; desc: string }[] = [
-  { id: 'tra-cuu',  icon: '🔍', label: 'Tra cứu TB',    write: false, desc: 'GetStockupDetail (kind 0→2→3) + GetCarList — xem kho, trạng thái, SIM, thẻ nhớ' },
-  { id: 'ton-kho',  icon: '📦', label: 'Tồn kho',       write: false, desc: 'GetStockupList — xem tồn kho theo kho (Wait/Use/NotUse) theo mã sản phẩm' },
-  { id: 'bao-cao',  icon: '📊', label: 'Báo cáo tháng', write: false, desc: 'Tổng hợp tồn kho 3 kho (Admin/Old Device/Repair) theo nhóm kho — xuất Excel' },
-  { id: 'sim-card', icon: '📱', label: 'Báo cáo SIM',   write: false, desc: 'GetSimCard — tra cứu nhà mạng, SĐT, gói data theo barcode SIM' },
-  { id: 'thu-hoi',  icon: '🔄', label: 'Thu hồi TB',    write: true,  desc: 'UpdateBackFactory (TransStock=303) — thu hồi hàng loạt về kho KT [Chỉ Admin]' },
-  { id: 'the-rfid', icon: '📡', label: 'Gửi thẻ RFID',  write: true,  desc: 'TransferWareHouse (WH=267) — chuyển thẻ quẹt vào kho [Chỉ Admin]' },
-  { id: 'gui-sc',   icon: '🔧', label: 'Gửi đi SC',     write: true,  desc: 'GetDeviceRepair → UpdateDeviceRepair (WH=3, Repairing) — gửi hàng loạt đi sửa [Chỉ Admin]' },
-]
-
-// ── Types cho báo cáo ─────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 type WareHouseItem = {
-  WH_ID: number
+  WH_ID: number | string
   WH_Name: string
   WH_WHCID: number
   WHC_Name: string
-  WHC_FreeMovable?: boolean
-  WH_Sort?: number
 }
 
-type KhoGroup = { whcId: string; label: string }
+// ── Báo cáo tháng component ───────────────────────────────────────────────────
+function BaoCaoTonKho() {
+  const [loading, setLoading]           = useState(false)
+  const [warehouses, setWarehouses]     = useState<WareHouseItem[]>([])
+  const [loaded, setLoaded]             = useState(false)
+  const [selected, setSelected]         = useState<Set<string>>(new Set())
+  const [report, setReport]             = useState<null | {
+    whIds: string[]
+    whNames: Record<string, string>
+    products: string[]
+    productNames: Record<string, string>
+    data: Record<string, Record<string, { wait: number; use: number; notUse: number }>>
+  }>(null)
+  const [error, setError]               = useState('')
 
-type ReportData = {
-  products: string[]
-  productNames: Record<string, string>
-  khoList: KhoGroup[]
-  data: Record<string, Record<string, { name: string; wait: number; use: number; notUse: number }>>
-}
-
-// ── BáoCáo Tab Component ──────────────────────────────────────────────────────
-function BaoCaoTab() {
-  const [step, setStep] = useState<'load' | 'select' | 'report'>('load')
-  const [loading, setLoading] = useState(false)
-  const [warehouses, setWarehouses] = useState<WareHouseItem[]>([])
-  // 3 slots: Admin, Old Device, Repair — user assigns WH_WHCID groups
-  const [slots, setSlots] = useState<{ label: string; whcIds: Set<number> }[]>([
-    { label: 'Kho Admin',      whcIds: new Set() },
-    { label: 'Kho Old Device', whcIds: new Set() },
-    { label: 'Kho Repair',     whcIds: new Set() },
-  ])
-  const [report, setReport] = useState<ReportData | null>(null)
-  const [reportError, setReportError] = useState('')
-
-  // Nhóm warehouses theo WH_WHCID
-  const groups = warehouses.reduce<Record<number, { name: string; whs: WareHouseItem[] }>>((acc, wh) => {
-    if (!acc[wh.WH_WHCID]) acc[wh.WH_WHCID] = { name: wh.WHC_Name || `Nhóm ${wh.WH_WHCID}`, whs: [] }
-    acc[wh.WH_WHCID].whs.push(wh)
+  // Nhóm warehouses theo WHC_Name
+  const groups = warehouses.reduce<Record<string, { whcId: number; items: WareHouseItem[] }>>((acc, wh) => {
+    const key = wh.WHC_Name || `Nhóm ${wh.WH_WHCID}`
+    if (!acc[key]) acc[key] = { whcId: wh.WH_WHCID, items: [] }
+    acc[key].items.push(wh)
     return acc
   }, {})
 
   async function loadWarehouses() {
-    setLoading(true)
+    setLoading(true); setError('')
     try {
       const r = await fetch('/api/kho/van-hanh', {
         method: 'POST',
@@ -85,319 +66,278 @@ function BaoCaoTab() {
       })
       const json = await r.json()
       if (!json.ok || !Array.isArray(json.warehouses)) {
-        alert('Không tải được danh sách kho: ' + (json.error ?? ''))
+        setError('Không tải được danh sách kho: ' + (json.error ?? JSON.stringify(json._debug_keys ?? '')))
       } else {
         setWarehouses(json.warehouses as WareHouseItem[])
-        setStep('select')
+        setLoaded(true)
       }
-    } catch (e) { alert(String(e)) }
+    } catch (e) { setError(String(e)) }
     setLoading(false)
   }
 
-  function toggleSlotWhcId(slotIdx: number, whcId: number) {
-    setSlots(prev => prev.map((s, i) => {
-      if (i !== slotIdx) return s
-      const next = new Set(s.whcIds)
-      if (next.has(whcId)) next.delete(whcId); else next.add(whcId)
-      return { ...s, whcIds: next }
-    }))
+  function toggleWh(id: string) {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  function toggleGroup(items: WareHouseItem[], check: boolean) {
+    setSelected(prev => {
+      const s = new Set(prev)
+      items.forEach(w => check ? s.add(String(w.WH_ID)) : s.delete(String(w.WH_ID)))
+      return s
+    })
   }
 
   async function runReport() {
-    // Build khoList from slots
-    const khoList: KhoGroup[] = slots
-      .filter(s => s.whcIds.size > 0)
-      .flatMap(s =>
-        Array.from(s.whcIds).map(id => ({ whcId: String(id), label: s.label }))
-      )
+    if (!selected.size) { alert('Chọn ít nhất 1 kho'); return }
+    setLoading(true); setReport(null); setError('')
 
-    // Merge multiple whcIds into single group per slot
-    const mergedKhoList: KhoGroup[] = slots
-      .filter(s => s.whcIds.size > 0)
-      .map(s => ({
-        label: s.label,
-        whcId: Array.from(s.whcIds).join(','), // comma-separated for display only
-      }))
+    // Build whNames map for fallback display
+    const whNames: Record<string, string> = {}
+    warehouses.forEach(w => { whNames[String(w.WH_ID)] = w.WH_Name })
 
-    // Need to call API once per whcId, then merge by label
-    const perWhcId = slots
-      .filter(s => s.whcIds.size > 0)
-      .flatMap(s => Array.from(s.whcIds).map(id => ({ whcId: String(id), label: s.label })))
-
-    if (!perWhcId.length) { alert('Chọn ít nhất 1 nhóm kho cho mỗi slot'); return }
-
-    setLoading(true); setReport(null); setReportError('')
     try {
       const r = await fetch('/api/kho/van-hanh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ton-kho-bao-cao', khoList: perWhcId }),
+        body: JSON.stringify({
+          action: 'ton-kho-bao-cao',
+          whIds: Array.from(selected),
+          whNames,
+        }),
       })
       const json = await r.json()
-      if (!json.ok) {
-        setReportError(json.error ?? 'Lỗi không xác định')
-      } else {
-        // Merge data by label (combine multiple whcIds into same slot label)
-        const merged: ReportData['data'] = {}
-        const labelOrder: string[] = []
-        for (const kho of perWhcId) {
-          if (!labelOrder.includes(kho.label)) labelOrder.push(kho.label)
-          if (!merged[kho.label]) merged[kho.label] = {}
-          const src = (json.data as ReportData['data'])[kho.whcId] ?? {}
-          for (const [code, v] of Object.entries(src)) {
-            if (!merged[kho.label][code]) merged[kho.label][code] = { name: v.name, wait: 0, use: 0, notUse: 0 }
-            merged[kho.label][code].wait    += v.wait
-            merged[kho.label][code].use     += v.use
-            merged[kho.label][code].notUse  += v.notUse
-          }
-        }
-        setReport({
-          products: json.products as string[],
-          productNames: json.productNames as Record<string, string>,
-          khoList: labelOrder.map(l => ({ whcId: l, label: l })),
-          data: merged,
-        })
-        setStep('report')
-      }
-    } catch (e) { setReportError(String(e)) }
+      if (!json.ok) setError(json.error ?? 'Lỗi không xác định')
+      else setReport(json)
+    } catch (e) { setError(String(e)) }
     setLoading(false)
   }
 
-  async function exportExcel(r: ReportData) {
+  async function exportExcel(r: NonNullable<typeof report>) {
     const { utils, writeFile } = await import('xlsx')
-    const khos = r.khoList.map(k => k.label)
+    const khoLabels = r.whIds.map(id => r.whNames[id] || id)
 
-    // Header row
-    const header = ['Mã SP', 'Tên sản phẩm', ...khos.flatMap(k => [`${k} - Chờ`, `${k} - Dùng được`, `${k} - Hỏng`, `${k} - Tổng`])]
+    const header = ['Mã SP', 'Tên sản phẩm',
+      ...r.whIds.flatMap(id => {
+        const lbl = r.whNames[id] || id
+        return [`${lbl} Chờ`, `${lbl} Dùng được`, `${lbl} Hỏng`, `${lbl} Tổng`]
+      }),
+      'Tổng toàn bộ',
+    ]
     const rows: (string | number)[][] = [header]
 
-    for (const code of r.products) {
-      const name = r.productNames[code] ?? code
-      const cells: (string | number)[] = [code, name]
-      let hasData = false
-      for (const kho of khos) {
-        const v = r.data[kho]?.[code] ?? { wait: 0, use: 0, notUse: 0 }
-        const total = v.wait + v.use + v.notUse
-        if (total > 0) hasData = true
-        cells.push(v.wait, v.use, v.notUse, total)
-      }
-      if (hasData) rows.push(cells)
-    }
+    const activeProducts = r.products.filter(code =>
+      r.whIds.some(id => { const v = r.data[id]?.[code]; return v && (v.wait + v.use + v.notUse) > 0 })
+    )
 
-    // Totals row
-    const totalRow: (string | number)[] = ['', 'TỔNG CỘNG']
-    for (const kho of khos) {
-      const wait = r.products.reduce((s, c) => s + (r.data[kho]?.[c]?.wait ?? 0), 0)
-      const use  = r.products.reduce((s, c) => s + (r.data[kho]?.[c]?.use  ?? 0), 0)
-      const notUse = r.products.reduce((s, c) => s + (r.data[kho]?.[c]?.notUse ?? 0), 0)
-      totalRow.push(wait, use, notUse, wait + use + notUse)
+    for (const code of activeProducts) {
+      const cells: (string | number)[] = [code, r.productNames[code] ?? code]
+      let grand = 0
+      for (const id of r.whIds) {
+        const v = r.data[id]?.[code] ?? { wait: 0, use: 0, notUse: 0 }
+        const t = v.wait + v.use + v.notUse
+        grand += t
+        cells.push(v.wait, v.use, v.notUse, t)
+      }
+      cells.push(grand)
+      rows.push(cells)
     }
-    rows.push(totalRow)
 
     const ws = utils.aoa_to_sheet(rows)
     const wb = utils.book_new()
     utils.book_append_sheet(wb, ws, 'Tồn kho')
     const now = new Date()
-    const fname = `BaoCaoTonKho_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}.xlsx`
-    writeFile(wb, fname)
+    writeFile(wb, `TonKho_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}.xlsx`)
   }
 
-  // ── STEP: LOAD ────────────────────────────────────────────────────────────
-  if (step === 'load') {
-    return (
-      <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
-        <div className="text-5xl mb-4">📊</div>
-        <h2 className="text-lg font-bold text-gray-800 mb-2">Báo cáo tồn kho cuối tháng</h2>
-        <p className="text-sm text-gray-500 mb-6">
-          Tổng hợp số liệu từ CRM cho 3 kho: <strong>Admin, Old Device, Repair</strong><br/>
-          Gộp cả 3 loại stockup (-1 thành phẩm, 0 IMEI, 2 phụ kiện)
-        </p>
-        <button onClick={loadWarehouses} disabled={loading}
-          className="px-6 py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
-          style={{ background: '#A70A0A' }}>
-          {loading ? '⏳ Đang tải...' : '🏭 Tải danh sách kho'}
-        </button>
-      </div>
-    )
-  }
-
-  // ── STEP: SELECT ─────────────────────────────────────────────────────────
-  if (step === 'select') {
-    const sortedGroups = Object.entries(groups).sort(([a], [b]) => Number(a) - Number(b))
-
-    return (
-      <div className="space-y-4">
-        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800">
-          <strong>Bước 2:</strong> Phân loại từng nhóm kho CRM vào 3 slot báo cáo. Mỗi slot có thể gộp nhiều nhóm.
-        </div>
-
-        {/* 3 slots */}
-        {slots.map((slot, si) => (
-          <div key={si} className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className={`w-3 h-3 rounded-full ${si === 0 ? 'bg-blue-500' : si === 1 ? 'bg-amber-500' : 'bg-red-500'}`}/>
-              <span className="font-semibold text-gray-800">{slot.label}</span>
-              {slot.whcIds.size > 0 && (
-                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
-                  {slot.whcIds.size} nhóm đã chọn
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {sortedGroups.map(([whcIdStr, grp]) => {
-                const whcId = Number(whcIdStr)
-                const selected = slot.whcIds.has(whcId)
-                return (
-                  <button key={whcId}
-                    onClick={() => toggleSlotWhcId(si, whcId)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-                      selected ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                    }`}>
-                    {grp.name} <span className="opacity-60">(ID:{whcId}, {grp.whs.length} kho)</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        ))}
-
-        {/* Preview: total selected */}
-        <div className="flex gap-3 items-center">
-          <button onClick={runReport}
-            disabled={loading || slots.every(s => s.whcIds.size === 0)}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <div className="space-y-4">
+      {/* Load + select */}
+      {!loaded ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+          <p className="text-sm text-gray-500 mb-4">Tải danh sách kho từ CRM để chọn kho cần xuất báo cáo</p>
+          <button onClick={loadWarehouses} disabled={loading}
+            className="px-5 py-2 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
             style={{ background: '#A70A0A' }}>
-            {loading ? '⏳ Đang lấy dữ liệu CRM...' : '📊 Chạy báo cáo'}
+            {loading ? '⏳ Đang tải...' : '🏭 Tải danh sách kho'}
           </button>
-          <button onClick={() => setStep('load')}
-            className="px-4 py-2.5 rounded-xl text-gray-600 text-sm border border-gray-200 hover:bg-gray-50">
-            ← Quay lại
-          </button>
+          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         </div>
+      ) : (
+        <>
+          {/* Warehouse selector */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <span className="font-semibold text-gray-800 text-sm">
+                Chọn kho cần xuất báo cáo
+                {selected.size > 0 && (
+                  <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">{selected.size} kho đã chọn</span>
+                )}
+              </span>
+              <div className="flex gap-2">
+                <button onClick={() => setSelected(new Set(warehouses.map(w => String(w.WH_ID))))}
+                  className="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50 text-gray-600">Chọn tất cả</button>
+                <button onClick={() => setSelected(new Set())}
+                  className="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50 text-gray-600">Bỏ chọn</button>
+                <button onClick={() => { setLoaded(false); setWarehouses([]); setSelected(new Set()); setReport(null) }}
+                  className="px-3 py-1 rounded-lg text-xs border border-gray-200 hover:bg-gray-50 text-gray-500">↺ Tải lại</button>
+              </div>
+            </div>
 
-        {reportError && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">❌ {reportError}</div>
-        )}
-      </div>
-    )
-  }
-
-  // ── STEP: REPORT ──────────────────────────────────────────────────────────
-  if (step === 'report' && report) {
-    const khos = report.khoList.map(k => k.label)
-    // Filter products that have at least some data
-    const activeProducts = report.products.filter(code =>
-      khos.some(kho => {
-        const v = report.data[kho]?.[code]
-        return v && (v.wait + v.use + v.notUse) > 0
-      })
-    )
-
-    return (
-      <div className="space-y-4">
-        {/* Toolbar */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => setStep('select')}
-              className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 hover:bg-gray-50 text-gray-600">
-              ← Điều chỉnh kho
-            </button>
-            <span className="text-sm text-gray-500">{activeProducts.length} sản phẩm, {khos.length} kho</span>
-          </div>
-          <button onClick={() => exportExcel(report)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-semibold"
-            style={{ background: '#217346' }}>
-            📥 Xuất Excel
-          </button>
-        </div>
-
-        {/* Report table */}
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-          <table className="text-xs border-collapse w-full">
-            {/* Header */}
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-3 py-2.5 font-semibold text-gray-600 text-left whitespace-nowrap" rowSpan={2}>Mã SP</th>
-                <th className="px-3 py-2.5 font-semibold text-gray-600 text-left whitespace-nowrap" rowSpan={2}>Tên sản phẩm</th>
-                {khos.map((kho, ki) => (
-                  <th key={ki} colSpan={4} className={`px-3 py-2 font-semibold text-center border-l border-gray-200 ${
-                    ki === 0 ? 'text-blue-700' : ki === 1 ? 'text-amber-700' : 'text-red-700'
-                  }`}>{kho}</th>
-                ))}
-                <th className="px-3 py-2 font-semibold text-gray-700 text-center border-l border-gray-200" rowSpan={2}>Tổng<br/>toàn bộ</th>
-              </tr>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                {khos.map((_, ki) => (
-                  ['Chờ', 'Dùng được', 'Hỏng', 'Tổng'].map(col => (
-                    <th key={`${ki}-${col}`} className={`px-2 py-1 font-medium text-gray-500 text-center border-l border-gray-100 ${col === 'Tổng' ? 'font-semibold text-gray-700' : ''}`}>
-                      {col}
-                    </th>
-                  ))
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {activeProducts.map((code, ri) => {
-                let grandTotal = 0
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
+              {Object.entries(groups).sort(([, a], [, b]) => a.whcId - b.whcId).map(([groupName, grp]) => {
+                const ids = grp.items.map(w => String(w.WH_ID))
+                const allChecked = ids.every(id => selected.has(id))
+                const someChecked = ids.some(id => selected.has(id))
                 return (
-                  <tr key={code} className={`border-b border-gray-100 ${ri % 2 === 0 ? '' : 'bg-gray-50/50'} hover:bg-blue-50/30`}>
-                    <td className="px-3 py-2 font-mono text-gray-600">{code}</td>
-                    <td className="px-3 py-2 text-gray-700 font-medium whitespace-nowrap">{report.productNames[code] || code}</td>
-                    {khos.map((kho, ki) => {
-                      const v = report.data[kho]?.[code] ?? { wait: 0, use: 0, notUse: 0 }
-                      const total = v.wait + v.use + v.notUse
-                      grandTotal += total
-                      return (
-                        <>
-                          <td key={`${ki}-w`} className={`px-2 py-2 text-center border-l border-gray-100 ${v.wait > 0 ? 'text-amber-700 font-semibold' : 'text-gray-300'}`}>{v.wait || '—'}</td>
-                          <td key={`${ki}-u`} className={`px-2 py-2 text-center ${v.use > 0 ? 'text-emerald-700 font-semibold' : 'text-gray-300'}`}>{v.use || '—'}</td>
-                          <td key={`${ki}-n`} className={`px-2 py-2 text-center ${v.notUse > 0 ? 'text-red-600 font-semibold' : 'text-gray-300'}`}>{v.notUse || '—'}</td>
-                          <td key={`${ki}-t`} className={`px-2 py-2 text-center font-bold border-r border-gray-100 ${total > 0 ? 'text-gray-800' : 'text-gray-200'}`}>{total || '—'}</td>
-                        </>
-                      )
-                    })}
-                    <td className="px-3 py-2 text-center font-bold text-gray-900 border-l border-gray-200">{grandTotal || '—'}</td>
-                  </tr>
+                  <div key={groupName} className="border border-gray-100 rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5 pb-1.5 border-b border-gray-100">
+                      <input type="checkbox" checked={allChecked} ref={el => { if (el) el.indeterminate = someChecked && !allChecked }}
+                        onChange={e => toggleGroup(grp.items, e.target.checked)}
+                        className="rounded" />
+                      <span className="text-xs font-bold text-gray-700">{groupName}</span>
+                      <span className="text-xs text-gray-400 ml-auto">{grp.items.length} kho</span>
+                    </div>
+                    <div className="space-y-0.5">
+                      {grp.items.map(wh => {
+                        const id = String(wh.WH_ID)
+                        return (
+                          <label key={id} className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-gray-50 cursor-pointer">
+                            <input type="checkbox" checked={selected.has(id)} onChange={() => toggleWh(id)} className="rounded" />
+                            <span className="text-xs text-gray-700">{wh.WH_Name}</span>
+                            <span className="text-xs text-gray-400 ml-auto font-mono">#{id}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
                 )
               })}
-              {/* Totals */}
-              <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold">
-                <td className="px-3 py-2 text-gray-800" colSpan={2}>TỔNG CỘNG</td>
-                {(() => {
-                  let grandTotal = 0
-                  return khos.map((kho, ki) => {
-                    const wait    = activeProducts.reduce((s, c) => s + (report.data[kho]?.[c]?.wait    ?? 0), 0)
-                    const use     = activeProducts.reduce((s, c) => s + (report.data[kho]?.[c]?.use     ?? 0), 0)
-                    const notUse  = activeProducts.reduce((s, c) => s + (report.data[kho]?.[c]?.notUse  ?? 0), 0)
-                    const total   = wait + use + notUse
-                    grandTotal += total
-                    return (
-                      <>
-                        <td key={`tot-${ki}-w`} className="px-2 py-2 text-center text-amber-800 border-l border-gray-200">{wait}</td>
-                        <td key={`tot-${ki}-u`} className="px-2 py-2 text-center text-emerald-800">{use}</td>
-                        <td key={`tot-${ki}-n`} className="px-2 py-2 text-center text-red-800">{notUse}</td>
-                        <td key={`tot-${ki}-t`} className="px-2 py-2 text-center text-gray-900 border-r border-gray-200">{total}</td>
-                        {ki === khos.length - 1 && (
-                          <td className="px-3 py-2 text-center text-gray-900 border-l border-gray-200">{grandTotal}</td>
-                        )}
-                      </>
-                    )
-                  })
-                })()}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    )
-  }
+            </div>
+          </div>
 
-  return null
+          {/* Run button */}
+          <div className="flex gap-3 items-center">
+            <button onClick={runReport} disabled={loading || selected.size === 0}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold text-sm disabled:opacity-50"
+              style={{ background: '#A70A0A' }}>
+              {loading ? '⏳ Đang lấy dữ liệu...' : `📊 Xuất báo cáo (${selected.size} kho)`}
+            </button>
+            {error && <span className="text-sm text-red-600">{error}</span>}
+          </div>
+        </>
+      )}
+
+      {/* Report table */}
+      {report && (() => {
+        const activeProducts = report.products.filter(code =>
+          report.whIds.some(id => { const v = report.data[id]?.[code]; return v && (v.wait + v.use + v.notUse) > 0 })
+        )
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-sm text-gray-600">{activeProducts.length} sản phẩm, {report.whIds.length} kho</span>
+              <button onClick={() => exportExcel(report)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-semibold"
+                style={{ background: '#217346' }}>
+                📥 Xuất Excel
+              </button>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+              <table className="text-xs border-collapse w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-3 py-2.5 text-left font-semibold text-gray-600 whitespace-nowrap sticky left-0 bg-gray-50" rowSpan={2}>Mã SP</th>
+                    <th className="px-3 py-2.5 text-left font-semibold text-gray-600 whitespace-nowrap" rowSpan={2}>Tên sản phẩm</th>
+                    {report.whIds.map((id, ki) => (
+                      <th key={id} colSpan={4} className="px-2 py-2 text-center font-semibold border-l border-gray-200 text-blue-700 whitespace-nowrap">
+                        {report.whNames[id] || id}
+                      </th>
+                    ))}
+                    <th className="px-3 py-2 text-center font-semibold text-gray-700 border-l border-gray-200" rowSpan={2}>Tổng</th>
+                  </tr>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    {report.whIds.map(id => (
+                      ['Chờ', 'Dùng', 'Hỏng', 'Tổng'].map(col => (
+                        <th key={`${id}-${col}`} className={`px-2 py-1 font-medium text-center border-l border-gray-100 ${col === 'Tổng' ? 'font-bold text-gray-700' : 'text-gray-500'}`}>
+                          {col}
+                        </th>
+                      ))
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeProducts.map((code, ri) => {
+                    let grand = 0
+                    return (
+                      <tr key={code} className={`border-b border-gray-100 ${ri % 2 === 0 ? '' : 'bg-gray-50/40'} hover:bg-blue-50/20`}>
+                        <td className="px-3 py-1.5 font-mono text-gray-500 sticky left-0 bg-inherit">{code}</td>
+                        <td className="px-3 py-1.5 text-gray-700 font-medium whitespace-nowrap">{report.productNames[code] || code}</td>
+                        {report.whIds.map(id => {
+                          const v = report.data[id]?.[code] ?? { wait: 0, use: 0, notUse: 0 }
+                          const t = v.wait + v.use + v.notUse
+                          grand += t
+                          return (
+                            <>
+                              <td key={`${id}-w`} className={`px-2 py-1.5 text-center border-l border-gray-100 ${v.wait > 0 ? 'text-amber-700 font-semibold' : 'text-gray-200'}`}>{v.wait || '—'}</td>
+                              <td key={`${id}-u`} className={`px-2 py-1.5 text-center ${v.use > 0 ? 'text-emerald-700 font-semibold' : 'text-gray-200'}`}>{v.use || '—'}</td>
+                              <td key={`${id}-n`} className={`px-2 py-1.5 text-center ${v.notUse > 0 ? 'text-red-600 font-semibold' : 'text-gray-200'}`}>{v.notUse || '—'}</td>
+                              <td key={`${id}-t`} className={`px-2 py-1.5 text-center font-bold border-r border-gray-100 ${t > 0 ? 'text-gray-800' : 'text-gray-200'}`}>{t || '—'}</td>
+                            </>
+                          )
+                        })}
+                        <td className="px-3 py-1.5 text-center font-bold text-gray-900 border-l border-gray-200">{grand || '—'}</td>
+                      </tr>
+                    )
+                  })}
+                  {/* Totals */}
+                  <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold text-xs">
+                    <td className="px-3 py-2 text-gray-800 sticky left-0 bg-gray-100" colSpan={2}>TỔNG</td>
+                    {(() => {
+                      let grand = 0
+                      return report.whIds.map((id, ki) => {
+                        const wait = activeProducts.reduce((s, c) => s + (report.data[id]?.[c]?.wait ?? 0), 0)
+                        const use  = activeProducts.reduce((s, c) => s + (report.data[id]?.[c]?.use  ?? 0), 0)
+                        const notUse = activeProducts.reduce((s, c) => s + (report.data[id]?.[c]?.notUse ?? 0), 0)
+                        const t = wait + use + notUse
+                        grand += t
+                        return (
+                          <>
+                            <td key={`tot-${id}-w`} className="px-2 py-2 text-center text-amber-800 border-l border-gray-200">{wait}</td>
+                            <td key={`tot-${id}-u`} className="px-2 py-2 text-center text-emerald-800">{use}</td>
+                            <td key={`tot-${id}-n`} className="px-2 py-2 text-center text-red-800">{notUse}</td>
+                            <td key={`tot-${id}-t`} className="px-2 py-2 text-center text-gray-900 border-r border-gray-200">{t}</td>
+                            {ki === report.whIds.length - 1 && (
+                              <td className="px-3 py-2 text-center text-gray-900 border-l border-gray-200">{grand}</td>
+                            )}
+                          </>
+                        )
+                      })
+                    })()}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
+    </div>
+  )
 }
+
+// ── Tab config ────────────────────────────────────────────────────────────────
+const TABS: { id: TabId; icon: string; label: string; write: boolean; desc: string }[] = [
+  { id: 'tra-cuu',  icon: '🔍', label: 'Tra cứu TB',    write: false, desc: 'GetStockupDetail (kind 0→2→3) + GetCarList — xem kho, trạng thái, SIM, thẻ nhớ' },
+  { id: 'ton-kho',  icon: '📦', label: 'Tồn kho',       write: false, desc: 'GetStockupList — tra cứu tồn kho theo WH_ID và xuất báo cáo cuối tháng' },
+  { id: 'sim-card', icon: '📱', label: 'Báo cáo SIM',   write: false, desc: 'GetSimCard — tra cứu nhà mạng, SĐT, gói data theo barcode SIM' },
+  { id: 'thu-hoi',  icon: '🔄', label: 'Thu hồi TB',    write: true,  desc: 'UpdateBackFactory (TransStock=303) — thu hồi hàng loạt về kho KT [Chỉ Admin]' },
+  { id: 'the-rfid', icon: '📡', label: 'Gửi thẻ RFID',  write: true,  desc: 'TransferWareHouse (WH=267) — chuyển thẻ quẹt vào kho [Chỉ Admin]' },
+  { id: 'gui-sc',   icon: '🔧', label: 'Gửi đi SC',     write: true,  desc: 'GetDeviceRepair → UpdateDeviceRepair (WH=3, Repairing) — gửi hàng loạt đi sửa [Chỉ Admin]' },
+]
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function KhoVanHanhDashboard() {
   const [tab, setTab]           = useState<TabId>('tra-cuu')
+  const [tonKhoMode, setTonKhoMode] = useState<TonKhoMode>('tra-cuu')
   const [imeiText, setImeiText] = useState('')
   const [whText, setWhText]     = useState('')
   const [stockupKind, setStockupKind] = useState('')
@@ -408,7 +348,6 @@ export default function KhoVanHanhDashboard() {
 
   const currentTab  = TABS.find(t => t.id === tab)!
   const isTonKho    = tab === 'ton-kho'
-  const isBaoCao    = tab === 'bao-cao'
   const listText    = isTonKho ? whText : imeiText
   const setListText = isTonKho ? setWhText : setImeiText
   const listCount   = parseList(listText).length
@@ -461,7 +400,6 @@ export default function KhoVanHanhDashboard() {
     }
 
     const rows = r.results ?? []
-
     const summary = r.success !== undefined ? (
       <div className="mb-3 flex gap-2 flex-wrap">
         <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">✓ Thành công: {r.success}</span>
@@ -628,7 +566,6 @@ export default function KhoVanHanhDashboard() {
 
   return (
     <div className="min-h-screen" style={{ background: '#f5f7fa' }}>
-      {/* Header */}
       <div className="px-6 py-5 border-b bg-white">
         <h1 className="text-xl font-bold text-gray-800">🏭 Vận hành Kho</h1>
         <p className="text-sm text-gray-500 mt-0.5">Thao tác hàng loạt: tra cứu, tồn kho, thu hồi, chuyển thẻ, gửi SC</p>
@@ -636,11 +573,10 @@ export default function KhoVanHanhDashboard() {
 
       <div className="max-w-6xl mx-auto px-4 py-6">
 
-        {/* Tabs */}
+        {/* Main Tabs */}
         <div className="flex gap-1.5 flex-wrap mb-5">
           {TABS.map(t => (
-            <button
-              key={t.id}
+            <button key={t.id}
               onClick={() => { setTab(t.id); setResult(null) }}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${
                 tab === t.id
@@ -649,8 +585,7 @@ export default function KhoVanHanhDashboard() {
                     ? 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
               }`}
-              style={tab === t.id ? { background: t.write ? '#b45309' : '#A70A0A' } : {}}
-            >
+              style={tab === t.id ? { background: t.write ? '#b45309' : '#A70A0A' } : {}}>
               {t.icon} {t.label}
               {t.write && tab !== t.id && <span className="text-[10px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-bold">Admin</span>}
             </button>
@@ -663,9 +598,23 @@ export default function KhoVanHanhDashboard() {
           <span className="font-semibold text-gray-700">{currentTab.icon} {currentTab.label}:</span> {currentTab.desc}
         </div>
 
-        {/* Báo cáo tháng — tách riêng component */}
-        {isBaoCao ? (
-          <BaoCaoTab />
+        {/* Tồn kho: sub-tabs */}
+        {isTonKho && (
+          <div className="flex gap-1 mb-4 bg-white border border-gray-200 rounded-xl p-1 w-fit">
+            <button onClick={() => setTonKhoMode('tra-cuu')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition ${tonKhoMode === 'tra-cuu' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+              🔎 Tra cứu
+            </button>
+            <button onClick={() => setTonKhoMode('bao-cao')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition ${tonKhoMode === 'bao-cao' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+              📊 Báo cáo tháng
+            </button>
+          </div>
+        )}
+
+        {/* Báo cáo tháng sub-tab */}
+        {isTonKho && tonKhoMode === 'bao-cao' ? (
+          <BaoCaoTonKho />
         ) : (
           <>
             {/* Input panel */}
@@ -705,13 +654,10 @@ export default function KhoVanHanhDashboard() {
                 <div className="mt-3 flex items-center gap-3">
                   <label className="text-xs font-semibold text-gray-600">Loại kho:</label>
                   {[['', 'Tất cả'], ['-1', 'Loại -1'], ['0', 'Loại 0'], ['2', 'Loại 2']].map(([val, lbl]) => (
-                    <button key={val}
-                      onClick={() => setStockupKind(val)}
+                    <button key={val} onClick={() => setStockupKind(val)}
                       className={`px-3 py-1 rounded-lg text-xs font-semibold border transition ${
                         stockupKind === val ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                      }`}>
-                      {lbl}
-                    </button>
+                      }`}>{lbl}</button>
                   ))}
                 </div>
               )}
@@ -730,8 +676,6 @@ export default function KhoVanHanhDashboard() {
                 <span className="text-xs text-gray-400">Tối đa 200 mục / lần</span>
               </div>
             </div>
-
-            {/* Results */}
             {renderResults(result)}
           </>
         )}

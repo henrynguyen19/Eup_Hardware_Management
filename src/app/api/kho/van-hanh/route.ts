@@ -380,33 +380,33 @@ export async function POST(req: NextRequest) {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // 8. BÁO CÁO TỒN KHO CUỐI THÁNG — GetStockupList × WH_WHCID × StockupKind
-  //    Gọi với WH_WHCID (nhóm kho) thay vì WH_ID đơn lẻ
-  //    StockupKind: -1 (thành phẩm), 0 (mã IMEI), 2 (phụ kiện đi kèm)
+  // 8. BÁO CÁO TỒN KHO — GetStockupList × WH_ID × StockupKind (-1, 0, 2)
+  //    Input: whIds (mảng WH_ID đơn lẻ), whNames (tên hiển thị từ UI)
   // ══════════════════════════════════════════════════════════════════════════
   if (action === 'ton-kho-bao-cao') {
-    const { khoList } = body as {
-      khoList?: Array<{ whcId: string; label: string }>
+    const { whIds, whNames: whNamesIn } = body as {
+      whIds?: string[]
+      whNames?: Record<string, string>
     }
-    if (!khoList?.length) return NextResponse.json({ error: 'Cần ít nhất 1 kho' }, { status: 400 })
+    if (!whIds?.length) return NextResponse.json({ error: 'Cần ít nhất 1 kho' }, { status: 400 })
+    if (whIds.length > 50) return NextResponse.json({ error: 'Tối đa 50 kho / lần' }, { status: 400 })
 
-    const STOCKUP_KINDS = ['-1', '0', '2']
-    const KIND_LABEL: Record<string, string> = { '-1': 'Thành phẩm', '0': 'IMEI', '2': 'Phụ kiện' }
+    const KINDS = ['-1', '0', '2']
 
-    // Map: whcId → productNumber → { name, wait, use, notUse }
+    // Map: whId → productCode → { name, wait, use, notUse }
     const data: Record<string, Record<string, { name: string; wait: number; use: number; notUse: number }>> = {}
-    // Collect all product codes seen across all kho
     const allProducts = new Set<string>()
+    const productNames: Record<string, string> = {}
+    const whNamesOut: Record<string, string> = {}
 
-    for (const kho of khoList) {
-      data[kho.whcId] = {}
+    for (const whId of whIds) {
+      data[whId] = {}
 
-      for (const kind of STOCKUP_KINDS) {
+      for (const kind of KINDS) {
         const r = await crmCall('GetStockupList', {
-          WH_WHCID: kho.whcId,
-          WH_ID: 'null',
+          WH_ID: whId,
           StockupKind: kind,
-        }, sessionId, identity, 30_000)
+        }, sessionId, identity, 20_000)
 
         if (!r.ok || !Array.isArray(r.result)) continue
 
@@ -415,31 +415,24 @@ export async function POST(req: NextRequest) {
           const code = String(p.ProductNumber ?? '').trim()
           if (!code) continue
           allProducts.add(code)
-          if (!data[kho.whcId][code]) {
-            data[kho.whcId][code] = { name: String(p.ProductName ?? ''), wait: 0, use: 0, notUse: 0 }
-          }
-          data[kho.whcId][code].wait    += Number(p.WaitCount    ?? 0)
-          data[kho.whcId][code].use     += Number(p.CanUseCount  ?? 0)
-          data[kho.whcId][code].notUse  += Number(p.NotUseCount  ?? 0)
+          if (!productNames[code] && p.ProductName) productNames[code] = String(p.ProductName)
+          if (!whNamesOut[whId] && p.WH_Name) whNamesOut[whId] = String(p.WH_Name)
+          if (!data[whId][code]) data[whId][code] = { name: productNames[code] ?? '', wait: 0, use: 0, notUse: 0 }
+          data[whId][code].wait   += Number(p.WaitCount   ?? 0)
+          data[whId][code].use    += Number(p.CanUseCount ?? 0)
+          data[whId][code].notUse += Number(p.NotUseCount ?? 0)
         }
       }
-    }
-
-    // Build sorted product list (by first occurrence name)
-    const productNames: Record<string, string> = {}
-    for (const khoId of Object.keys(data)) {
-      for (const [code, v] of Object.entries(data[khoId])) {
-        if (!productNames[code] && v.name) productNames[code] = v.name
-      }
+      // Fallback: dùng tên từ UI nếu CRM không trả WH_Name
+      if (!whNamesOut[whId] && whNamesIn?.[whId]) whNamesOut[whId] = whNamesIn[whId]
     }
 
     return NextResponse.json({
-      ok: true,
-      action,
+      ok: true, action,
+      whIds,
+      whNames: whNamesOut,
       products: Array.from(allProducts).sort(),
       productNames,
-      kindLabel: KIND_LABEL,
-      khoList,
       data,
     })
   }
