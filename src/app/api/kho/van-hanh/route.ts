@@ -331,8 +331,8 @@ export async function POST(req: NextRequest) {
     if (!url) return NextResponse.json({ ok: false, error: 'Thiếu CRM_SOAP_URL' }, { status: 500 })
 
     const form = new URLSearchParams()
-    form.append('MethodName', 'GetWarehouse')
-    form.append('Param', JSON.stringify({ WHC_ID: null, WHM_ManagerType: null, WHM_Manager: null }))
+    form.append('MethodName', 'GetWarehouseList')
+    form.append('Param', JSON.stringify({}))
     form.append('SESSION_ID', sessionId)
     form.append('IDENTITY', identity)
 
