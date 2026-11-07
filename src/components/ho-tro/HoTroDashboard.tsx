@@ -1677,6 +1677,26 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     } finally { setSyncLoading('__all__', false) }
   }
 
+  // Sync GetCustService — 6 ngày gần nhất, filter #hardware
+  async function handleSyncRecent() {
+    setSyncLoading('__recent__', true)
+    setCrmResult(null)
+    try {
+      const res = await fetch('/api/crm/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'recent', days: 6 }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Lỗi sync recent')
+      setCrmResult(`✅ Sync 6 ngày: +${json.newCount ?? 0} mới, ↑${json.updatedCount ?? 0} cập nhật (${json.total ?? 0} ticket #hardware)`)
+      fetchCRMTickets(1)
+      fetchUnreadUpdates()
+    } catch (err) {
+      setCrmResult(`❌ Sync 6 ngày: ${err instanceof Error ? err.message : String(err)}`)
+    } finally { setSyncLoading('__recent__', false) }
+  }
+
   // Giữ lại để tương thích (không dùng trong UI mới)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function handleSyncCRM(_mode: 'self' | 'full' = 'self') { /* deprecated */ }
@@ -2115,15 +2135,23 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   >
                     {isSyncingStaff('__all__') ? '⏳' : '📦'} All
                   </button>
+                  <button
+                    onClick={handleSyncRecent}
+                    disabled={crmSyncing}
+                    title="Sync GetCustService 6 ngày gần nhất — chỉ lấy ticket có #hardware"
+                    className="px-2.5 py-2 text-xs font-medium rounded-lg border border-green-300 text-green-700 hover:bg-green-50 transition disabled:opacity-40 whitespace-nowrap"
+                  >
+                    {isSyncingStaff('__recent__') ? '⏳' : '🕐'} 6 ngày
+                  </button>
                 </>
               ) : (
                 <button
-                  onClick={() => handleSyncStaff(staffConfig?.name ?? 'Self')}
+                  onClick={handleSyncRecent}
                   disabled={crmSyncing}
-                  title="Đồng bộ dữ liệu của bạn từ CRM"
-                  className="px-2.5 py-2 text-sm text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg border border-gray-200 transition disabled:opacity-40 whitespace-nowrap"
+                  title="Sync 6 ngày gần nhất — ticket có #hardware"
+                  className="px-2.5 py-2 text-sm text-green-600 hover:text-green-800 hover:bg-green-50 rounded-lg border border-green-200 transition disabled:opacity-40 whitespace-nowrap"
                 >
-                  {crmSyncing ? '⏳' : '🔄'} Đồng bộ
+                  {isSyncingStaff('__recent__') ? '⏳' : '🕐'} Sync 6 ngày
                 </button>
               ))}
             </div>

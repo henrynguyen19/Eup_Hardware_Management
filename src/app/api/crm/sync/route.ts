@@ -214,7 +214,7 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
     method: 'POST',
     headers,
     body: form.toString(),
-    signal: AbortSignal.timeout(90_000),  // tăng lên 90s — staff nhiều data như Stefan cần thời gian
+    signal: AbortSignal.timeout(90_000),
   })
   if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
   const rawText = await resp.text()
@@ -223,6 +223,37 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
   try { json = JSON.parse(rawText) } catch { throw new Error(`CRM response khong parse duoc: ${rawText.substring(0, 100)}`) }
   if (!json.status) throw new Error(json.error || 'CRM returned status=0')
   return json.result ?? []
+}
+
+// Gọi GetCustService với khoảng thời gian (dùng cho mode 'recent')
+async function callCRMSoapRecent(sessionId: string, identity: string, url: string, startTime: string, endTime: string): Promise<CRMTicket[]> {
+  const form = new URLSearchParams()
+  form.append('MethodName', 'GetCustService')
+  form.append('Param', JSON.stringify({ StartTime: startTime, EndTime: endTime, CS_ID: null, Cust_HaveTax: null }))
+  form.append('SESSION_ID', sessionId)
+  form.append('IDENTITY', identity)
+  const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' }
+  if (process.env.PROXY_SECRET) headers['x-proxy-secret'] = process.env.PROXY_SECRET
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: form.toString(),
+    signal: AbortSignal.timeout(90_000),
+  })
+  if (!resp.ok) throw new Error(`CRM HTTP ${resp.status}`)
+  const rawText = await resp.text()
+  if (!rawText || rawText.trim() === '') throw new Error('CRM tra ve body rong')
+  let json: CRMResponse
+  try { json = JSON.parse(rawText) } catch { throw new Error(`CRM response khong parse duoc: ${rawText.substring(0, 100)}`) }
+  if (!json.status) throw new Error(json.error || 'CRM returned status=0')
+  // Chỉ giữ ticket có #hardware trong CS_Memo hoặc CS_Context
+  const all = json.result ?? []
+  return all.filter(t => {
+    const memo = (t.CS_Memo ?? '').toLowerCase()
+    const ctx  = (t.CS_Context ?? '').toLowerCase()
+    return memo.includes('#hardware') || ctx.includes('#hardware')
+  })
 }
 
 export const runtime     = 'nodejs'
@@ -257,15 +288,93 @@ export async function POST(req: NextRequest) {
   if (!url) return NextResponse.json({ error: 'Thieu CRM_SOAP_URL' }, { status: 500 })
 
   const body = await req.json().catch(() => ({})) as {
-    mode?: 'full' | 'self' | 'one'
+    mode?: 'full' | 'self' | 'one' | 'recent'
     staffName?: string
     fromDate?: string
     toDate?: string
+    days?: number  // cho mode recent, mặc định 6
   }
   const mode = body.mode ?? 'self'
 
   if ((mode === 'full' || mode === 'one') && !isAdmin)
     return NextResponse.json({ error: 'Chi admin moi dung duoc' }, { status: 403 })
+
+  // ── mode: recent — gọi GetCustService với 6 ngày gần nhất, filter #hardware ──
+  if (mode === 'recent') {
+    const days = body.days ?? 6
+    const now = new Date()
+    const start = new Date(now)
+    start.setDate(start.getDate() - days)
+    const fmt = (d: Date) => d.toISOString().slice(0, 10) + ' 00:00:00'
+    const startTime = fmt(start)
+    const endTime   = now.toISOString().slice(0, 10) + ' 23:59:59'
+
+    // Lấy session — member dùng session của mình, admin dùng account đầu tiên
+    let sessionId: string
+    let identity: string
+    if (!internalCall && user) {
+      try {
+        const sess = await getCRMSessionForUser(user.id)
+        sessionId = sess.sessionId
+        identity  = sess.identity
+      } catch (err) {
+        return NextResponse.json({ error: String(err) }, { status: 400 })
+      }
+    } else {
+      // internal call hoặc admin không có user — dùng account đầu tiên có creds
+      const { data: allMappings2 } = await adminClient()
+        .from('user_crm_mapping')
+        .select('crm_account, crm_password')
+        .not('crm_account', 'is', null)
+        .limit(1)
+      const first = allMappings2?.[0] as { crm_account: string; crm_password: string } | undefined
+      if (!first) return NextResponse.json({ error: 'Không có CRM account' }, { status: 400 })
+      const loginRes = await crmLoginRaw(first.crm_account, first.crm_password)
+      if (!loginRes.ok || !loginRes.detectedSessionId)
+        return NextResponse.json({ error: `Login CRM thất bại: ${loginRes.error}` }, { status: 400 })
+      sessionId = loginRes.detectedSessionId
+      identity  = loginRes.detectedIdentity ?? ''
+    }
+
+    console.log(`[sync/recent] GetCustService ${startTime} → ${endTime}`)
+    let recentTickets: CRMTicket[]
+    try {
+      recentTickets = await callCRMSoapRecent(sessionId, identity, url, startTime, endTime)
+    } catch (err) {
+      return NextResponse.json({ error: String(err) }, { status: 500 })
+    }
+    console.log(`[sync/recent] ${recentTickets.length} tickets có #hardware`)
+
+    // Upsert vào DB giống mode khác
+    const db2 = adminClient()
+    let newCount2 = 0, updatedCount2 = 0
+    for (const t of recentTickets) {
+      const key = `crm:${t.CS_ID}`
+      const { data: ex } = await db2.from('ho_tro_tickets').select('sheet_row_key, cs_update_time').eq('sheet_row_key', key).maybeSingle()
+      const crmTime = parseCRMTime(t.CS_UpdateTime)
+      const dbTime  = ex?.cs_update_time ? new Date(ex.cs_update_time) : null
+      if (ex && dbTime && crmTime && crmTime <= dbTime) continue
+      const row = {
+        sheet_row_key: key,
+        cs_id: t.CS_ID,
+        ticket_date: t.CS_Date,
+        customer_name: normalizeCustomerName(t.Cust_Name ?? ''),
+        customer_id: t.Cust_ID ? String(t.Cust_ID) : null,
+        staff_name: extractHandlerFromMemo(t.CS_Memo ?? '') ?? t.Staff_Name ?? 'Unknown',
+        cs_io: t.CS_IO ?? '',
+        cs_context: t.CS_Context ?? '',
+        cs_memo: t.CS_Memo ?? '',
+        zone: t.Cust_SaleManAssistant_Zone ?? t.Cust_SalesMan_Zone ?? null,
+        cs_update_time: t.CS_UpdateTime ?? null,
+        has_unread_update: false,
+      }
+      const { error: uErr } = await db2.from('ho_tro_tickets').upsert(row, { onConflict: 'sheet_row_key' })
+      if (uErr) { console.error('[sync/recent] upsert error', uErr.message); continue }
+      ex ? updatedCount2++ : newCount2++
+    }
+    console.log(`[sync/recent] mới: ${newCount2}, cập nhật: ${updatedCount2}`)
+    return NextResponse.json({ ok: true, mode: 'recent', newCount: newCount2, updatedCount: updatedCount2, total: recentTickets.length, startTime, endTime })
+  }
 
   const FULL_STAFF = [
     { id: 9141, name: 'Kane'   },
