@@ -474,19 +474,18 @@ export async function POST(req: NextRequest) {
       const oldHash    = memoHash(ex?.reply ?? '')
       const memoChanged = ex ? newHash !== oldHash : false
 
-      // Ticket cũ, memo chưa đổi → bỏ qua CHỈ KHI đã đủ dữ liệu
-      // Vẫn update nếu: company null, ticket_date null (bị lọc khỏi date filter)
-      const needsCompanyFill   = ex && !ex.company && !!a.customerName
-      const needsDateFill      = ex && !ex.ticket_date && !!(a.serviceDate ?? a.assignTime)
-      if (ex && !memoChanged && !needsCompanyFill && !needsDateFill) continue
-
-      // Chuẩn hoá serviceDate → YYYY-MM-DD (AiCRM có thể trả DD/MM/YYYY hoặc ISO)
-      const rawDate = a.serviceDate ?? a.assignTime ?? null
+      // ticket_date = assignTime (ngày tạo request) — serviceDate chỉ là fallback
+      const rawDate = a.assignTime ?? a.serviceDate ?? null
       let ticketDate: string | null = null
       if (rawDate) {
         const ddmm = rawDate.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
         ticketDate = ddmm ? `${ddmm[3]}-${ddmm[2]}-${ddmm[1]}` : rawDate.slice(0, 10)
       }
+
+      // Ticket cũ → bỏ qua CHỈ KHI đã đủ dữ liệu
+      const needsCompanyFill = ex && !ex.company && !!a.customerName
+      const needsDateFill    = ex && ex.ticket_date !== ticketDate && !!ticketDate
+      if (ex && !memoChanged && !needsCompanyFill && !needsDateFill) continue
 
       const row = {
         sheet_row_key:     targetKey,
