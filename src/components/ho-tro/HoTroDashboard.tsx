@@ -1677,7 +1677,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     } finally { setSyncLoading('__all__', false) }
   }
 
-  // Sync GetCustService — 6 ngày gần nhất, filter #hardware
+  // Sync GetCustService — 6 ngày gần nhất, filter #hardware (admin dùng)
   async function handleSyncRecent() {
     setSyncLoading('__recent__', true)
     setCrmResult(null)
@@ -1695,6 +1695,26 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
     } catch (err) {
       setCrmResult(`❌ Sync 6 ngày: ${err instanceof Error ? err.message : String(err)}`)
     } finally { setSyncLoading('__recent__', false) }
+  }
+
+  // Sync AiCRM — 7 ngày, 1 lần call tất cả nhân viên, filter #hardware
+  async function handleSyncAiCRM() {
+    setSyncLoading('__aicrm__', true)
+    setCrmResult(null)
+    try {
+      const res = await fetch('/api/crm/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'aicrm', days: 7 }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Lỗi sync AiCRM')
+      setCrmResult(`✅ AiCRM 7 ngày: +${json.newCount ?? 0} mới, ↑${json.updatedCount ?? 0} cập nhật (${json.hardwareCount ?? 0} ticket #hardware / ${json.total ?? 0} tổng)`)
+      fetchCRMTickets(1)
+      fetchUnreadUpdates()
+    } catch (err) {
+      setCrmResult(`❌ AiCRM: ${err instanceof Error ? err.message : String(err)}`)
+    } finally { setSyncLoading('__aicrm__', false) }
   }
 
   // Giữ lại để tương thích (không dùng trong UI mới)
@@ -2143,15 +2163,23 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                   >
                     {isSyncingStaff('__recent__') ? '⏳' : '🕐'} 6 ngày
                   </button>
+                  <button
+                    onClick={handleSyncAiCRM}
+                    disabled={crmSyncing}
+                    title="Sync AiCRM 7 ngày — 1 lần lấy tất cả nhân viên, filter #hardware"
+                    className="px-2.5 py-2 text-xs font-medium rounded-lg border border-purple-300 text-purple-700 hover:bg-purple-50 transition disabled:opacity-40 whitespace-nowrap"
+                  >
+                    {isSyncingStaff('__aicrm__') ? '⏳' : '🤖'} AiCRM
+                  </button>
                 </>
               ) : (
                 <button
-                  onClick={handleSyncRecent}
+                  onClick={handleSyncAiCRM}
                   disabled={crmSyncing}
-                  title="Sync 6 ngày gần nhất — ticket có #hardware"
-                  className="px-2.5 py-2 text-sm text-green-600 hover:text-green-800 hover:bg-green-50 rounded-lg border border-green-200 transition disabled:opacity-40 whitespace-nowrap"
+                  title="Sync AiCRM 7 ngày — tất cả nhân viên, filter #hardware"
+                  className="px-2.5 py-2 text-sm text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded-lg border border-purple-200 transition disabled:opacity-40 whitespace-nowrap"
                 >
-                  {isSyncingStaff('__recent__') ? '⏳' : '🕐'} Sync 6 ngày
+                  {isSyncingStaff('__aicrm__') ? '⏳' : '🤖'} Sync AiCRM
                 </button>
               ))}
             </div>

@@ -420,12 +420,12 @@ export async function POST(req: NextRequest) {
     const db2 = adminClient()
 
     // Batch fetch existing records để so sánh hash
-    const aiKeys = filtered.map(a => `aicrm:${a.customerServiceId}`).filter(Boolean)
-    type AiExRow = { sheet_row_key: string; reply: string | null; has_unread_update: boolean }
+    const aiKeys = filtered.map(a => `crm:${a.customerServiceId}`).filter(Boolean)
+    type AiExRow = { sheet_row_key: string; cs_memo: string | null; has_unread_update: boolean }
     const aiExistingMap = new Map<string, AiExRow>()
     for (let i = 0; i < aiKeys.length; i += 500) {
       const { data } = await db2.from('ho_tro_tickets')
-        .select('sheet_row_key, reply, has_unread_update')
+        .select('sheet_row_key, cs_memo, has_unread_update')
         .in('sheet_row_key', aiKeys.slice(i, i + 500))
       for (const r of (data ?? [])) aiExistingMap.set(r.sheet_row_key, r as AiExRow)
     }
@@ -433,13 +433,14 @@ export async function POST(req: NextRequest) {
     let newCount2 = 0, updatedCount2 = 0
     for (const a of filtered) {
       if (!a.customerServiceId) continue
-      const key     = `aicrm:${a.customerServiceId}`
+      // Dùng prefix 'crm:' giống SOAP — cùng CS_ID, không tạo duplicate
+      const key     = `crm:${a.customerServiceId}`
       const ex      = aiExistingMap.get(key)
       const newMemo = a.serviceMemo ?? ''
 
       // So sánh bằng MD5 hash — tránh false-positive do whitespace/encoding
       const newHash = memoHash(newMemo)
-      const oldHash = memoHash(ex?.reply ?? '')
+      const oldHash = memoHash(ex?.cs_memo ?? '')
       const memoChanged = ex ? newHash !== oldHash : false
 
       // Ticket cũ, memo chưa đổi → bỏ qua hoàn toàn
