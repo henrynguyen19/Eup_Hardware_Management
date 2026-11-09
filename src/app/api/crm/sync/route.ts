@@ -235,21 +235,30 @@ function memoHash(s: string): string {
   return createHash('md5').update(normalized, 'utf8').digest('hex')
 }
 
-// ─── AiCRM REST API helpers ───────────────────────────────────────────────────
-const AICRM_BASE = 'https://aicrm-vn.eupfin.com/AiCRM_CRM_SOAP'
+// ─── AiCRM REST API helpers (qua tunnel → IP nội địa) ────────────────────────
 
-// Login trực tiếp vào AiCRM bằng account/password → trả về JWT
-async function getAiCRMToken(account: string, password: string): Promise<string> {
-  const resp = await fetch(`${AICRM_BASE}/login`, {
+// Gọi /aicrm endpoint trên crm-proxy (đi qua tunnel → IP nội địa)
+async function proxyAiCRM(action: string, params: Record<string, unknown>) {
+  const tunnelUrl = process.env.CRM_SOAP_URL
+  if (!tunnelUrl) throw new Error('Thiếu CRM_SOAP_URL')
+  const aiCRMUrl = tunnelUrl.replace(/\/proxy$/, '/aicrm')
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (process.env.PROXY_SECRET) headers['x-proxy-secret'] = process.env.PROXY_SECRET
+  const resp = await fetch(aiCRMUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ companyId: 'VN', systemKind: 'ai_crm', account, password }),
-    signal: AbortSignal.timeout(15_000),
+    headers,
+    body: JSON.stringify({ action, ...params }),
+    signal: AbortSignal.timeout(action === 'service-assign' ? 60_000 : 15_000),
   })
-  if (!resp.ok) throw new Error(`AiCRM login HTTP ${resp.status}`)
-  const json = await resp.json()
-  const token = json?.result?.loginObject?.token
-  if (!token) throw new Error(`AiCRM login: không tìm thấy token`)
+  if (!resp.ok) throw new Error(`proxy /aicrm ${action} HTTP ${resp.status}`)
+  return resp.json()
+}
+
+// Login AiCRM qua tunnel → trả về JWT
+async function getAiCRMToken(account: string, password: string): Promise<string> {
+  const json = await proxyAiCRM('login', { account, password })
+  const token = json?.result?.loginObject?.token ?? json?.result?.token ?? json?.token
+  if (!token) throw new Error(`AiCRM login: không tìm thấy token. Keys: ${Object.keys(json ?? {}).join(',')}`)
   return token as string
 }
 
@@ -265,28 +274,14 @@ interface AiCRMAssign {
   [key: string]: unknown
 }
 
-// Gọi service-assign/search với khoảng thời gian
+// Gọi service-assign/search qua tunnel
 async function callAiCRMServiceAssign(aiToken: string, startTime: string, endTime: string): Promise<AiCRMAssign[]> {
-  const resp = await fetch(`${AICRM_BASE}/service-assign/search`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${aiToken}`,
-    },
-    body: JSON.stringify({
-      assignKind: null,
-      assignTime: { startValue: startTime, endValue: endTime },
-      status: { values: [0, 1, 3] },
-    }),
-    signal: AbortSignal.timeout(60_000),
-  })
-  if (!resp.ok) throw new Error(`AiCRM service-assign HTTP ${resp.status}`)
-  const json = await resp.json()
-  // Response: { result: [...] } hoặc { result: { list: [...] } }
+  const json = await proxyAiCRM('service-assign', { token: aiToken, startTime, endTime })
   const raw = json?.result
-  if (Array.isArray(raw)) return raw as AiCRMAssign[]
-  if (raw?.list && Array.isArray(raw.list)) return raw.list as AiCRMAssign[]
-  if (raw?.content && Array.isArray(raw.content)) return raw.content as AiCRMAssign[]
+  if (Array.isArray(raw))          return raw as AiCRMAssign[]
+  if (Array.isArray(raw?.list))    return raw.list as AiCRMAssign[]
+  if (Array.isArray(raw?.content)) return raw.content as AiCRMAssign[]
+  if (Array.isArray(raw?.records)) return raw.records as AiCRMAssign[]
   console.warn('[aicrm] response shape lạ:', JSON.stringify(json).slice(0, 300))
   return []
 }

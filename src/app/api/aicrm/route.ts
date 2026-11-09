@@ -1,12 +1,11 @@
 /**
- * /api/aicrm — AiCRM REST API helpers (không cần tunnel)
- * Dùng để test và sau này thay thế GetCustServiceByStaff trong HoTro
+ * /api/aicrm — AiCRM REST API qua tunnel (IP nội địa)
+ *
+ * Flow: Vercel → Tunnel → crm-proxy /aicrm → aicrm-vn.eupfin.com
  *
  * POST /api/aicrm
  * Body: { action: 'login', account, password }
- *    → { ok, token, userId, name }
  * Body: { action: 'service-assign', account, password, days?, startTime?, endTime? }
- *    → { ok, total, data: [...] }
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -16,61 +15,47 @@ import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const AICRM_BASE = 'https://aicrm-vn.eupfin.com/AiCRM_CRM_SOAP'
+// Gọi /aicrm endpoint trên crm-proxy (đi qua tunnel → IP nội địa)
+async function proxyAiCRM(action: string, params: Record<string, unknown>) {
+  const tunnelUrl = process.env.CRM_SOAP_URL // dạng https://xxx.trycloudflare.com/proxy
+  if (!tunnelUrl) throw new Error('Thiếu CRM_SOAP_URL trong env')
+  // Đổi /proxy → /aicrm
+  const aiCRMUrl = tunnelUrl.replace(/\/proxy$/, '/aicrm')
 
-async function aiCRMLogin(account: string, password: string) {
-  const resp = await fetch(`${AICRM_BASE}/login`, {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (process.env.PROXY_SECRET) headers['x-proxy-secret'] = process.env.PROXY_SECRET
+
+  const resp = await fetch(aiCRMUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ companyId: 'VN', systemKind: 'ai_crm', account, password }),
-    signal: AbortSignal.timeout(15_000),
+    headers,
+    body: JSON.stringify({ action, ...params }),
+    signal: AbortSignal.timeout(action === 'service-assign' ? 60_000 : 15_000),
   })
   const rawText = await resp.text()
-  console.log('[aicrm/login] status:', resp.status, 'body:', rawText.slice(0, 500))
-  if (!resp.ok) throw new Error(`AiCRM login HTTP ${resp.status}: ${rawText.slice(0, 200)}`)
-  let json: Record<string, unknown>
-  try { json = JSON.parse(rawText) } catch { throw new Error(`AiCRM login: response không parse được: ${rawText.slice(0, 200)}`) }
+  if (!resp.ok) throw new Error(`proxy /aicrm ${action} HTTP ${resp.status}: ${rawText.slice(0, 200)}`)
+  try { return JSON.parse(rawText) } catch { throw new Error(`proxy /aicrm: response không parse được: ${rawText.slice(0, 200)}`) }
+}
 
-  // Token có thể ở nhiều chỗ
-  const obj = (json?.result as Record<string, unknown> | null)?.loginObject as Record<string, unknown> | null
-  const token = (obj?.token ?? (json?.result as Record<string, unknown>)?.token ?? json?.token) as string | undefined
-  if (!token) throw new Error(`AiCRM: không tìm thấy token. Response: ${rawText.slice(0, 300)}`)
-  return {
-    token,
-    userId: obj?.id as number,
-    name: obj?.name as string,
-    enName: obj?.enName as string,
-  }
+async function aiCRMLogin(account: string, password: string) {
+  const json = await proxyAiCRM('login', { account, password })
+  console.log('[aicrm/login] response keys:', Object.keys(json ?? {}))
+  const obj = json?.result?.loginObject
+  const token = obj?.token ?? json?.result?.token ?? json?.token
+  if (!token) throw new Error(`AiCRM: không tìm thấy token. Response: ${JSON.stringify(json).slice(0, 300)}`)
+  return { token: token as string, userId: obj?.id as number, name: obj?.name as string }
 }
 
 async function aiCRMServiceAssign(token: string, startTime: string, endTime: string) {
-  const resp = await fetch(`${AICRM_BASE}/service-assign/search`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      assignKind: null,
-      assignTime: { startValue: startTime, endValue: endTime },
-      status: { values: [0, 1, 3] },
-    }),
-    signal: AbortSignal.timeout(60_000),
-  })
-  if (!resp.ok) throw new Error(`AiCRM service-assign HTTP ${resp.status}: ${await resp.text().catch(() => '')}`)
-  const json = await resp.json()
-  // Tìm array trong response — thử nhiều shape
+  const json = await proxyAiCRM('service-assign', { token, startTime, endTime })
   const raw = json?.result
-  if (Array.isArray(raw)) return { data: raw, raw: json }
-  if (Array.isArray(raw?.list))    return { data: raw.list,    raw: json }
-  if (Array.isArray(raw?.content)) return { data: raw.content, raw: json }
-  if (Array.isArray(raw?.records)) return { data: raw.records, raw: json }
-  // Trả về toàn bộ để debug nếu không nhận ra shape
+  if (Array.isArray(raw))          return { data: raw,          raw: json }
+  if (Array.isArray(raw?.list))    return { data: raw.list,     raw: json }
+  if (Array.isArray(raw?.content)) return { data: raw.content,  raw: json }
+  if (Array.isArray(raw?.records)) return { data: raw.records,  raw: json }
   return { data: [], raw: json }
 }
 
 export async function POST(req: NextRequest) {
-  // Auth check
   const supabase = createSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -101,20 +86,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === 'service-assign') {
-      // Login trước
       const { token } = await aiCRMLogin(body.account, body.password)
 
-      // Tính time range
       let startTime = body.startTime
       let endTime   = body.endTime
       if (!startTime || !endTime) {
-        const days = body.days ?? 6
+        const days = body.days ?? 7
         const now  = new Date()
         const from = new Date(now)
         from.setDate(from.getDate() - days)
-        const fmt = (d: Date) => d.toISOString().slice(0, 10) + ' 00:00:00'
-        startTime = fmt(from)
-        endTime   = now.toISOString().slice(0, 10) + ' 23:59:59'
+        const fmt  = (d: Date) => d.toISOString().slice(0, 10) + ' 00:00:00'
+        startTime  = fmt(from)
+        endTime    = now.toISOString().slice(0, 10) + ' 23:59:59'
       }
 
       console.log(`[aicrm] service-assign ${startTime} → ${endTime}`)
@@ -127,7 +110,6 @@ export async function POST(req: NextRequest) {
         startTime,
         endTime,
         data,
-        // Giữ raw để debug nếu data = []
         ...(data.length === 0 ? { _rawShape: JSON.stringify(raw).slice(0, 500) } : {}),
       })
     }
