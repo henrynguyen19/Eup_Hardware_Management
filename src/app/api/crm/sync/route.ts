@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { createClient } from '@supabase/supabase-js'
+import { createHash } from 'crypto'
 import { getCRMSessionForUser, getCRMCredentials, invalidateCRMSession, crmLoginRaw } from '@/lib/crm-session'
 import { extractHandlerFromMemo, parseSpeedTag, parseCRMTime } from '@/lib/crm-utils'
 import { isAdminUser, hasSubPagePerm } from '@/lib/auth-helpers'
@@ -225,6 +226,15 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
   return json.result ?? []
 }
 
+// Hash memo để so sánh chính xác, không bị ảnh hưởng whitespace/encoding
+function memoHash(s: string): string {
+  const normalized = (s ?? '')
+    .replace(/\r\n/g, '\n')   // chuẩn hóa line ending
+    .replace(/\r/g, '\n')
+    .trim()
+  return createHash('md5').update(normalized, 'utf8').digest('hex')
+}
+
 // ─── AiCRM REST API helpers ───────────────────────────────────────────────────
 const AICRM_BASE = 'https://aicrm-vn.eupfin.com/AiCRM_CRM_SOAP'
 
@@ -414,13 +424,13 @@ export async function POST(req: NextRequest) {
     // Upsert vào ho_tro_tickets
     const db2 = adminClient()
 
-    // Batch fetch existing records để so sánh
+    // Batch fetch existing records để so sánh hash
     const aiKeys = filtered.map(a => `aicrm:${a.customerServiceId}`).filter(Boolean)
-    type AiExRow = { sheet_row_key: string; cs_memo: string | null; has_unread_update: boolean }
+    type AiExRow = { sheet_row_key: string; reply: string | null; has_unread_update: boolean }
     const aiExistingMap = new Map<string, AiExRow>()
     for (let i = 0; i < aiKeys.length; i += 500) {
       const { data } = await db2.from('ho_tro_tickets')
-        .select('sheet_row_key, cs_memo, has_unread_update')
+        .select('sheet_row_key, reply, has_unread_update')
         .in('sheet_row_key', aiKeys.slice(i, i + 500))
       for (const r of (data ?? [])) aiExistingMap.set(r.sheet_row_key, r as AiExRow)
     }
@@ -428,15 +438,16 @@ export async function POST(req: NextRequest) {
     let newCount2 = 0, updatedCount2 = 0
     for (const a of filtered) {
       if (!a.customerServiceId) continue
-      const key = `aicrm:${a.customerServiceId}`
-      const ex  = aiExistingMap.get(key)
-
+      const key     = `aicrm:${a.customerServiceId}`
+      const ex      = aiExistingMap.get(key)
       const newMemo = a.serviceMemo ?? ''
 
-      // Detect update: memo thay đổi so với lần sync trước
-      const memoChanged = ex ? (ex.cs_memo ?? '') !== newMemo : false
+      // So sánh bằng MD5 hash — tránh false-positive do whitespace/encoding
+      const newHash = memoHash(newMemo)
+      const oldHash = memoHash(ex?.reply ?? '')
+      const memoChanged = ex ? newHash !== oldHash : false
 
-      // Ticket cũ chưa đổi memo → bỏ qua (giữ has_unread_update hiện tại)
+      // Ticket cũ, memo chưa đổi → bỏ qua hoàn toàn
       if (ex && !memoChanged) continue
 
       const row = {
