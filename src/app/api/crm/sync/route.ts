@@ -244,10 +244,14 @@ async function getAiCRMToken(account: string, password: string): Promise<string>
 }
 
 interface AiCRMAssign {
-  id: number; csId: number | null; custName: string | null; custId: number | null
-  assignTime: string | null; assignKind: string | null; staffId: number | null; staffName: string | null
-  status: number | null; content: string | null; memo: string | null; carNumber: string | null
-  zone: string | null; updateTime: string | null
+  customerServiceId: number | null   // ID ticket
+  serviceContext:    string | null   // nội dung yêu cầu
+  serviceMemo:       string | null   // ghi chú / memo
+  serviceDate:       string | null   // ngày tạo
+  regionName:        string | null   // vùng / zone
+  processMan:        string | null   // người xử lý
+  customerId:        number | null   // ID khách hàng
+  assignTime:        string | null   // thời gian assign
   [key: string]: unknown
 }
 
@@ -399,14 +403,55 @@ export async function POST(req: NextRequest) {
     }
     console.log(`[sync/aicrm] ${assigns.length} records trả về`)
 
-    // Trả về raw data để debug format trước
+    // Filter: chỉ giữ ticket có #hardware trong serviceMemo hoặc serviceContext
+    const filtered = assigns.filter(a => {
+      const memo = (a.serviceMemo ?? '').toLowerCase()
+      const ctx  = (a.serviceContext ?? '').toLowerCase()
+      return memo.includes('#hardware') || ctx.includes('#hardware')
+    })
+    console.log(`[sync/aicrm] ${filtered.length} tickets có #hardware`)
+
+    // Upsert vào ho_tro_tickets
+    const db2 = adminClient()
+    let newCount2 = 0, updatedCount2 = 0
+    for (const a of filtered) {
+      if (!a.customerServiceId) continue
+      const key = `aicrm:${a.customerServiceId}`
+      const { data: ex } = await db2.from('ho_tro_tickets').select('sheet_row_key, cs_update_time').eq('sheet_row_key', key).maybeSingle()
+      // Dùng assignTime làm update timestamp
+      const crmTime = a.assignTime ? new Date(a.assignTime) : null
+      const dbTime  = ex?.cs_update_time ? new Date(ex.cs_update_time) : null
+      if (ex && dbTime && crmTime && crmTime <= dbTime) continue
+
+      const row = {
+        sheet_row_key:  key,
+        cs_id:          a.customerServiceId,
+        ticket_date:    a.serviceDate ?? null,
+        customer_name:  null,  // AiCRM không trả custName trong assign
+        customer_id:    a.customerId ? String(a.customerId) : null,
+        staff_name:     a.processMan ?? 'Unknown',
+        cs_io:          null,
+        cs_context:     a.serviceContext ?? '',
+        cs_memo:        a.serviceMemo ?? '',
+        zone:           a.regionName ?? null,
+        cs_update_time: a.assignTime ?? null,
+        has_unread_update: false,
+      }
+      const { error: uErr } = await db2.from('ho_tro_tickets').upsert(row, { onConflict: 'sheet_row_key' })
+      if (uErr) { console.error('[sync/aicrm] upsert error', uErr.message); continue }
+      ex ? updatedCount2++ : newCount2++
+    }
+
+    console.log(`[sync/aicrm] mới: ${newCount2}, cập nhật: ${updatedCount2}`)
     return NextResponse.json({
       ok: true,
       mode: 'aicrm',
       total: assigns.length,
+      hardwareCount: filtered.length,
+      newCount: newCount2,
+      updatedCount: updatedCount2,
       startTime,
       endTime,
-      sample: assigns.slice(0, 3),  // 3 record đầu để kiểm tra format
     })
   }
 
