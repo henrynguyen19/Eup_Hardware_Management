@@ -25,13 +25,22 @@ async function aiCRMLogin(account: string, password: string) {
     body: JSON.stringify({ companyId: 'VN', systemKind: 'ai_crm', account, password }),
     signal: AbortSignal.timeout(15_000),
   })
-  if (!resp.ok) throw new Error(`AiCRM login HTTP ${resp.status}: ${await resp.text().catch(() => '')}`)
-  const json = await resp.json()
-  if (json?.responseMsg !== 'SUCCESS' && json?.responseStatus !== 100)
-    throw new Error(`AiCRM login thất bại: ${json?.failReason ?? JSON.stringify(json).slice(0, 100)}`)
-  const obj = json?.result?.loginObject
-  if (!obj?.token) throw new Error('AiCRM: không có token trong response')
-  return { token: obj.token as string, userId: obj.id as number, name: obj.name as string, enName: obj.enName as string }
+  const rawText = await resp.text()
+  console.log('[aicrm/login] status:', resp.status, 'body:', rawText.slice(0, 500))
+  if (!resp.ok) throw new Error(`AiCRM login HTTP ${resp.status}: ${rawText.slice(0, 200)}`)
+  let json: Record<string, unknown>
+  try { json = JSON.parse(rawText) } catch { throw new Error(`AiCRM login: response không parse được: ${rawText.slice(0, 200)}`) }
+
+  // Token có thể ở nhiều chỗ
+  const obj = (json?.result as Record<string, unknown> | null)?.loginObject as Record<string, unknown> | null
+  const token = (obj?.token ?? (json?.result as Record<string, unknown>)?.token ?? json?.token) as string | undefined
+  if (!token) throw new Error(`AiCRM: không tìm thấy token. Response: ${rawText.slice(0, 300)}`)
+  return {
+    token,
+    userId: obj?.id as number,
+    name: obj?.name as string,
+    enName: obj?.enName as string,
+  }
 }
 
 async function aiCRMServiceAssign(token: string, startTime: string, endTime: string) {
