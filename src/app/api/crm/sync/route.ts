@@ -422,11 +422,11 @@ export async function POST(req: NextRequest) {
 
     // Batch fetch theo ID trước
     const aiKeys = filtered.map(a => `crm:${a.customerServiceId}`).filter(Boolean)
-    type AiExRow = { sheet_row_key: string; reply: string | null; customer_id: string | null; content: string | null; has_unread_update: boolean }
+    type AiExRow = { sheet_row_key: string; reply: string | null; customer_id: string | null; content: string | null; company: string | null; ticket_date: string | null; has_unread_update: boolean }
     const aiExistingMap = new Map<string, AiExRow>()
     for (let i = 0; i < aiKeys.length; i += 500) {
       const { data } = await db2.from('ho_tro_tickets')
-        .select('sheet_row_key, reply, customer_id, content, has_unread_update')
+        .select('sheet_row_key, reply, customer_id, content, company, ticket_date, has_unread_update')
         .in('sheet_row_key', aiKeys.slice(i, i + 500))
       for (const r of (data ?? [])) aiExistingMap.set(r.sheet_row_key, r as AiExRow)
     }
@@ -437,7 +437,7 @@ export async function POST(req: NextRequest) {
     if (customerIds.length > 0) {
       for (let i = 0; i < customerIds.length; i += 100) {
         const { data } = await db2.from('ho_tro_tickets')
-          .select('sheet_row_key, reply, customer_id, content, has_unread_update')
+          .select('sheet_row_key, reply, customer_id, content, company, ticket_date, has_unread_update')
           .in('customer_id', customerIds.slice(i, i + 100))
         for (const r of (data ?? [])) {
           const r2 = r as AiExRow
@@ -474,8 +474,10 @@ export async function POST(req: NextRequest) {
       const oldHash    = memoHash(ex?.reply ?? '')
       const memoChanged = ex ? newHash !== oldHash : false
 
-      // Ticket cũ, memo chưa đổi → bỏ qua
-      if (ex && !memoChanged) continue
+      // Ticket cũ, memo chưa đổi, và company đã có → bỏ qua
+      // Nếu company null → vẫn update để fill tên khách hàng còn thiếu
+      const needsCompanyFill = ex && !ex.company && a.customerName
+      if (ex && !memoChanged && !needsCompanyFill) continue
 
       // Chuẩn hoá serviceDate → YYYY-MM-DD (AiCRM có thể trả DD/MM/YYYY hoặc ISO)
       const rawDate = a.serviceDate ?? a.assignTime ?? null
