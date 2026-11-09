@@ -419,53 +419,83 @@ export async function POST(req: NextRequest) {
     // Upsert vào ho_tro_tickets
     const db2 = adminClient()
 
-    // Batch fetch existing records để so sánh hash
+    // Batch fetch theo ID trước
     const aiKeys = filtered.map(a => `crm:${a.customerServiceId}`).filter(Boolean)
-    type AiExRow = { sheet_row_key: string; cs_memo: string | null; has_unread_update: boolean }
+    type AiExRow = { sheet_row_key: string; reply: string | null; customer_id: string | null; content: string | null; has_unread_update: boolean }
     const aiExistingMap = new Map<string, AiExRow>()
     for (let i = 0; i < aiKeys.length; i += 500) {
       const { data } = await db2.from('ho_tro_tickets')
-        .select('sheet_row_key, cs_memo, has_unread_update')
+        .select('sheet_row_key, reply, customer_id, content, has_unread_update')
         .in('sheet_row_key', aiKeys.slice(i, i + 500))
       for (const r of (data ?? [])) aiExistingMap.set(r.sheet_row_key, r as AiExRow)
     }
 
+    // Batch fetch theo customer_id để dedup content (tránh trùng khi 2 nguồn sync)
+    const customerIds = [...new Set(filtered.map(a => a.customerId ? String(a.customerId) : null).filter(Boolean))] as string[]
+    const contentExMap = new Map<string, AiExRow>() // key: "customerId|contentHash"
+    if (customerIds.length > 0) {
+      for (let i = 0; i < customerIds.length; i += 100) {
+        const { data } = await db2.from('ho_tro_tickets')
+          .select('sheet_row_key, reply, customer_id, content, has_unread_update')
+          .in('customer_id', customerIds.slice(i, i + 100))
+        for (const r of (data ?? [])) {
+          const r2 = r as AiExRow
+          const ck = `${r2.customer_id}|${memoHash(r2.content ?? '')}`
+          if (!contentExMap.has(ck)) contentExMap.set(ck, r2)
+        }
+      }
+    }
+
     let newCount2 = 0, updatedCount2 = 0
+    const upsertErrors: string[] = []
+
     for (const a of filtered) {
       if (!a.customerServiceId) continue
-      // Dùng prefix 'crm:' giống SOAP — cùng CS_ID, không tạo duplicate
-      const key     = `crm:${a.customerServiceId}`
-      const ex      = aiExistingMap.get(key)
-      const newMemo = a.serviceMemo ?? ''
+      const idKey    = `crm:${a.customerServiceId}`
+      const newMemo  = a.serviceMemo ?? ''
+      const newCtx   = a.serviceContext ?? ''
+      const newHash  = memoHash(newMemo)
 
-      // So sánh bằng MD5 hash — tránh false-positive do whitespace/encoding
-      const newHash = memoHash(newMemo)
-      const oldHash = memoHash(ex?.cs_memo ?? '')
+      // 1. Tìm theo ID trước
+      let ex        = aiExistingMap.get(idKey)
+      let targetKey = idKey
+
+      // 2. Nếu không có theo ID, tìm theo (customer_id + content) để tránh duplicate
+      if (!ex && a.customerId) {
+        const ck  = `${a.customerId}|${memoHash(newCtx)}`
+        const match = contentExMap.get(ck)
+        if (match) {
+          ex = match
+          targetKey = match.sheet_row_key  // dùng key của record đã có
+        }
+      }
+
+      const oldHash    = memoHash(ex?.reply ?? '')
       const memoChanged = ex ? newHash !== oldHash : false
 
-      // Ticket cũ, memo chưa đổi → bỏ qua hoàn toàn
+      // Ticket cũ, memo chưa đổi → bỏ qua
       if (ex && !memoChanged) continue
 
       const row = {
-        sheet_row_key:     key,
-        cs_id:             a.customerServiceId,
+        sheet_row_key:     targetKey,
+        code:              String(a.customerServiceId),
         ticket_date:       a.serviceDate ?? null,
-        customer_name:     null,  // AiCRM không có custName trong assign
         customer_id:       a.customerId ? String(a.customerId) : null,
         staff_name:        a.processMan ?? 'Unknown',
-        cs_io:             null,
-        cs_context:        a.serviceContext ?? '',
-        cs_memo:           newMemo,
+        content:           newCtx,
+        reply:             newMemo,
         speed_tag:         parseSpeedTag(newMemo),
         zone:              a.regionName ?? null,
         cs_update_time:    a.assignTime ?? null,
-        // Ticket mới → false; ticket cũ có memo mới → true (hilight màu cam)
-        has_unread_update: memoChanged,
+        has_unread_update: memoChanged,  // mới → false, có update → true
       }
       const { error: uErr } = await db2.from('ho_tro_tickets').upsert(row, { onConflict: 'sheet_row_key' })
-      if (uErr) { console.error('[sync/aicrm] upsert error', uErr.message); continue }
+      if (uErr) { upsertErrors.push(`${targetKey}: ${uErr.message}`); continue }
       ex ? updatedCount2++ : newCount2++
     }
+
+    if (upsertErrors.length > 0)
+      console.error('[sync/aicrm] upsert errors:', upsertErrors.slice(0, 5))
 
     console.log(`[sync/aicrm] mới: ${newCount2}, cập nhật: ${updatedCount2}`)
     return NextResponse.json({
@@ -477,6 +507,7 @@ export async function POST(req: NextRequest) {
       updatedCount: updatedCount2,
       startTime,
       endTime,
+      ...(upsertErrors.length > 0 ? { upsertErrors: upsertErrors.slice(0, 10) } : {}),
     })
   }
 
