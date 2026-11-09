@@ -413,29 +413,47 @@ export async function POST(req: NextRequest) {
 
     // Upsert vào ho_tro_tickets
     const db2 = adminClient()
+
+    // Batch fetch existing records để so sánh
+    const aiKeys = filtered.map(a => `aicrm:${a.customerServiceId}`).filter(Boolean)
+    type AiExRow = { sheet_row_key: string; cs_memo: string | null; has_unread_update: boolean }
+    const aiExistingMap = new Map<string, AiExRow>()
+    for (let i = 0; i < aiKeys.length; i += 500) {
+      const { data } = await db2.from('ho_tro_tickets')
+        .select('sheet_row_key, cs_memo, has_unread_update')
+        .in('sheet_row_key', aiKeys.slice(i, i + 500))
+      for (const r of (data ?? [])) aiExistingMap.set(r.sheet_row_key, r as AiExRow)
+    }
+
     let newCount2 = 0, updatedCount2 = 0
     for (const a of filtered) {
       if (!a.customerServiceId) continue
       const key = `aicrm:${a.customerServiceId}`
-      const { data: ex } = await db2.from('ho_tro_tickets').select('sheet_row_key, cs_update_time').eq('sheet_row_key', key).maybeSingle()
-      // Dùng assignTime làm update timestamp
-      const crmTime = a.assignTime ? new Date(a.assignTime) : null
-      const dbTime  = ex?.cs_update_time ? new Date(ex.cs_update_time) : null
-      if (ex && dbTime && crmTime && crmTime <= dbTime) continue
+      const ex  = aiExistingMap.get(key)
+
+      const newMemo = a.serviceMemo ?? ''
+
+      // Detect update: memo thay đổi so với lần sync trước
+      const memoChanged = ex ? (ex.cs_memo ?? '') !== newMemo : false
+
+      // Ticket cũ chưa đổi memo → bỏ qua (giữ has_unread_update hiện tại)
+      if (ex && !memoChanged) continue
 
       const row = {
-        sheet_row_key:  key,
-        cs_id:          a.customerServiceId,
-        ticket_date:    a.serviceDate ?? null,
-        customer_name:  null,  // AiCRM không trả custName trong assign
-        customer_id:    a.customerId ? String(a.customerId) : null,
-        staff_name:     a.processMan ?? 'Unknown',
-        cs_io:          null,
-        cs_context:     a.serviceContext ?? '',
-        cs_memo:        a.serviceMemo ?? '',
-        zone:           a.regionName ?? null,
-        cs_update_time: a.assignTime ?? null,
-        has_unread_update: false,
+        sheet_row_key:     key,
+        cs_id:             a.customerServiceId,
+        ticket_date:       a.serviceDate ?? null,
+        customer_name:     null,  // AiCRM không có custName trong assign
+        customer_id:       a.customerId ? String(a.customerId) : null,
+        staff_name:        a.processMan ?? 'Unknown',
+        cs_io:             null,
+        cs_context:        a.serviceContext ?? '',
+        cs_memo:           newMemo,
+        speed_tag:         parseSpeedTag(newMemo),
+        zone:              a.regionName ?? null,
+        cs_update_time:    a.assignTime ?? null,
+        // Ticket mới → false; ticket cũ có memo mới → true (hilight màu cam)
+        has_unread_update: memoChanged,
       }
       const { error: uErr } = await db2.from('ho_tro_tickets').upsert(row, { onConflict: 'sheet_row_key' })
       if (uErr) { console.error('[sync/aicrm] upsert error', uErr.message); continue }
