@@ -2358,7 +2358,7 @@ export default function HoTroDashboard({ userEmail, isAdmin, canWrite, staffConf
                         </span>
                       )}
                       <span className="text-sm font-medium text-gray-800 truncate flex-1">
-                        {t.company || (t.customer_id ? `KH #${t.customer_id}` : 'KH không rõ')}
+                        {t.company || 'KH không rõ'}
                       </span>
                       <span className="text-xs text-gray-400 shrink-0">
                         {t.cs_update_time ? fmtDate(t.cs_update_time) : t.ticket_date}

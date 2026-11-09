@@ -270,6 +270,7 @@ interface AiCRMAssign {
   regionName:        string | null   // vùng / zone
   processMan:        string | null   // người xử lý
   customerId:        number | null   // ID khách hàng
+  customerName:      string | null   // tên khách hàng
   assignTime:        string | null   // thời gian assign
   [key: string]: unknown
 }
@@ -489,6 +490,7 @@ export async function POST(req: NextRequest) {
         code:              String(a.customerServiceId),
         ticket_date:       ticketDate,
         customer_id:       a.customerId ? String(a.customerId) : null,
+        company:           a.customerName ?? null,
         staff_name:        a.processMan ?? 'Unknown',
         content:           newCtx,
         reply:             newMemo,
