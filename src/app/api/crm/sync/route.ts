@@ -225,6 +225,58 @@ async function callCRMSoap(staffId: number, sessionId: string, identity: string,
   return json.result ?? []
 }
 
+// ─── AiCRM REST API helpers ───────────────────────────────────────────────────
+const AICRM_BASE = 'https://aicrm-vn.eupfin.com/AiCRM_CRM_SOAP'
+
+// Login trực tiếp vào AiCRM bằng account/password → trả về JWT
+async function getAiCRMToken(account: string, password: string): Promise<string> {
+  const resp = await fetch(`${AICRM_BASE}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ companyId: 'VN', systemKind: 'ai_crm', account, password }),
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!resp.ok) throw new Error(`AiCRM login HTTP ${resp.status}`)
+  const json = await resp.json()
+  const token = json?.result?.loginObject?.token
+  if (!token) throw new Error(`AiCRM login: không tìm thấy token`)
+  return token as string
+}
+
+interface AiCRMAssign {
+  id: number; csId: number | null; custName: string | null; custId: number | null
+  assignTime: string | null; assignKind: string | null; staffId: number | null; staffName: string | null
+  status: number | null; content: string | null; memo: string | null; carNumber: string | null
+  zone: string | null; updateTime: string | null
+  [key: string]: unknown
+}
+
+// Gọi service-assign/search với khoảng thời gian
+async function callAiCRMServiceAssign(aiToken: string, startTime: string, endTime: string): Promise<AiCRMAssign[]> {
+  const resp = await fetch(`${AICRM_BASE}/service-assign/search`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${aiToken}`,
+    },
+    body: JSON.stringify({
+      assignKind: null,
+      assignTime: { startValue: startTime, endValue: endTime },
+      status: { values: [0, 1, 3] },
+    }),
+    signal: AbortSignal.timeout(60_000),
+  })
+  if (!resp.ok) throw new Error(`AiCRM service-assign HTTP ${resp.status}`)
+  const json = await resp.json()
+  // Response: { result: [...] } hoặc { result: { list: [...] } }
+  const raw = json?.result
+  if (Array.isArray(raw)) return raw as AiCRMAssign[]
+  if (raw?.list && Array.isArray(raw.list)) return raw.list as AiCRMAssign[]
+  if (raw?.content && Array.isArray(raw.content)) return raw.content as AiCRMAssign[]
+  console.warn('[aicrm] response shape lạ:', JSON.stringify(json).slice(0, 300))
+  return []
+}
+
 // Gọi GetCustService với khoảng thời gian (dùng cho mode 'recent')
 async function callCRMSoapRecent(sessionId: string, identity: string, url: string, startTime: string, endTime: string): Promise<CRMTicket[]> {
   const form = new URLSearchParams()
@@ -288,16 +340,75 @@ export async function POST(req: NextRequest) {
   if (!url) return NextResponse.json({ error: 'Thieu CRM_SOAP_URL' }, { status: 500 })
 
   const body = await req.json().catch(() => ({})) as {
-    mode?: 'full' | 'self' | 'one' | 'recent'
+    mode?: 'full' | 'self' | 'one' | 'recent' | 'aicrm'
     staffName?: string
     fromDate?: string
     toDate?: string
-    days?: number  // cho mode recent, mặc định 6
+    days?: number  // cho mode recent/aicrm, mặc định 6
   }
   const mode = body.mode ?? 'self'
 
   if ((mode === 'full' || mode === 'one') && !isAdmin)
     return NextResponse.json({ error: 'Chi admin moi dung duoc' }, { status: 403 })
+
+  // ── mode: aicrm — gọi AiCRM service-assign/search không qua tunnel ──────────
+  if (mode === 'aicrm') {
+    const days = body.days ?? 6
+    const now = new Date()
+    const start = new Date(now)
+    start.setDate(start.getDate() - days)
+    const fmt = (d: Date) => d.toISOString().slice(0, 10) + ' 00:00:00'
+    const startTime = fmt(start)
+    const endTime   = now.toISOString().slice(0, 10) + ' 23:59:59'
+
+    // Lấy CRM credentials để login AiCRM
+    let crmAccount: string, crmPassword: string
+    if (!internalCall && user) {
+      const creds = await getCRMCredentials(user.id)
+      if (!creds?.crm_account || !creds?.crm_password)
+        return NextResponse.json({ error: 'Chưa cấu hình CRM credentials' }, { status: 400 })
+      crmAccount = creds.crm_account
+      crmPassword = creds.crm_password
+    } else {
+      const { data: allM } = await adminClient()
+        .from('user_crm_mapping')
+        .select('crm_account, crm_password')
+        .not('crm_account', 'is', null)
+        .limit(1)
+      const first = allM?.[0] as { crm_account: string; crm_password: string } | undefined
+      if (!first) return NextResponse.json({ error: 'Không có CRM account' }, { status: 400 })
+      crmAccount = first.crm_account
+      crmPassword = first.crm_password
+    }
+
+    console.log(`[sync/aicrm] Login AiCRM với account=${crmAccount}...`)
+    let aiToken: string
+    try {
+      aiToken = await getAiCRMToken(crmAccount, crmPassword)
+      console.log(`[sync/aicrm] token OK (${aiToken.length} chars)`)
+    } catch (err) {
+      return NextResponse.json({ error: `getAiCRMToken: ${String(err)}` }, { status: 500 })
+    }
+
+    console.log(`[sync/aicrm] service-assign/search ${startTime} → ${endTime}`)
+    let assigns: AiCRMAssign[]
+    try {
+      assigns = await callAiCRMServiceAssign(aiToken, startTime, endTime)
+    } catch (err) {
+      return NextResponse.json({ error: String(err) }, { status: 500 })
+    }
+    console.log(`[sync/aicrm] ${assigns.length} records trả về`)
+
+    // Trả về raw data để debug format trước
+    return NextResponse.json({
+      ok: true,
+      mode: 'aicrm',
+      total: assigns.length,
+      startTime,
+      endTime,
+      sample: assigns.slice(0, 3),  // 3 record đầu để kiểm tra format
+    })
+  }
 
   // ── mode: recent — gọi GetCustService với 6 ngày gần nhất, filter #hardware ──
   if (mode === 'recent') {
