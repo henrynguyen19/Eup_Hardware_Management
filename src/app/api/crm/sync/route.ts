@@ -474,10 +474,11 @@ export async function POST(req: NextRequest) {
       const oldHash    = memoHash(ex?.reply ?? '')
       const memoChanged = ex ? newHash !== oldHash : false
 
-      // Ticket cũ, memo chưa đổi, và company đã có → bỏ qua
-      // Nếu company null → vẫn update để fill tên khách hàng còn thiếu
-      const needsCompanyFill = ex && !ex.company && a.customerName
-      if (ex && !memoChanged && !needsCompanyFill) continue
+      // Ticket cũ, memo chưa đổi → bỏ qua CHỈ KHI đã đủ dữ liệu
+      // Vẫn update nếu: company null, ticket_date null (bị lọc khỏi date filter)
+      const needsCompanyFill   = ex && !ex.company && !!a.customerName
+      const needsDateFill      = ex && !ex.ticket_date && !!(a.serviceDate ?? a.assignTime)
+      if (ex && !memoChanged && !needsCompanyFill && !needsDateFill) continue
 
       // Chuẩn hoá serviceDate → YYYY-MM-DD (AiCRM có thể trả DD/MM/YYYY hoặc ISO)
       const rawDate = a.serviceDate ?? a.assignTime ?? null
