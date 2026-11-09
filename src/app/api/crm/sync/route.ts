@@ -476,17 +476,26 @@ export async function POST(req: NextRequest) {
       // Ticket cũ, memo chưa đổi → bỏ qua
       if (ex && !memoChanged) continue
 
+      // Chuẩn hoá serviceDate → YYYY-MM-DD (AiCRM có thể trả DD/MM/YYYY hoặc ISO)
+      const rawDate = a.serviceDate ?? a.assignTime ?? null
+      let ticketDate: string | null = null
+      if (rawDate) {
+        const ddmm = rawDate.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+        ticketDate = ddmm ? `${ddmm[3]}-${ddmm[2]}-${ddmm[1]}` : rawDate.slice(0, 10)
+      }
+
       const row = {
         sheet_row_key:     targetKey,
         code:              String(a.customerServiceId),
-        ticket_date:       a.serviceDate ?? null,
+        ticket_date:       ticketDate,
         customer_id:       a.customerId ? String(a.customerId) : null,
         staff_name:        a.processMan ?? 'Unknown',
         content:           newCtx,
         reply:             newMemo,
         speed_tag:         parseSpeedTag(newMemo),
         zone:              a.regionName ?? null,
-        cs_update_time:    a.assignTime ?? null,
+        // Dùng thời gian sync hiện tại → record mới luôn hiện đầu danh sách
+        cs_update_time:    new Date().toISOString(),
         has_unread_update: memoChanged,  // mới → false, có update → true
       }
       const { error: uErr } = await db2.from('ho_tro_tickets').upsert(row, { onConflict: 'sheet_row_key' })
