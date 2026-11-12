@@ -449,6 +449,10 @@ export async function POST(req: NextRequest) {
 
     let newCount2 = 0, updatedCount2 = 0
     const upsertErrors: string[] = []
+    const syncTime = new Date().toISOString()
+
+    // Build rows trước, rồi batch upsert — tránh 597 lần gọi DB riêng lẻ → timeout
+    const rowsToUpsert: Array<{ row: Record<string, unknown>; isNew: boolean }> = []
 
     for (const a of filtered) {
       if (!a.customerServiceId) continue
@@ -463,15 +467,12 @@ export async function POST(req: NextRequest) {
 
       // 2. Nếu không có theo ID, tìm theo (customer_id + content) để tránh duplicate
       if (!ex && a.customerId) {
-        const ck  = `${a.customerId}|${memoHash(newCtx)}`
+        const ck    = `${a.customerId}|${memoHash(newCtx)}`
         const match = contentExMap.get(ck)
-        if (match) {
-          ex = match
-          targetKey = match.sheet_row_key  // dùng key của record đã có
-        }
+        if (match) { ex = match; targetKey = match.sheet_row_key }
       }
 
-      const oldHash    = memoHash(ex?.reply ?? '')
+      const oldHash     = memoHash(ex?.reply ?? '')
       const memoChanged = ex ? newHash !== oldHash : false
 
       // ticket_date = assignTime (ngày tạo request) — serviceDate chỉ là fallback
@@ -487,24 +488,38 @@ export async function POST(req: NextRequest) {
       const needsDateFill    = ex && ex.ticket_date !== ticketDate && !!ticketDate
       if (ex && !memoChanged && !needsCompanyFill && !needsDateFill) continue
 
-      const row = {
-        sheet_row_key:     targetKey,
-        code:              String(a.customerServiceId),
-        ticket_date:       ticketDate,
-        customer_id:       a.customerId ? String(a.customerId) : null,
-        company:           a.customerName ?? null,
-        staff_name:        a.processMan ?? 'Unknown',
-        content:           newCtx,
-        reply:             newMemo,
-        speed_tag:         parseSpeedTag(newMemo),
-        zone:              a.regionName ?? null,
-        // Dùng thời gian sync hiện tại → record mới luôn hiện đầu danh sách
-        cs_update_time:    new Date().toISOString(),
-        has_unread_update: memoChanged,  // mới → false, có update → true
+      rowsToUpsert.push({
+        isNew: !ex,
+        row: {
+          sheet_row_key:     targetKey,
+          code:              String(a.customerServiceId),
+          ticket_date:       ticketDate,
+          customer_id:       a.customerId ? String(a.customerId) : null,
+          company:           a.customerName ?? null,
+          staff_name:        a.processMan ?? 'Unknown',
+          content:           newCtx,
+          reply:             newMemo,
+          speed_tag:         parseSpeedTag(newMemo),
+          zone:              a.regionName ?? null,
+          cs_update_time:    syncTime,
+          has_unread_update: memoChanged,
+        },
+      })
+    }
+
+    // Batch upsert 100 records / lần — giảm từ N lần gọi xuống N/100 lần
+    const BATCH = 100
+    for (let i = 0; i < rowsToUpsert.length; i += BATCH) {
+      const chunk = rowsToUpsert.slice(i, i + BATCH)
+      const { error: uErr } = await db2
+        .from('ho_tro_tickets')
+        .upsert(chunk.map(c => c.row), { onConflict: 'sheet_row_key' })
+      if (uErr) {
+        upsertErrors.push(`batch[${i}–${i + chunk.length}]: ${uErr.message}`)
+        continue
       }
-      const { error: uErr } = await db2.from('ho_tro_tickets').upsert(row, { onConflict: 'sheet_row_key' })
-      if (uErr) { upsertErrors.push(`${targetKey}: ${uErr.message}`); continue }
-      ex ? updatedCount2++ : newCount2++
+      newCount2     += chunk.filter(c => c.isNew).length
+      updatedCount2 += chunk.filter(c => !c.isNew).length
     }
 
     if (upsertErrors.length > 0)
