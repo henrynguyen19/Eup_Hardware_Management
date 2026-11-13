@@ -309,12 +309,13 @@ async function callCRMSoapRecent(sessionId: string, identity: string, url: strin
   let json: CRMResponse
   try { json = JSON.parse(rawText) } catch { throw new Error(`CRM response khong parse duoc: ${rawText.substring(0, 100)}`) }
   if (!json.status) throw new Error(json.error || 'CRM returned status=0')
-  // Chỉ giữ ticket có #hardware trong CS_Memo hoặc CS_Context
+  // Chỉ giữ ticket có hashtag liên quan trong CS_Memo hoặc CS_Context
+  const HW_TAGS = ['#hardware', '#fuelsensor', '#software']
   const all = json.result ?? []
   return all.filter(t => {
     const memo = (t.CS_Memo ?? '').toLowerCase()
     const ctx  = (t.CS_Context ?? '').toLowerCase()
-    return memo.includes('#hardware') || ctx.includes('#hardware')
+    return HW_TAGS.some(tag => memo.includes(tag) || ctx.includes(tag))
   })
 }
 
@@ -409,13 +410,14 @@ export async function POST(req: NextRequest) {
     }
     console.log(`[sync/aicrm] ${assigns.length} records trả về`)
 
-    // Filter: chỉ giữ ticket có #hardware trong serviceMemo hoặc serviceContext
+    // Filter: chỉ giữ ticket có hashtag liên quan trong serviceMemo hoặc serviceContext
+    const HW_TAGS = ['#hardware', '#fuelsensor', '#software']
     const filtered = assigns.filter(a => {
       const memo = (a.serviceMemo ?? '').toLowerCase()
       const ctx  = (a.serviceContext ?? '').toLowerCase()
-      return memo.includes('#hardware') || ctx.includes('#hardware')
+      return HW_TAGS.some(tag => memo.includes(tag) || ctx.includes(tag))
     })
-    console.log(`[sync/aicrm] ${filtered.length} tickets có #hardware`)
+    console.log(`[sync/aicrm] ${filtered.length} tickets có #hardware/#fuelsensor/#software`)
 
     // Upsert vào ho_tro_tickets
     const db2 = adminClient()
