@@ -4,10 +4,11 @@ import { createSupabaseBrowserClient } from '@/lib/supabase-browser'
 
 interface Mapping {
   user_id:        string
-  crm_staff_id:   number
+  crm_staff_id:   number | null
   crm_staff_name: string | null
   crm_nick_name:  string | null
   crm_account:    string | null
+  crm_password:   string | null
   updated_at:     string
   email:          string
 }
@@ -25,8 +26,10 @@ export default function CrmMappingPage() {
   const [msg, setMsg]             = useState('')
 
   // Form state
-  const [selUserId, setSelUserId] = useState('')
-  const [inputId, setInputId]     = useState('')
+  const [selUserId, setSelUserId]       = useState('')
+  const [inputId, setInputId]           = useState('')
+  const [inputAccount, setInputAccount] = useState('')
+  const [inputPassword, setInputPassword] = useState('')
 
   useEffect(() => {
     loadData()
@@ -50,18 +53,23 @@ export default function CrmMappingPage() {
   }
 
   async function handleSave() {
-    if (!selUserId || !inputId) return setMsg('⚠ Chọn user và nhập CRM Staff ID')
+    if (!selUserId) return setMsg('⚠ Chọn user trước')
+    if (!inputId && !inputAccount) return setMsg('⚠ Nhập CRM Staff ID hoặc Account AiCRM')
     setSaving(true); setMsg('')
+    const body: Record<string, unknown> = { user_id: selUserId }
+    if (inputId)       body.crm_staff_id = Number(inputId)
+    if (inputAccount)  body.crm_account  = inputAccount.trim()
+    if (inputPassword) body.crm_password = inputPassword
     const res = await fetch('/api/admin/crm-mapping', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ user_id: selUserId, crm_staff_id: Number(inputId) }),
+      body:    JSON.stringify(body),
     })
     const j = await res.json()
     if (!res.ok) { setMsg(`❌ ${j.error}`); setSaving(false); return }
-    const name = j.staff?.Staff_NickName ?? j.staff?.Staff_Name ?? `ID ${inputId}`
+    const name = j.staff?.Staff_NickName ?? j.staff?.Staff_Name ?? j.staff?.crm_account ?? `ID ${inputId}`
     setMsg(`✅ Đã lưu: ${name}`)
-    setSelUserId(''); setInputId('')
+    setSelUserId(''); setInputId(''); setInputAccount(''); setInputPassword('')
     await loadData()
     setSaving(false)
   }
@@ -103,13 +111,33 @@ export default function CrmMappingPage() {
               ))}
             </select>
           </div>
-          <div className="w-40">
-            <label className="block text-xs text-gray-500 mb-1">CRM Staff ID</label>
+          <div className="w-32">
+            <label className="block text-xs text-gray-500 mb-1">Staff ID (SOAP)</label>
             <input
               type="number"
               value={inputId}
               onChange={e => setInputId(e.target.value)}
-              placeholder="vd: 2894"
+              placeholder="vd: 9141"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+            />
+          </div>
+          <div className="w-36">
+            <label className="block text-xs text-gray-500 mb-1">Account AiCRM</label>
+            <input
+              type="text"
+              value={inputAccount}
+              onChange={e => setInputAccount(e.target.value)}
+              placeholder="vd: lhngoc"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+            />
+          </div>
+          <div className="w-40">
+            <label className="block text-xs text-gray-500 mb-1">Password AiCRM</label>
+            <input
+              type="password"
+              value={inputPassword}
+              onChange={e => setInputPassword(e.target.value)}
+              placeholder="••••••••"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
             />
           </div>
@@ -118,12 +146,12 @@ export default function CrmMappingPage() {
             disabled={saving}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
-            {saving ? 'Đang lưu...' : 'Lưu & Lookup CRM'}
+            {saving ? 'Đang lưu...' : 'Lưu'}
           </button>
         </div>
         {msg && <p className="text-sm mt-3 text-gray-600">{msg}</p>}
         <p className="text-xs text-gray-400 mt-2">
-          Sau khi lưu, hệ thống tự gọi CRM để xác nhận tên nhân viên.
+          Staff ID dùng cho SOAP sync. Account + Password dùng cho AiCRM sync. Có thể điền một hoặc cả hai.
         </p>
       </div>
 
@@ -142,9 +170,10 @@ export default function CrmMappingPage() {
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
                 <th className="text-left px-4 py-2 text-xs text-gray-500 font-medium">User</th>
-                <th className="text-left px-4 py-2 text-xs text-gray-500 font-medium">CRM Staff ID</th>
+                <th className="text-left px-4 py-2 text-xs text-gray-500 font-medium">Staff ID</th>
                 <th className="text-left px-4 py-2 text-xs text-gray-500 font-medium">Tên CRM</th>
                 <th className="text-left px-4 py-2 text-xs text-gray-500 font-medium">NickName</th>
+                <th className="text-left px-4 py-2 text-xs text-gray-500 font-medium">AiCRM Account</th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
@@ -152,9 +181,10 @@ export default function CrmMappingPage() {
               {mappings.map(m => (
                 <tr key={m.user_id} className="border-b border-gray-50 hover:bg-gray-50">
                   <td className="px-4 py-2.5 text-gray-700">{m.email}</td>
-                  <td className="px-4 py-2.5 font-mono text-blue-600">{m.crm_staff_id}</td>
+                  <td className="px-4 py-2.5 font-mono text-blue-600">{m.crm_staff_id ?? '—'}</td>
                   <td className="px-4 py-2.5 text-gray-600">{m.crm_staff_name ?? '—'}</td>
                   <td className="px-4 py-2.5 text-gray-600">{m.crm_nick_name ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-gray-600 font-mono text-xs">{m.crm_account ?? '—'}</td>
                   <td className="px-4 py-2.5 text-right">
                     <button
                       onClick={() => handleDelete(m.user_id)}

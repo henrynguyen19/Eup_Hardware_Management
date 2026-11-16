@@ -80,26 +80,35 @@ export async function GET() {
 }
 
 // ── POST /api/admin/crm-mapping ──────────────────────────────────────────────
-// Body: { user_id, crm_staff_id }  → lookup CRM then upsert mapping
+// Body: { user_id, crm_staff_id?, crm_account?, crm_password? }
 export async function POST(req: NextRequest) {
   const { db, error } = await requireAdmin()
   if (error || !db) return NextResponse.json({ error }, { status: error === 'Unauthorized' ? 401 : 403 })
 
-  const body = await req.json() as { user_id: string; crm_staff_id: number }
-  const { user_id, crm_staff_id } = body
-  if (!user_id || !crm_staff_id) return NextResponse.json({ error: 'Missing user_id or crm_staff_id' }, { status: 400 })
-
-  // Lookup CRM to get staff info
-  const crmStaff = await crmLookupStaff(crm_staff_id)
-
-  const row = {
-    user_id,
-    crm_staff_id,
-    crm_staff_name: crmStaff?.Staff_Name  ?? null,
-    crm_nick_name:  crmStaff?.Staff_NickName ?? null,
-    crm_account:    crmStaff?.Staff_Account  ?? null,
-    updated_at:     new Date().toISOString(),
+  const body = await req.json() as {
+    user_id: string
+    crm_staff_id?: number | null
+    crm_account?:  string | null
+    crm_password?: string | null
   }
+  const { user_id, crm_staff_id, crm_account, crm_password } = body
+  if (!user_id) return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
+  if (!crm_staff_id && !crm_account) return NextResponse.json({ error: 'Cần ít nhất crm_staff_id hoặc crm_account' }, { status: 400 })
+
+  // Lookup CRM to get staff info (only if staff_id provided)
+  const crmStaff = crm_staff_id ? await crmLookupStaff(crm_staff_id) : null
+
+  const row: Record<string, unknown> = {
+    user_id,
+    updated_at: new Date().toISOString(),
+  }
+  if (crm_staff_id)                        row.crm_staff_id   = crm_staff_id
+  if (crmStaff?.Staff_Name)               row.crm_staff_name = crmStaff.Staff_Name
+  if (crmStaff?.Staff_NickName)           row.crm_nick_name  = crmStaff.Staff_NickName
+  // crm_account: prefer explicit input over CRM lookup
+  if (crm_account  != null)               row.crm_account    = crm_account  || null
+  else if (crmStaff?.Staff_Account)       row.crm_account    = crmStaff.Staff_Account
+  if (crm_password != null)               row.crm_password   = crm_password || null
 
   const { error: upsertErr } = await db
     .from('user_crm_mapping')
@@ -107,7 +116,7 @@ export async function POST(req: NextRequest) {
 
   if (upsertErr) return NextResponse.json({ error: upsertErr.message }, { status: 500 })
 
-  return NextResponse.json({ ok: true, staff: crmStaff ?? { Staff_ID: crm_staff_id } })
+  return NextResponse.json({ ok: true, staff: crmStaff ?? { crm_account: row.crm_account } })
 }
 
 // ── DELETE /api/admin/crm-mapping?user_id=xxx ────────────────────────────────
