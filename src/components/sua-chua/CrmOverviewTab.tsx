@@ -96,27 +96,34 @@ export default function CrmOverviewTab({ t }: { t: T }) {
   const [from, setFrom]   = useState(() => { const d = new Date(); d.setDate(d.getDate()-6); return d.toISOString().slice(0, 10) })
   const [to, setTo]       = useState(() => new Date().toISOString().slice(0, 10))
 
-  const [data, setData]   = useState<ApiData | null>(null)
+  const [data, setData]       = useState<ApiData | null>(null)
   const [loading, setLoading] = useState(false)
+  const [err, setErr]         = useState<string | null>(null)
   const [subTab, setSubTab]   = useState<'kpi' | 'no-tag' | 'compare'>('kpi')
 
-  function buildUrl() {
-    if (mode === 'week')  return `/api/repair-tracking/crm-overview?week=${week}`
-    if (mode === 'month') return `/api/repair-tracking/crm-overview?month=${month}`
-    return `/api/repair-tracking/crm-overview?from=${from}&to=${to}`
+  function buildUrl(m: Mode, w: string, mo: string, f: string, t2: string) {
+    if (m === 'week')  return `/api/repair-tracking/crm-overview?week=${w}`
+    if (m === 'month') return `/api/repair-tracking/crm-overview?month=${mo}`
+    return `/api/repair-tracking/crm-overview?from=${f}&to=${t2}`
   }
 
-  async function load() {
-    setLoading(true)
+  async function load(m = mode, w = week, mo = month, f = from, t2 = to) {
+    setLoading(true); setErr(null)
     try {
-      const r = await fetch(buildUrl())
-      if (r.ok) setData(await r.json())
+      const r = await fetch(buildUrl(m, w, mo, f, t2))
+      if (r.ok) {
+        const json = await r.json()
+        setData(json)
+      } else {
+        const j = await r.json().catch(() => ({}))
+        setErr(j.error ?? `Lỗi ${r.status}`)
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Network error')
     } finally { setLoading(false) }
   }
 
-  // Auto-load on mount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const kpis = data?.kpis
 
@@ -163,7 +170,7 @@ export default function CrmOverviewTab({ t }: { t: T }) {
             </>
           )}
 
-          <button onClick={load} disabled={loading}
+          <button onClick={() => load()} disabled={loading}
             className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50">
             {loading ? t('Đang tải...','Loading...') : t('Xem','View')}
           </button>
@@ -176,8 +183,10 @@ export default function CrmOverviewTab({ t }: { t: T }) {
         </div>
       </div>
 
-      {!data && !loading && (
-        <div className="text-center py-10 text-gray-400 text-sm">{t('Chọn kỳ và nhấn Xem','Select period and click View')}</div>
+      {err && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
+          ❌ {err}
+        </div>
       )}
       {loading && (
         <div className="text-center py-10 text-gray-400 text-sm">{t('Đang tải dữ liệu CRM...','Loading CRM data...')}</div>
