@@ -1,9 +1,12 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import dynamic from 'next/dynamic'
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
+
+const CrmOverviewTab = dynamic(() => import('./CrmOverviewTab'), { ssr: false })
 
 type Lang = 'vi' | 'en'
 function useLang() {
@@ -3427,7 +3430,7 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
   const toggle = internal.toggle
   const t = (vi: string, en: string) => lang === 'vi' ? vi : en
   const PAGE_SIZE = 50
-  const [activeTab, setActiveTab]   = useState<'list'|'repair'|'failure'|'hashtag'|'customer'|'age'|'weekly'>('list')
+  const [activeTab, setActiveTab]   = useState<'list'|'repair'|'failure'|'hashtag'|'customer'|'age'|'weekly'|'crm-report'>('list')
   const [items, setItems]           = useState<RepairItem[]>([])
   const [total, setTotal]           = useState(0)
   const [page, setPage]             = useState(0)
@@ -3501,13 +3504,14 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
 
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
         {([
-          ['list',     t('📋 Danh sách','📋 List')],
-          ['repair',   t('📊 Sửa chữa','📊 Repairs')],
-          ['failure',  t('⚠️ Tỉ lệ lỗi','⚠️ Failure Rate')],
-          ['hashtag',  t('🏷 Phân tích lỗi','🏷 Error Tags')],
-          ['customer', t('🔍 Tra cứu KH','🔍 Customer Lookup')],
-          ['age',      t('📅 Tuổi thiết bị','📅 Device Age')],
-          ['weekly',   t('📊 Báo cáo tuần','📊 Weekly Report')],
+          ['list',       t('📋 Danh sách','📋 List')],
+          ['repair',     t('📊 Sửa chữa','📊 Repairs')],
+          ['failure',    t('⚠️ Tỉ lệ lỗi','⚠️ Failure Rate')],
+          ['hashtag',    t('🏷 Phân tích lỗi','🏷 Error Tags')],
+          ['crm-report', t('🔄 Báo cáo CRM','🔄 CRM Report')],
+          ['customer',   t('🔍 Tra cứu KH','🔍 Customer Lookup')],
+          ['age',        t('📅 Tuổi thiết bị','📅 Device Age')],
+          ['weekly',     t('📊 Báo cáo tuần','📊 Weekly Report')],
         ] as const).map(([tab,label])=>(
           <button key={tab} onClick={()=>setActiveTab(tab)}
             className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${activeTab===tab?'bg-white text-gray-800 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
@@ -3614,6 +3618,8 @@ export default function RepairTrackingDashboard({ externalLang }: { externalLang
         </>
       ) : isStatsTab ? (
         <StatsTab key={activeTab} t={t} onFilterByTag={handleFilterByTag} active={true} initialSection={activeTab as 'repair'|'failure'|'hashtag'} />
+      ) : activeTab === 'crm-report' ? (
+        <CrmOverviewTab t={t} />
       ) : activeTab === 'age' ? (
         <DeviceAgeTab t={t} />
       ) : activeTab === 'weekly' ? (
