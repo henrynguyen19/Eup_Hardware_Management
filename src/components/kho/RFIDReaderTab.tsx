@@ -81,7 +81,26 @@ interface BlockData {
   dataAscii: string
 }
 
+/** Thông tin lái xe đọc từ card blocks theo chuẩn QCVN 06 */
+interface DriverInfo {
+  soGPLX: string    // Số giấy phép lái xe (block 1)
+  hoTen: string     // Họ tên (block 2)
+  extra?: string    // Block 4 nếu có thêm dữ liệu
+}
+
 type LogEntry = { ts: string; msg: string; kind: 'info' | 'ok' | 'err' | 'warn' }
+
+// ── Thẻ Lái Xe — block layout (từ CardIssue.exe binary analysis) ─────────────
+// Mifare Classic 1K, Key A = FF FF FF FF FF FF (factory default)
+//   Block 0: Manufacturer (UID, read-only)
+//   Block 1: (unused / reserved)
+//   Block 2: Số GPLX  (ASCII 16 bytes, null-padded) ← "Start Block = 02"
+//   Block 3: Sector 0 Trailer — SKIP
+//   Block 4: Họ tên   (ASCII 16 bytes, null-padded) ← sector 1, block 0
+//   Block 7: Sector 1 Trailer — SKIP
+// CheckSum1/CheckSum2 suggest last 2 bytes of each block may be checksum
+const QCVN06_BLOCKS = { soGPLX: 2, hoTen: 4 } as const
+const QCVN06_DEFAULT_KEY = 'FFFFFFFFFFFF'
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -94,6 +113,8 @@ export default function RFIDReaderTab() {
   const [card, setCard]           = useState<CardInfo | null>(null)
   const [polling, setPolling]     = useState(false)
   const [reading, setReading]     = useState(false)
+  const [driverInfo, setDriverInfo] = useState<DriverInfo | null>(null)
+  const [readingDriver, setReadingDriver] = useState(false)
 
   const [blockNum,  setBlockNum]  = useState(1)
   const [blockKey,  setBlockKey]  = useState('FFFFFFFFFFFF')
@@ -130,25 +151,47 @@ export default function RFIDReaderTab() {
   }, [])
 
   // ── Frame parser (called from read loop) ──────────────────────────────────
-  // Supports both FB FD (reader's STX) and AA BB (legacy guess)
+  // Reader protocol (confirmed from hardware):
+  //   FB FD       → heartbeat / no card (2 bytes, sometimes FB FD 00)
+  //   FB F5 [UID×4] → card present push (6 bytes, UID = bytes [2..5])
+  //   AA BB [LEN] [CMD] [DATA…] [BCC] → command-response (legacy/block read)
   function tryParseFrame() {
     const buf = rxBuf.current
     for (let i = 0; i < buf.length - 1; i++) {
-      const isStx = (buf[i] === 0xFB && buf[i + 1] === 0xFD) ||
-                    (buf[i] === 0xAA && buf[i + 1] === 0xBB)
-      if (isStx) {
-        if (buf.length < i + 3) return   // wait for LEN byte
+      // FB FD — heartbeat (no card): 2–3 bytes
+      if (buf[i] === 0xFB && buf[i + 1] === 0xFD) {
+        // If followed by 00 (LEN=0), consume 3 bytes, else 2
+        const frameEnd = (buf[i + 2] === 0x00) ? i + 3 : i + 2
+        if (buf.length < frameEnd) return
+        const frame = new Uint8Array(buf.slice(i, frameEnd))
+        rxBuf.current = buf.slice(frameEnd)
+        const resolve = frameWaiters.current.shift()
+        if (resolve) resolve(frame)
+        return
+      }
+      // FB F5 [UID×4] — card present push frame (6 bytes)
+      if (buf[i] === 0xFB && buf[i + 1] === 0xF5) {
+        const need = i + 6     // FB F5 + 4 UID bytes
+        if (buf.length < need) return   // wait for all 4 UID bytes
+        const frame = new Uint8Array(buf.slice(i, need))
+        rxBuf.current = buf.slice(need)
+        const resolve = frameWaiters.current.shift()
+        if (resolve) resolve(frame)
+        return
+      }
+      // AA BB [LEN] [CMD] [DATA…] [BCC] — command-response protocol
+      if (buf[i] === 0xAA && buf[i + 1] === 0xBB) {
+        if (buf.length < i + 3) return
         const len = buf[i + 2]
         if (len === 0) {
-          // 2-byte heartbeat or minimal frame: FB FD 00 → resolve immediately
           const frame = new Uint8Array(buf.slice(i, i + 3))
           rxBuf.current = buf.slice(i + 3)
           const resolve = frameWaiters.current.shift()
           if (resolve) resolve(frame)
           return
         }
-        const need = i + 3 + len + 1     // STX STX LEN [payload:len] BCC
-        if (buf.length < need) return     // wait for more bytes
+        const need = i + 3 + len + 1
+        if (buf.length < need) return
         const frame = new Uint8Array(buf.slice(i, need))
         rxBuf.current = buf.slice(need)
         const resolve = frameWaiters.current.shift()
@@ -156,7 +199,7 @@ export default function RFIDReaderTab() {
         return
       }
     }
-    // Discard leading garbage (keep last byte — might be first STX byte)
+    // Discard leading garbage
     if (buf.length > 128) {
       let keepIdx = -1
       for (let i = buf.length - 1; i >= 0; i--) {
@@ -283,6 +326,7 @@ export default function RFIDReaderTab() {
     setConnected(false)
     setCard(null); cardRef.current = null
     setBlockData(null)
+    setDriverInfo(null)
     lastUid.current = null
     addLog('Đã ngắt kết nối', 'warn')
   }, [addLog])
@@ -297,35 +341,22 @@ export default function RFIDReaderTab() {
   }, [])
 
   // ── Parse a raw frame from reader into CardInfo ───────────────────────────
-  // Reader is PUSH-MODE: it auto-sends card data, no command needed.
-  // No-card heartbeat:  FB FD (2 bytes, or FB FD 00 BCC)
-  // Card-present frame: FB [status≠FD] [len?] [UID bytes...] [BCC?]
-  //                  or FB FD [len>0]  [status] [UID bytes...] [BCC]
+  // Confirmed reader protocol (from debug raw bytes):
+  //   FB FD       → heartbeat "no card"  (2–3 bytes)
+  //   FB F5 [B0] [B1] [B2] [B3]  → card present, UID = B0..B3  (6 bytes)
   function tryParseCardFrame(raw: number[]): CardInfo | null {
-    if (raw.length < 4) return null
+    if (raw.length < 2) return null
 
-    // Pattern 1: FB FD 00 → no card
-    if (raw[0] === 0xFB && raw[1] === 0xFD && raw.length <= 3) return null
+    // FB FD = heartbeat / no card
+    if (raw[0] === 0xFB && raw[1] === 0xFD) return null
 
-    // Pattern 2: FB FD LEN STATUS UID(4B)... — framed with LEN > 0
-    if (raw[0] === 0xFB && raw[1] === 0xFD && raw[2] > 0) {
-      const status = raw[3]
-      if (status !== 0 && status !== 0x01 && status !== 0x10) return null // error codes
-      if (raw.length >= 8) {
-        const uidBytes = raw.slice(4, 8)
-        return buildCard(uidBytes, raw[8] ?? 0x08)
-      }
-    }
-
-    // Pattern 3: FB [non-FD status] UID(4B) [BCC] — compact push frame
-    if (raw[0] === 0xFB && raw[1] !== 0xFD && raw.length >= 5) {
-      const uidBytes = raw.slice(1, 5)
-      return buildCard(uidBytes, 0x08)
-    }
-
-    // Pattern 4: just 4 UID bytes with no header (some simple readers)
-    if (raw.length === 4 || raw.length === 5) {
-      return buildCard(raw.slice(0, 4), 0x08)
+    // ✅ Confirmed frame: FB F5 [UID×4]
+    if (raw[0] === 0xFB && raw[1] === 0xF5) {
+      if (raw.length < 6) return null   // partial frame — wait for more bytes
+      const uidBytes = raw.slice(2, 6)
+      // raw[6] may be card type byte (0x08 = Mifare Classic 1K)
+      const cardType = raw.length > 6 ? raw[6] : 0x08
+      return buildCard(uidBytes, cardType)
     }
 
     return null
@@ -343,25 +374,33 @@ export default function RFIDReaderTab() {
 
   // ── Read card: passive listen mode (no commands sent) ─────────────────────
   const doReadCard = useCallback(async (): Promise<CardInfo | null> => {
-    // Clear any stale bytes, then wait for reader to push card data
+    // Clear stale bytes, wait for reader to push FB F5 card frame
     rxBuf.current = []
     rawRxBuf.current = []
 
-    // Wait up to 2 seconds for reader to send something (push mode)
     const deadline = Date.now() + 2000
     while (Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 100))
+      await new Promise(r => setTimeout(r, 80))
       const raw = rawRxBuf.current.slice()
-      if (raw.length >= 2) {
-        // FB FD = heartbeat "no card"
-        const isBeat = raw[0] === 0xFB && raw[1] === 0xFD && raw.length <= 4
-        if (!isBeat && raw.length >= 4) {
-          const card = tryParseCardFrame(raw)
-          if (card) return card
-        }
-        // Accumulate more bytes if we have something partial
-        if (raw.length > 0 && !isBeat) continue
+      if (raw.length < 2) continue
+
+      // FB FD = heartbeat "no card" — clear and keep waiting
+      if (raw[0] === 0xFB && raw[1] === 0xFD) {
+        rawRxBuf.current = []
+        continue
       }
+
+      // FB F5 = card present frame; wait until we have 6 bytes
+      if (raw[0] === 0xFB && raw[1] === 0xF5) {
+        if (raw.length < 6) continue   // partial — keep accumulating
+        const card = tryParseCardFrame(raw)
+        if (card) return card
+        rawRxBuf.current = []          // malformed 6+ bytes, discard
+        continue
+      }
+
+      // Unknown bytes — discard and keep waiting
+      rawRxBuf.current = []
     }
     return null
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -377,34 +416,43 @@ export default function RFIDReaderTab() {
     }
     setPolling(true)
     addLog('Bắt đầu quét (passive)...', 'info')
-    // Check rawRxBuf every 300ms — reader pushes data autonomously
+    // Check rawRxBuf every 150ms — reader pushes data autonomously
     pollTimer.current = setInterval(() => {
       const raw = rawRxBuf.current.slice()
       if (raw.length < 2) return
-      // FB FD = no card heartbeat — ignore
-      if (raw[0] === 0xFB && raw[1] === 0xFD && raw.length <= 4) {
-        rawRxBuf.current = []  // clear heartbeat, wait for next
+
+      // FB FD = no card heartbeat — clear and reset card state
+      if (raw[0] === 0xFB && raw[1] === 0xFD) {
+        rawRxBuf.current = []
+        if (lastUid.current) {
+          lastUid.current = null
+          cardRef.current = null
+          setCard(null)
+          setDriverInfo(null)
+        }
         return
       }
-      // Something else came in — might be card data
-      if (raw.length >= 2) {
+
+      // FB F5 = card present frame; need 6 bytes minimum
+      if (raw[0] === 0xFB && raw[1] === 0xF5) {
+        if (raw.length < 6) return   // partial frame — wait, do NOT clear
         const c = tryParseCardFrame(raw)
-        rawRxBuf.current = []  // consumed
-        if (c) {
-          if (c.uid !== lastUid.current) {
-            lastUid.current = c.uid
-            cardRef.current = c
-            setCard(c)
-            addLog(`🔖 ${c.uidDisplay}  (${c.cardTypeName})`, 'ok')
-          }
-        } else if (raw.length >= 4) {
-          // Unknown frame — log raw bytes for debugging
-          const hex = raw.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
-          addLog(`RAW: ${hex}`, 'warn')
+        rawRxBuf.current = raw.slice(6)   // consume 6 bytes, keep any trailing
+        if (c && c.uid !== lastUid.current) {
+          lastUid.current = c.uid
+          cardRef.current = c
+          setCard(c)
+          setDriverInfo(null)
+          addLog(`🔖 ${c.uidDisplay}  (${c.cardTypeName})`, 'ok')
         }
-        if (lastUid.current && raw.length <= 4) lastUid.current = null
+        return
       }
-    }, 300)
+
+      // Unknown frame — log and discard
+      const hex = raw.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
+      rawRxBuf.current = []
+      if (raw.length >= 3) addLog(`RAW: ${hex}`, 'warn')
+    }, 150)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [polling, addLog])
 
@@ -467,6 +515,97 @@ export default function RFIDReaderTab() {
     finally { setWriting(false) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockNum, blockKey, keyType, writeData, addLog])
+
+  // ── Đọc thông tin lái xe (Thẻ Lái Xe — CardIssue.exe format) ───────────────
+  // Block 2: Số GPLX (ASCII 16 bytes), Block 4: Họ tên (ASCII 16 bytes)
+  // Key A = FFFFFFFFFFFF (factory default confirmed from binary)
+  const handleReadDriverInfo = useCallback(async () => {
+    const currentCard = cardRef.current
+    if (!currentCard) { addLog('Đọc thẻ trước khi lấy thông tin GPLX', 'warn'); return }
+    setReadingDriver(true)
+    try {
+      const uidBytes = hexDecode(currentCard.uid, 4)
+      // Use QCVN06 default key — always FF FF FF FF FF FF for driver cards
+      const driverKey = hexDecode(QCVN06_DEFAULT_KEY, 6)
+
+      const decodeBlock = (resp: Uint8Array | null, label: string): string => {
+        if (!resp || resp.length < 20) {
+          addLog(`Không đọc được ${label} (timeout)`, 'warn')
+          return ''
+        }
+        // Response: [STX×2] [LEN] [STATUS] [DATA×16] [BCC]
+        if (resp[3] !== 0) {
+          addLog(`${label}: xác thực key thất bại (status=0x${resp[3].toString(16)})`, 'err')
+          return ''
+        }
+        // Data is at bytes 4..19 (16 bytes); last 2 may be checksum, still include
+        const raw = Array.from(resp.slice(4, 20))
+        return raw
+          .filter(b => b >= 0x20 && b < 0x7F)
+          .map(b => String.fromCharCode(b))
+          .join('')
+          .trim()
+      }
+
+      const [resp1, resp2] = await Promise.all([
+        sendCmd(0x30, [QCVN06_BLOCKS.soGPLX, 0 /* Key A */, ...driverKey, ...uidBytes], 1500),
+        sendCmd(0x30, [QCVN06_BLOCKS.hoTen,  0 /* Key A */, ...driverKey, ...uidBytes], 1500),
+      ])
+
+      const soGPLX = decodeBlock(resp1, 'Số GPLX')
+      const hoTen  = decodeBlock(resp2, 'Họ tên')
+
+      if (soGPLX || hoTen) {
+        const info: DriverInfo = { soGPLX, hoTen }
+        setDriverInfo(info)
+        addLog(`👤 ${hoTen || '—'}  |  GPLX: ${soGPLX || '—'}`, 'ok')
+      } else {
+        addLog('Không đọc được dữ liệu GPLX — kiểm tra key và block layout', 'warn')
+      }
+    } catch (e) { addLog(`Lỗi đọc GPLX: ${e}`, 'err') }
+    finally { setReadingDriver(false) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockKey, keyType, addLog])
+
+  // ── Block dump: đọc tất cả 64 blocks để khám phá layout thẻ ─────────────
+  const [dumpLog, setDumpLog] = useState<string[]>([])
+  const [dumping, setDumping] = useState(false)
+
+  const handleBlockDump = useCallback(async () => {
+    const currentCard = cardRef.current
+    if (!currentCard) { addLog('Cần đọc thẻ trước', 'warn'); return }
+    setDumping(true)
+    setDumpLog([])
+    const uidBytes = hexDecode(currentCard.uid, 4)
+    const keyBytes = hexDecode(blockKey, 6)
+    const lines: string[] = []
+
+    for (let blk = 0; blk < 64; blk++) {
+      const sector = Math.floor(blk / 4)
+      const isTrailer = blk % 4 === 3
+      try {
+        const resp = await sendCmd(0x30, [blk, keyType, ...keyBytes, ...uidBytes], 1200)
+        if (!resp || resp.length < 20) {
+          lines.push(`[${blk.toString().padStart(2,'0')} S${sector}] ✗ timeout/fail`)
+        } else if (resp[3] !== 0) {
+          lines.push(`[${blk.toString().padStart(2,'0')} S${sector}] ✗ auth error`)
+        } else {
+          const dataStart = resp.length - 17
+          const raw = Array.from(resp.slice(dataStart, dataStart + 16))
+          const hex = raw.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
+          const ascii = raw.map(b => b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.').join('')
+          const tag = isTrailer ? ' [TRAILER]' : ''
+          lines.push(`[${blk.toString().padStart(2,'0')} S${sector}${tag}] ${hex}  |${ascii}|`)
+        }
+      } catch {
+        lines.push(`[${blk.toString().padStart(2,'0')}] exception`)
+      }
+      setDumpLog([...lines])
+    }
+    setDumping(false)
+    addLog(`Block dump hoàn tất (${lines.filter(l => !l.includes('✗')).length}/64 đọc được)`, 'ok')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockKey, keyType, addLog])
 
   // ── Log color ─────────────────────────────────────────────────────────────
   const logColor = (k: LogEntry['kind']) =>
@@ -545,22 +684,46 @@ export default function RFIDReaderTab() {
           <div className="space-y-3">
 
             {/* Card status */}
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
               {card ? (
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 mb-2">
+                <>
+                  <div className="flex items-center gap-2">
                     <span className="text-2xl">🃏</span>
                     <span className="font-semibold text-gray-800">Thẻ đang đọc</span>
+                    <span className="text-xs text-gray-400 ml-auto">{card.cardTypeName}</span>
                   </div>
                   <div className="font-mono text-lg font-bold text-purple-700 tracking-widest">
                     {card.uidDisplay}
                   </div>
-                  <div className="text-xs text-gray-500">{card.cardTypeName}</div>
-                </div>
+
+                  {/* QCVN 06 driver info */}
+                  {driverInfo ? (
+                    <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-3 space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-green-800">
+                        <span>👤</span> Thông tin lái xe (QCVN 06)
+                      </div>
+                      <div className="text-sm font-medium text-gray-800">
+                        {driverInfo.hoTen || <span className="text-gray-400 italic">— Họ tên trống —</span>}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        GPLX: <span className="font-mono font-semibold">{driverInfo.soGPLX || '—'}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleReadDriverInfo}
+                      disabled={readingDriver}
+                      className="w-full py-1.5 rounded-lg text-xs font-semibold border disabled:opacity-50"
+                      style={{ background: '#f0fdf4', color: '#15803d', borderColor: '#86efac' }}
+                    >
+                      {readingDriver ? '⏳ Đang đọc GPLX...' : '👤 Đọc thông tin GPLX (QCVN 06)'}
+                    </button>
+                  )}
+                </>
               ) : (
                 <div className="flex items-center gap-2 text-gray-400">
                   <span className="text-2xl">📭</span>
-                  <span className="text-sm">Chưa có thẻ</span>
+                  <span className="text-sm">Chưa có thẻ — đặt thẻ lên đầu đọc</span>
                 </div>
               )}
             </div>
@@ -716,6 +879,35 @@ export default function RFIDReaderTab() {
                 <p className="text-[11px] text-indigo-600">
                   Nếu reader trả về bytes → gửi kết quả RX cho kỹ thuật để xác định đúng protocol.
                 </p>
+
+                {/* Block dump */}
+                {card && (
+                  <div className="border-t border-indigo-200 pt-2 space-y-2">
+                    <p className="text-[11px] font-semibold text-indigo-800">
+                      🗂 Block Dump — khám phá layout thẻ QCVN 06
+                    </p>
+                    <button
+                      onClick={handleBlockDump} disabled={dumping}
+                      className="w-full py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
+                      style={{ background: '#0f766e' }}
+                    >
+                      {dumping ? '⏳ Đang dump...' : '🗂 Đọc tất cả 64 blocks'}
+                    </button>
+                    {dumpLog.length > 0 && (
+                      <div className="bg-gray-900 rounded-lg p-2 font-mono text-[11px] space-y-0.5 max-h-64 overflow-y-auto">
+                        {dumpLog.map((line, i) => (
+                          <div key={i} style={{
+                            color: line.includes('TRAILER') ? '#d97706'
+                                 : line.includes('✗') ? '#6b7280'
+                                 : '#4ade80'
+                          }}>
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
