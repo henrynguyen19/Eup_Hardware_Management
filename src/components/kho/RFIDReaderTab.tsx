@@ -166,11 +166,12 @@ export default function RFIDReaderTab() {
 
   // ── Frame parser ──────────────────────────────────────────────────────────
   // Reader pushes frames autonomously; we also receive responses to TX commands.
+  // Confirmed STX values seen in the wild: 0xFB and 0xBB (same frame structure)
   function tryParseFrame() {
     const buf = rxBuf.current
     for (let i = 0; i < buf.length - 1; i++) {
-      // FB FD — heartbeat (no card): 2–3 bytes
-      if (buf[i] === 0xFB && buf[i + 1] === 0xFD) {
+      // {FB|BB} FD — heartbeat (no card): 2–3 bytes
+      if ((buf[i] === 0xFB || buf[i] === 0xBB) && buf[i + 1] === 0xFD) {
         const frameEnd = (buf[i + 2] === 0x00) ? i + 3 : i + 2
         if (buf.length < frameEnd) return
         const frame = new Uint8Array(buf.slice(i, frameEnd))
@@ -178,8 +179,8 @@ export default function RFIDReaderTab() {
         frameWaiters.current.shift()?.(frame)
         return
       }
-      // FB F5 [UID×4] — card present push frame (6 bytes)
-      if (buf[i] === 0xFB && buf[i + 1] === 0xF5) {
+      // {FB|BB} F5 [UID×4] — card present push frame (6 bytes)
+      if ((buf[i] === 0xFB || buf[i] === 0xBB) && buf[i + 1] === 0xF5) {
         if (buf.length < i + 6) return   // partial — wait
         const frame = new Uint8Array(buf.slice(i, i + 6))
         rxBuf.current = buf.slice(i + 6)
@@ -341,7 +342,7 @@ export default function RFIDReaderTab() {
   // ── Parse push frame → CardInfo ───────────────────────────────────────────
   function tryParseCardFrame(raw: number[]): CardInfo | null {
     if (raw.length < 6) return null
-    if (raw[0] === 0xFB && raw[1] === 0xF5) {
+    if ((raw[0] === 0xFB || raw[0] === 0xBB) && raw[1] === 0xF5) {
       const uidBytes = raw.slice(2, 6)
       const cardType = raw.length > 6 ? raw[6] : 0x08
       const uidHex = uidBytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('')
@@ -369,7 +370,7 @@ export default function RFIDReaderTab() {
       const raw = rawRxBuf.current.slice()
       if (raw.length < 2) return
 
-      if (raw[0] === 0xFB && raw[1] === 0xFD) {
+      if ((raw[0] === 0xFB || raw[0] === 0xBB) && raw[1] === 0xFD) {
         rawRxBuf.current = []
         if (lastUid.current) {
           lastUid.current = null; cardRef.current = null
@@ -378,7 +379,7 @@ export default function RFIDReaderTab() {
         return
       }
 
-      if (raw[0] === 0xFB && raw[1] === 0xF5) {
+      if ((raw[0] === 0xFB || raw[0] === 0xBB) && raw[1] === 0xF5) {
         if (raw.length < 6) return   // partial — wait, do NOT clear
         const c = tryParseCardFrame(raw)
         rawRxBuf.current = raw.slice(6)
@@ -397,40 +398,17 @@ export default function RFIDReaderTab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [polling, addLog])
 
-  // ── Set Work Mode (Get/Set buttons in Work Mode group) ────────────────────
-  // These communicate the mode to the reader hardware so it knows whether
-  // to authenticate for read (Reader) or write (Writer) operations.
-  const handleGetWorkMode = useCallback(async () => {
-    setSettingMode(true)
-    try {
-      // cmd=0x40: query current work mode from reader
-      const resp = await sendCmd(0x40, [], 1200)
-      if (resp && resp.length >= 4 && resp[3] === 0) {
-        const mode = resp[4] === 1 ? 'Writer' : 'Reader'
-        setWorkMode(mode)
-        addLog(`Work Mode từ thiết bị: ${mode}`, 'ok')
-      } else {
-        addLog('Không lấy được Work Mode (timeout hoặc lỗi)', 'warn')
-      }
-    } catch (e) { addLog(`Lỗi lấy Work Mode: ${e}`, 'err') }
-    finally { setSettingMode(false) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addLog])
+  // ── Work Mode Get/Set (UI-only — reader operates in push mode regardless) ──
+  // The reader always auto-pushes UID frames; Work Mode only affects whether
+  // the web UI shows "Get" only (Reader) or also "Set" (Writer).
+  // CardIssue.exe's Get/Set Work Mode calls rf_GetWorkMode/rf_SetWorkMode in
+  // rf_Reader.dll — the exact DLL serial command is unknown so we don't send it.
+  const handleGetWorkMode = useCallback(() => {
+    addLog(`Work Mode hiện tại: ${workMode}, Start Block: ${startBlock}`, 'info')
+  }, [workMode, startBlock, addLog])
 
-  const handleSetWorkMode = useCallback(async () => {
-    setSettingMode(true)
-    try {
-      // cmd=0x41: set work mode — 0=Reader, 1=Writer
-      const modeVal = workMode === 'Writer' ? 1 : 0
-      const resp = await sendCmd(0x41, [modeVal, startBlock], 1200)
-      if (resp && resp.length >= 4 && resp[3] === 0) {
-        addLog(`Đã đặt Work Mode: ${workMode}, Start Block: ${startBlock}`, 'ok')
-      } else {
-        addLog('Không đặt được Work Mode (timeout hoặc lỗi)', 'warn')
-      }
-    } catch (e) { addLog(`Lỗi đặt Work Mode: ${e}`, 'err') }
-    finally { setSettingMode(false) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const handleSetWorkMode = useCallback(() => {
+    addLog(`Đã chọn Work Mode: ${workMode}, Start Block: ${startBlock}`, 'ok')
   }, [workMode, startBlock, addLog])
 
   // ── Get (đọc thẻ) — mirrors CardIssue.exe "Get" button in card data section ──
