@@ -257,15 +257,24 @@ export default function RFIDReaderTab() {
           <span className="text-2xl shrink-0">⚠️</span>
           <div className="min-w-0 space-y-2">
             <p className="font-semibold text-amber-800 text-sm">Bridge chưa chạy</p>
-            <p className="text-xs text-amber-700">Mở Terminal trên máy tính và chạy:</p>
-            <code className="block bg-amber-100 border border-amber-200 rounded-lg px-3 py-2 text-xs font-mono text-amber-900">
-              python rfid_bridge.py
-            </code>
-            <div className="text-xs text-amber-700 space-y-1">
-              <p><strong>Windows:</strong> Dùng rf_Reader.dll (cần Python 32-bit) hoặc pyserial</p>
-              <p><strong>Ubuntu/Linux:</strong> Dùng pyserial — cài bằng: <code className="bg-amber-100 px-1 rounded font-mono">pip install pyserial</code></p>
-              <p className="text-amber-500">Trên Ubuntu cũng cần thêm quyền: <code className="bg-amber-100 px-1 rounded font-mono">sudo usermod -aG dialout $USER</code></p>
+            <p className="text-xs text-amber-700 mb-1">
+              Mở thư mục <strong>Phần mềm quản lý của bộ phận Hardware</strong> và chạy file launcher:
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-semibold text-blue-800 mb-0.5">🪟 Windows</p>
+                <code className="text-xs font-mono text-blue-900">start_rfid_bridge.bat</code>
+                <p className="text-[11px] text-blue-600 mt-0.5">Double-click để chạy</p>
+              </div>
+              <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-semibold text-orange-800 mb-0.5">🐧 Ubuntu/Linux</p>
+                <code className="text-xs font-mono text-orange-900">start_rfid_bridge.sh</code>
+                <p className="text-[11px] text-orange-600 mt-0.5">Script tự cài đặt mọi thứ</p>
+              </div>
             </div>
+            <p className="text-[11px] text-amber-600">
+              File launcher tự động cài pyserial và cấp quyền — không cần làm gì thêm.
+            </p>
           </div>
         </div>
       )}
