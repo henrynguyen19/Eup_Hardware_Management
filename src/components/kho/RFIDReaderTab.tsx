@@ -296,31 +296,78 @@ export default function RFIDReaderTab() {
     }
   }, [])
 
-  // ── Read card (internal) ──────────────────────────────────────────────────
-  // Response frame: AA BB LEN STATUS UID(4B) [optional extras] BCC
-  const doReadCard = useCallback(async (): Promise<CardInfo | null> => {
-    // REQA
-    let resp = await sendCmd(0x50, [0x26, 0x00], 600)
-    if (!resp || resp[3] !== 0) {
-      // WUPA (wake up halted card)
-      resp = await sendCmd(0x50, [0x52, 0x00], 600)
+  // ── Parse a raw frame from reader into CardInfo ───────────────────────────
+  // Reader is PUSH-MODE: it auto-sends card data, no command needed.
+  // No-card heartbeat:  FB FD (2 bytes, or FB FD 00 BCC)
+  // Card-present frame: FB [status≠FD] [len?] [UID bytes...] [BCC?]
+  //                  or FB FD [len>0]  [status] [UID bytes...] [BCC]
+  function tryParseCardFrame(raw: number[]): CardInfo | null {
+    if (raw.length < 4) return null
+
+    // Pattern 1: FB FD 00 → no card
+    if (raw[0] === 0xFB && raw[1] === 0xFD && raw.length <= 3) return null
+
+    // Pattern 2: FB FD LEN STATUS UID(4B)... — framed with LEN > 0
+    if (raw[0] === 0xFB && raw[1] === 0xFD && raw[2] > 0) {
+      const status = raw[3]
+      if (status !== 0 && status !== 0x01 && status !== 0x10) return null // error codes
+      if (raw.length >= 8) {
+        const uidBytes = raw.slice(4, 8)
+        return buildCard(uidBytes, raw[8] ?? 0x08)
+      }
     }
-    if (!resp || resp[3] !== 0) return null
-    // UID at frame[4..7] (4 bytes), card type at frame[8] if present
-    if (resp.length < 8) return null
-    const uidBytes = Array.from(resp.slice(4, 8))
+
+    // Pattern 3: FB [non-FD status] UID(4B) [BCC] — compact push frame
+    if (raw[0] === 0xFB && raw[1] !== 0xFD && raw.length >= 5) {
+      const uidBytes = raw.slice(1, 5)
+      return buildCard(uidBytes, 0x08)
+    }
+
+    // Pattern 4: just 4 UID bytes with no header (some simple readers)
+    if (raw.length === 4 || raw.length === 5) {
+      return buildCard(raw.slice(0, 4), 0x08)
+    }
+
+    return null
+  }
+
+  function buildCard(uidBytes: number[], cardType: number): CardInfo {
     const uidHex = uidBytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('')
-    const cardType = resp.length > 8 ? resp[8] : 0x08
     return {
       uid: uidHex,
       uidDisplay: hexEncode(uidBytes),
       cardType,
       cardTypeName: CARD_TYPE_NAMES[cardType] ?? `0x${cardType.toString(16).toUpperCase()}`,
     }
+  }
+
+  // ── Read card: passive listen mode (no commands sent) ─────────────────────
+  const doReadCard = useCallback(async (): Promise<CardInfo | null> => {
+    // Clear any stale bytes, then wait for reader to push card data
+    rxBuf.current = []
+    rawRxBuf.current = []
+
+    // Wait up to 2 seconds for reader to send something (push mode)
+    const deadline = Date.now() + 2000
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 100))
+      const raw = rawRxBuf.current.slice()
+      if (raw.length >= 2) {
+        // FB FD = heartbeat "no card"
+        const isBeat = raw[0] === 0xFB && raw[1] === 0xFD && raw.length <= 4
+        if (!isBeat && raw.length >= 4) {
+          const card = tryParseCardFrame(raw)
+          if (card) return card
+        }
+        // Accumulate more bytes if we have something partial
+        if (raw.length > 0 && !isBeat) continue
+      }
+    }
+    return null
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Polling ───────────────────────────────────────────────────────────────
+  // ── Polling — passive: watch incoming bytes from push-mode reader ─────────
   const togglePolling = useCallback(() => {
     if (polling) {
       if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null }
@@ -329,21 +376,37 @@ export default function RFIDReaderTab() {
       return
     }
     setPolling(true)
-    addLog('Bắt đầu quét thẻ...', 'info')
-    pollTimer.current = setInterval(async () => {
-      const c = await doReadCard()
-      if (c) {
-        if (c.uid !== lastUid.current) {
-          lastUid.current = c.uid
-          cardRef.current = c
-          setCard(c)
-          addLog(`🔖 ${c.uidDisplay}  (${c.cardTypeName})`, 'ok')
-        }
-      } else {
-        if (lastUid.current) lastUid.current = null
+    addLog('Bắt đầu quét (passive)...', 'info')
+    // Check rawRxBuf every 300ms — reader pushes data autonomously
+    pollTimer.current = setInterval(() => {
+      const raw = rawRxBuf.current.slice()
+      if (raw.length < 2) return
+      // FB FD = no card heartbeat — ignore
+      if (raw[0] === 0xFB && raw[1] === 0xFD && raw.length <= 4) {
+        rawRxBuf.current = []  // clear heartbeat, wait for next
+        return
       }
-    }, 900)
-  }, [polling, doReadCard, addLog])
+      // Something else came in — might be card data
+      if (raw.length >= 2) {
+        const c = tryParseCardFrame(raw)
+        rawRxBuf.current = []  // consumed
+        if (c) {
+          if (c.uid !== lastUid.current) {
+            lastUid.current = c.uid
+            cardRef.current = c
+            setCard(c)
+            addLog(`🔖 ${c.uidDisplay}  (${c.cardTypeName})`, 'ok')
+          }
+        } else if (raw.length >= 4) {
+          // Unknown frame — log raw bytes for debugging
+          const hex = raw.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
+          addLog(`RAW: ${hex}`, 'warn')
+        }
+        if (lastUid.current && raw.length <= 4) lastUid.current = null
+      }
+    }, 300)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polling, addLog])
 
   // ── Manual read card ──────────────────────────────────────────────────────
   const handleReadCard = useCallback(async () => {
