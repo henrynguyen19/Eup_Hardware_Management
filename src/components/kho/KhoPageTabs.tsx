@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import KhoPhotoWall from './KhoPhotoWall'
 import FeatureMatrixView from './FeatureMatrixView'
 import VehicleCompatMatrix from './VehicleCompatMatrix'
@@ -8,7 +9,9 @@ import type { EquipmentCard } from '@/types/equipment'
 import type { FirmwareVersion } from '@/types/kho'
 import { useLanguage } from '@/contexts/LanguageContext'
 
-type PageTab = 'devices' | 'features' | 'vehicles'
+const RFIDReaderTab = dynamic(() => import('./RFIDReaderTab'), { ssr: false })
+
+type PageTab = 'devices' | 'features' | 'vehicles' | 'rfid'
 
 // EUP brand colors
 const EUP_RED   = '#A70A0A'
@@ -53,9 +56,19 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
       activeStyle: { background: EUP_GREEN, color: '#fff', boxShadow: '0 2px 8px rgba(0,175,80,0.25)', borderColor: EUP_GREEN },
       indicatorColor: EUP_GREEN,
     },
+    {
+      id: 'rfid' as PageTab,
+      icon: '🔖',
+      label: 'RFID',
+      desc: 'Đọc / Ghi thẻ',
+      activeStyle: { background: '#7c3aed', color: '#fff', boxShadow: '0 2px 8px rgba(124,58,237,0.25)', borderColor: '#7c3aed' },
+      indicatorColor: '#7c3aed',
+      adminOnly: true,
+    },
   ]
 
-  const activeTabDef = PAGE_TABS.find(tab => tab.id === activeTab)!
+  const visibleTabs = PAGE_TABS.filter(tab => !(tab as { adminOnly?: boolean }).adminOnly || canWrite || isAdmin)
+  const activeTabDef = PAGE_TABS.find(tab => tab.id === activeTab) ?? PAGE_TABS[0]
 
   return (
     <div className="min-h-screen" style={{ background: '#f5f6f8' }}>
@@ -85,7 +98,7 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
 
           {/* Tab row — scrollable on mobile */}
           <div className="flex gap-1 pb-0 overflow-x-auto scrollbar-hide">
-            {PAGE_TABS.map(tab => {
+            {visibleTabs.map(tab => {
               const isActive = tab.id === activeTab
               return (
                 <button
@@ -172,7 +185,26 @@ export default function KhoPageTabs({ initialCards, latestFirmware, userEmail, c
               </div>
               <VehicleCompatMatrix isAdmin={isAdmin} />
             </div>
-             </div>
+          </div>
+        )}
+
+        {activeTab === 'rfid' && (
+          <div className="p-4">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3"
+                   style={{ background: 'linear-gradient(90deg, #7c3aed10, transparent)' }}>
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white text-lg flex-shrink-0"
+                     style={{ background: '#7c3aed' }}>
+                  🔖
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-gray-800">Đầu đọc / ghi thẻ RFID</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">Kết nối qua cổng COM — hỗ trợ Mifare Classic 1K/4K, UltraLight</p>
+                </div>
+              </div>
+              <RFIDReaderTab />
+            </div>
+          </div>
         )}
 
       </div>
