@@ -179,11 +179,14 @@ export default function RFIDReaderTab() {
         frameWaiters.current.shift()?.(frame)
         return
       }
-      // {FB|BB} F5 [UID×4] — card present push frame (6 bytes)
+      // {FB|BB} F5 [xx] — card present push frame (3 bytes confirmed in hardware)
+      // Note: some readers also send 6-byte version with UID appended; accept both
       if ((buf[i] === 0xFB || buf[i] === 0xBB) && buf[i + 1] === 0xF5) {
-        if (buf.length < i + 6) return   // partial — wait
-        const frame = new Uint8Array(buf.slice(i, i + 6))
-        rxBuf.current = buf.slice(i + 6)
+        if (buf.length < i + 3) return   // need at least 3 bytes
+        // If 6+ bytes available treat bytes [2..5] as UID, otherwise 3-byte frame
+        const frameLen = buf.length >= i + 6 ? 6 : 3
+        const frame = new Uint8Array(buf.slice(i, i + frameLen))
+        rxBuf.current = buf.slice(i + frameLen)
         frameWaiters.current.shift()?.(frame)
         return
       }
@@ -330,6 +333,14 @@ export default function RFIDReaderTab() {
     addLog('Đã ngắt kết nối', 'warn')
   }, [addLog])
 
+  // Auto-start polling when connected
+  useEffect(() => {
+    if (connected && !polling) {
+      togglePolling()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected])
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -340,17 +351,33 @@ export default function RFIDReaderTab() {
   }, [])
 
   // ── Parse push frame → CardInfo ───────────────────────────────────────────
+  // Frame formats confirmed from hardware:
+  //   3-byte: FB/BB F5 [status]        — card present, no UID in frame
+  //   6-byte: FB/BB F5 [B0 B1 B2 B3]  — card present + UID (some readers)
   function tryParseCardFrame(raw: number[]): CardInfo | null {
-    if (raw.length < 6) return null
+    if (raw.length < 3) return null
     if ((raw[0] === 0xFB || raw[0] === 0xBB) && raw[1] === 0xF5) {
-      const uidBytes = raw.slice(2, 6)
-      const cardType = raw.length > 6 ? raw[6] : 0x08
-      const uidHex = uidBytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('')
-      return {
-        uid: uidHex,
-        uidDisplay: hexEncode(uidBytes),
-        cardType,
-        cardTypeName: CARD_TYPE_NAMES[cardType] ?? `0x${cardType.toString(16).toUpperCase()}`,
+      if (raw.length >= 6) {
+        // 6-byte format: UID bytes 2..5
+        const uidBytes = raw.slice(2, 6)
+        const cardType = 0x08
+        const uidHex = uidBytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('')
+        return {
+          uid: uidHex,
+          uidDisplay: hexEncode(uidBytes),
+          cardType,
+          cardTypeName: CARD_TYPE_NAMES[cardType] ?? `Mifare Classic`,
+        }
+      } else {
+        // 3-byte format: no UID, use status byte as identifier
+        const statusByte = raw[2]
+        const cardTypeHex = statusByte.toString(16).toUpperCase().padStart(2, '0')
+        return {
+          uid: `CARD_${cardTypeHex}`,   // placeholder — no UID in frame
+          uidDisplay: `?? ?? ?? ${cardTypeHex}`,
+          cardType: statusByte,
+          cardTypeName: CARD_TYPE_NAMES[statusByte] ?? `Type 0x${cardTypeHex}`,
+        }
       }
     }
     return null
@@ -380,13 +407,16 @@ export default function RFIDReaderTab() {
       }
 
       if ((raw[0] === 0xFB || raw[0] === 0xBB) && raw[1] === 0xF5) {
-        if (raw.length < 6) return   // partial — wait, do NOT clear
+        if (raw.length < 3) return   // need at least 3 bytes
+        const frameLen = raw.length >= 6 ? 6 : 3
         const c = tryParseCardFrame(raw)
-        rawRxBuf.current = raw.slice(6)
+        rawRxBuf.current = raw.slice(frameLen)
         if (c && c.uid !== lastUid.current) {
           lastUid.current = c.uid; cardRef.current = c
           setCard(c); setSoGPLX(''); setHoTen('')
-          addLog(`🔖 ${c.uidDisplay}  (${c.cardTypeName})`, 'ok')
+          addLog(`🔖 ${c.uidDisplay}  (${c.cardTypeName}) — đang đọc GPLX...`, 'ok')
+          // Auto-read driver info when card is detected
+          setTimeout(() => handleGetCardAuto(c), 200)
         }
         return
       }
@@ -411,6 +441,40 @@ export default function RFIDReaderTab() {
     addLog(`Đã chọn Work Mode: ${workMode}, Start Block: ${startBlock}`, 'ok')
   }, [workMode, startBlock, addLog])
 
+  // ── Auto-read when card detected (called from polling with card object) ───
+  const handleGetCardAuto = useCallback(async (currentCard: CardInfo) => {
+    setGettingCard(true)
+    try {
+      const uidBytes = currentCard.uid.startsWith('CARD_')
+        ? [0, 0, 0, 0]  // 3-byte frame: no UID, send zeros
+        : hexDecode(currentCard.uid, 4)
+      const keyBytes = hexDecode(QCVN06_DEFAULT_KEY, 6)
+      const blkGPLX  = startBlock
+      const blkHoTen = startBlock + 2
+
+      const [r1, r2] = await Promise.all([
+        sendCmd(0x30, [blkGPLX,  0, ...keyBytes, ...uidBytes], 1500),
+        sendCmd(0x30, [blkHoTen, 0, ...keyBytes, ...uidBytes], 1500),
+      ])
+
+      const decode = (resp: Uint8Array | null): string => {
+        if (!resp || resp.length < 20 || resp[3] !== 0) return ''
+        return decodeBlock16(Array.from(resp.slice(4, 20)))
+      }
+
+      const gplx = decode(r1)
+      const name = decode(r2)
+      if (gplx || name) {
+        setSoGPLX(gplx); setHoTen(name)
+        addLog(`👤 ${name || '—'}  |  GPLX: ${gplx || '—'}`, 'ok')
+      } else {
+        addLog('Đọc block thất bại — nhấn Get để thử lại', 'warn')
+      }
+    } catch { /* ignore */ }
+    finally { setGettingCard(false) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startBlock, addLog])
+
   // ── Get (đọc thẻ) — mirrors CardIssue.exe "Get" button in card data section ──
   // Reads Số GPLX (block=startBlock) and Họ tên (block=startBlock+2)
   const handleGetCard = useCallback(async () => {
@@ -420,7 +484,9 @@ export default function RFIDReaderTab() {
     }
     setGettingCard(true)
     try {
-      const uidBytes = hexDecode(currentCard.uid, 4)
+      const uidBytes = currentCard.uid.startsWith('CARD_')
+        ? [0, 0, 0, 0]  // 3-byte push frame had no UID — send zeros
+        : hexDecode(currentCard.uid, 4)
       const keyBytes = hexDecode(QCVN06_DEFAULT_KEY, 6)
       const blkGPLX  = startBlock
       const blkHoTen = startBlock + 2   // skip sector trailer at startBlock+1
