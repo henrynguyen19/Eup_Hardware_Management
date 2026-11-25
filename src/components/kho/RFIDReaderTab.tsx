@@ -256,24 +256,36 @@ export default function RFIDReaderTab() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
           <span className="text-2xl shrink-0">⚠️</span>
           <div className="min-w-0 space-y-2">
-            <p className="font-semibold text-amber-800 text-sm">Bridge chưa chạy</p>
-            <p className="text-xs text-amber-700 mb-1">
-              Mở thư mục <strong>Phần mềm quản lý của bộ phận Hardware</strong> và chạy file launcher:
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-                <p className="text-xs font-semibold text-blue-800 mb-0.5">🪟 Windows</p>
-                <code className="text-xs font-mono text-blue-900">start_rfid_bridge.bat</code>
-                <p className="text-[11px] text-blue-600 mt-0.5">Double-click để chạy</p>
-              </div>
-              <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-                <p className="text-xs font-semibold text-orange-800 mb-0.5">🐧 Ubuntu/Linux</p>
-                <code className="text-xs font-mono text-orange-900">start_rfid_bridge.sh</code>
-                <p className="text-[11px] text-orange-600 mt-0.5">Script tự cài đặt mọi thứ</p>
-              </div>
+            <p className="font-semibold text-amber-800 text-sm">RFID Bridge chưa chạy trên máy này</p>
+            <p className="text-xs text-amber-700">Tải về và chạy bridge một lần — tự động cài đặt, không cần cấu hình.</p>
+            <div className="flex flex-wrap gap-2 pt-0.5">
+              <a
+                href="/rfid/start_rfid_bridge.bat"
+                download="start_rfid_bridge.bat"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white no-underline"
+                style={{ background: '#1d6fd1' }}
+              >
+                ⬇️ Tải về (Windows .bat)
+              </a>
+              <a
+                href="/rfid/start_rfid_bridge.sh"
+                download="start_rfid_bridge.sh"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white no-underline"
+                style={{ background: '#d97706' }}
+              >
+                ⬇️ Tải về (Linux .sh)
+              </a>
+              <a
+                href="/rfid/rfid_bridge.py"
+                download="rfid_bridge.py"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold no-underline"
+                style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}
+              >
+                🐍 rfid_bridge.py
+              </a>
             </div>
             <p className="text-[11px] text-amber-600">
-              File launcher tự động cài pyserial và cấp quyền — không cần làm gì thêm.
+              Windows: double-click file .bat · Linux: <code className="bg-amber-100 px-1 rounded font-mono">bash start_rfid_bridge.sh</code> · Bridge chạy ở localhost:8765
             </p>
           </div>
         </div>
