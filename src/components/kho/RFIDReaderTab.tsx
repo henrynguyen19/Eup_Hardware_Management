@@ -99,10 +99,32 @@ type LogEntry = { ts: string; msg: string; kind: 'info' | 'ok' | 'err' | 'warn' 
 const DEFAULT_START_BLOCK = 0
 const QCVN06_DEFAULT_KEY  = 'FFFFFFFFFFFF'
 
+// ── Bridge API (rfid_bridge.py running locally) ───────────────────────────────
+const BRIDGE_URL = 'http://localhost:8765'
+
+async function bridgeFetch(path: string, body?: object): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await fetch(`${BRIDGE_URL}${path}`, {
+      method: body ? 'POST' : 'GET',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(2000),
+    })
+    return await res.json()
+  } catch { return null }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RFIDReaderTab() {
-  // Connection
+  // Bridge mode
+  const [bridgeAvailable, setBridgeAvailable] = useState<boolean | null>(null)
+  const [bridgePorts,     setBridgePorts]     = useState<string[]>([])
+  const [bridgePort,      setBridgePort]      = useState('')
+  const [bridgeConnected, setBridgeConnected] = useState(false)
+  const bridgePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Web Serial connection
   const [supported,   setSupported]   = useState<boolean | null>(null)
   const [connected,   setConnected]   = useState(false)
   const [connecting,  setConnecting]  = useState(false)
@@ -333,13 +355,118 @@ export default function RFIDReaderTab() {
     addLog('Đã ngắt kết nối', 'warn')
   }, [addLog])
 
-  // Auto-start polling when connected
+  // Auto-start polling when connected (Web Serial)
   useEffect(() => {
     if (connected && !polling) {
       togglePolling()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected])
+
+  // ── Bridge: check availability on mount ───────────────────────────────────
+  useEffect(() => {
+    bridgeFetch('/status').then(d => {
+      const ok = d?.ok === true
+      setBridgeAvailable(ok)
+      if (ok) {
+        bridgeFetch('/ports').then(r => {
+          const ports = (r?.ports as string[]) || []
+          setBridgePorts(ports)
+          if (ports.length > 0) setBridgePort(ports[0])
+        })
+      }
+    })
+  }, [])
+
+  // ── Bridge: connect ───────────────────────────────────────────────────────
+  const handleBridgeConnect = useCallback(async () => {
+    if (!bridgePort) return
+    setConnecting(true)
+    const r = await bridgeFetch('/port/open', { port: bridgePort, baud: baudRate })
+    setConnecting(false)
+    if (r?.ok) {
+      setBridgeConnected(true)
+      addLog(`[Bridge] Đã kết nối ${bridgePort} @ ${baudRate} baud`, 'ok')
+      // Start bridge polling for card presence
+      if (bridgePollRef.current) clearInterval(bridgePollRef.current)
+      bridgePollRef.current = setInterval(async () => {
+        const res = await bridgeFetch('/card/read')
+        if (res?.ok) {
+          const uid = String(res.uid ?? '')
+          if (uid && uid !== lastUid.current) {
+            lastUid.current = uid
+            const c: CardInfo = {
+              uid,
+              uidDisplay: String(res.uid_display ?? uid),
+              cardType: Number(res.card_type ?? 0x08),
+              cardTypeName: String(res.card_type_name ?? 'Mifare'),
+            }
+            cardRef.current = c
+            setCard(c); setSoGPLX(''); setHoTen('')
+            addLog(`🔖 ${c.uidDisplay}  (${c.cardTypeName}) — đọc GPLX...`, 'ok')
+            setTimeout(() => handleBridgeGetData(), 300)
+          }
+        } else if (res?.no_card && lastUid.current) {
+          lastUid.current = null; cardRef.current = null
+          setCard(null); setSoGPLX(''); setHoTen('')
+        }
+      }, 600)
+    } else {
+      addLog(`[Bridge] Lỗi kết nối: ${r?.error ?? 'timeout'}`, 'err')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bridgePort, baudRate, addLog])
+
+  // ── Bridge: disconnect ────────────────────────────────────────────────────
+  const handleBridgeDisconnect = useCallback(async () => {
+    if (bridgePollRef.current) { clearInterval(bridgePollRef.current); bridgePollRef.current = null }
+    await bridgeFetch('/port/close')
+    setBridgeConnected(false)
+    setCard(null); cardRef.current = null; lastUid.current = null
+    setSoGPLX(''); setHoTen('')
+    addLog('[Bridge] Đã ngắt kết nối', 'warn')
+  }, [addLog])
+
+  // ── Bridge: Get card data (read blocks) ──────────────────────────────────
+  const handleBridgeGetData = useCallback(async () => {
+    setGettingCard(true)
+    try {
+      const [r1, r2] = await Promise.all([
+        bridgeFetch('/card/block/read', { block: startBlock,     key: QCVN06_DEFAULT_KEY }),
+        bridgeFetch('/card/block/read', { block: startBlock + 2, key: QCVN06_DEFAULT_KEY }),
+      ])
+      const decode = (d: Record<string, unknown> | null) =>
+        d?.ok ? String(d.data_ascii ?? '').replace(/\./g, ' ').trim() : ''
+      const gplx = decode(r1); const name = decode(r2)
+      if (gplx || name) {
+        setSoGPLX(gplx); setHoTen(name)
+        addLog(`👤 ${name || '—'}  |  GPLX: ${gplx || '—'}`, 'ok')
+      } else {
+        addLog('[Bridge] Không đọc được dữ liệu block', 'warn')
+      }
+    } catch (e) { addLog(`[Bridge] Lỗi: ${e}`, 'err') }
+    finally { setGettingCard(false) }
+  }, [startBlock, addLog])
+
+  // ── Bridge: Set card data (write blocks) ─────────────────────────────────
+  const handleBridgeSetData = useCallback(async () => {
+    if (!soGPLX && !hoTen) { addLog('Nhập dữ liệu trước khi ghi', 'warn'); return }
+    setSettingCard(true)
+    try {
+      const enc = (s: string) => Array.from(s.slice(0, 16).padEnd(16, '\x00')).map(c => c.charCodeAt(0).toString(16).padStart(2,'0')).join('')
+      const results: string[] = []
+      if (soGPLX) {
+        const r = await bridgeFetch('/card/block/write', { block: startBlock, key: QCVN06_DEFAULT_KEY, data: enc(soGPLX) })
+        results.push(r?.ok ? '✅ Ghi GPLX OK' : `❌ GPLX: ${r?.error ?? 'lỗi'}`)
+      }
+      if (hoTen) {
+        const r = await bridgeFetch('/card/block/write', { block: startBlock + 2, key: QCVN06_DEFAULT_KEY, data: enc(hoTen) })
+        results.push(r?.ok ? '✅ Ghi Họ tên OK' : `❌ Họ tên: ${r?.error ?? 'lỗi'}`)
+      }
+      results.forEach(msg => addLog(`[Bridge] ${msg}`, msg.startsWith('✅') ? 'ok' : 'err'))
+    } catch (e) { addLog(`[Bridge] Lỗi ghi: ${e}`, 'err') }
+    finally { setSettingCard(false) }
+  }, [soGPLX, hoTen, startBlock, addLog])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -725,7 +852,74 @@ export default function RFIDReaderTab() {
         </div>
       </div>
 
-      {connected && (
+      {/* ══ BRIDGE MODE ══════════════════════════════════════════════════════
+           rfid_bridge.py bridge — works even when Web Serial protocol fails   */}
+      <div className={`border rounded-xl p-3 ${
+        bridgeConnected
+          ? 'bg-emerald-50 border-emerald-300'
+          : bridgeAvailable
+            ? 'bg-blue-50 border-blue-200'
+            : 'bg-amber-50 border-amber-200'
+      }`}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`text-xs font-semibold uppercase tracking-wide ${
+            bridgeConnected ? 'text-emerald-700' : bridgeAvailable ? 'text-blue-700' : 'text-amber-700'
+          }`}>
+            🔌 Bridge Mode (rfid_bridge.py)
+          </span>
+
+          {bridgeAvailable === null && (
+            <span className="text-xs text-gray-400">Đang kiểm tra...</span>
+          )}
+
+          {bridgeAvailable === false && (
+            <span className="text-xs text-amber-700">
+              Chưa chạy — mở terminal: <code className="bg-amber-100 px-1 rounded">python rfid_bridge.py</code>
+              {' '}(trong thư mục <code className="bg-amber-100 px-1 rounded">public/rfid/</code>)
+            </span>
+          )}
+
+          {bridgeAvailable && !bridgeConnected && (
+            <>
+              <select
+                value={bridgePort}
+                onChange={e => setBridgePort(e.target.value)}
+                className="border border-blue-300 rounded-lg px-2 py-1 text-sm bg-white"
+              >
+                {bridgePorts.length === 0 && <option value="">Không có port</option>}
+                {bridgePorts.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <button
+                onClick={handleBridgeConnect}
+                disabled={connecting || !bridgePort}
+                className={btnPrimary}
+                style={{ background: '#0ea5e9' }}
+              >
+                {connecting ? '⏳...' : 'Kết nối Bridge'}
+              </button>
+              <span className="text-xs text-blue-500">Bridge sẵn sàng ✓</span>
+            </>
+          )}
+
+          {bridgeConnected && (
+            <>
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Bridge kết nối qua {bridgePort}
+              </span>
+              <button
+                onClick={handleBridgeDisconnect}
+                className={btnOutline}
+                style={{ color: '#dc2626', borderColor: '#fca5a5', background: '#fef2f2' }}
+              >
+                Ngắt Bridge
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {(connected || bridgeConnected) && (
         <>
           {/* ══ 2. WORK MODE ═══════════════════════════════════════════════════
                Mirrors: Work Mode GroupBox (Writer/Reader radio + Start Block combo
@@ -841,9 +1035,12 @@ export default function RFIDReaderTab() {
                 </div>
 
                 {/* Get / Set */}
-                <div className="flex gap-2 justify-end">
+                <div className="flex gap-2 justify-end items-center">
+                  {bridgeConnected && (
+                    <span className="text-xs text-emerald-600 mr-auto">🔌 Bridge mode</span>
+                  )}
                   <button
-                    onClick={handleGetCard}
+                    onClick={bridgeConnected ? handleBridgeGetData : handleGetCard}
                     disabled={gettingCard || settingCard}
                     className={btnOutline}
                     style={{ color: '#374151', borderColor: '#d1d5db', background: '#f9fafb' }}
@@ -852,7 +1049,7 @@ export default function RFIDReaderTab() {
                   </button>
                   {workMode === 'Writer' && (
                     <button
-                      onClick={handleSetCard}
+                      onClick={bridgeConnected ? handleBridgeSetData : handleSetCard}
                       disabled={settingCard || gettingCard}
                       className={btnPrimary}
                       style={{ background: '#dc2626' }}
