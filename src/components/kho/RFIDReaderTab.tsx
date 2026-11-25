@@ -6,10 +6,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 
 interface BridgeStatus {
   ok: boolean
+  os?: string            // 'Windows' | 'Linux' | 'Darwin'
   dll_loaded: boolean
   dll_error?: string | null
+  pyserial: boolean
   connected: boolean
-  port?: number | null
+  mode?: string | null   // 'dll' | 'serial'
+  port_name?: string | null
   baud?: number
   python_bits?: string
 }
@@ -50,7 +53,9 @@ export default function RFIDReaderTab() {
   // Connection
   const [bridgeOnline, setBridgeOnline]       = useState<boolean | null>(null)
   const [bridgeStatus, setBridgeStatus]       = useState<BridgeStatus | null>(null)
-  const [comPort, setComPort]                 = useState('3')
+  const [portName, setPortName]               = useState('')
+  const [availPorts, setAvailPorts]           = useState<string[]>([])
+  const [scanning, setScanning]               = useState(false)
   const [connecting, setConnecting]           = useState(false)
 
   // Card state
@@ -99,26 +104,41 @@ export default function RFIDReaderTab() {
       const j: BridgeStatus = await r.json()
       setBridgeOnline(true)
       setBridgeStatus(j)
+      // Set default port hint based on OS
+      if (!portName) {
+        setPortName(j.os === 'Windows' ? 'COM3' : '/dev/ttyUSB0')
+      }
     } catch {
       setBridgeOnline(false)
       setBridgeStatus(null)
     }
   }
 
+  async function scanPorts() {
+    setScanning(true)
+    try {
+      const r = await fetch(`${BRIDGE_URL}/ports`, { signal: AbortSignal.timeout(3000) })
+      const j = await r.json()
+      setAvailPorts(j.ports ?? [])
+      if (j.ports?.length && !portName) setPortName(j.ports[0])
+    } catch {}
+    setScanning(false)
+  }
+
   useEffect(() => {
     checkBridge()
     const t = setInterval(checkBridge, 5000)
     return () => clearInterval(t)
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Port connect / disconnect ──────────────────────────────────────────────
 
   async function connectPort() {
     setConnecting(true)
-    addLog('info', `Đang mở COM${comPort}...`)
-    const j = await bridgeFetch('/port/open', { port: parseInt(comPort), baud: 19200 })
+    addLog('info', `Đang mở ${portName}...`)
+    const j = await bridgeFetch('/port/open', { port: portName, baud: 19200 })
     if (j.ok) {
-      addLog('success', `Đã kết nối COM${comPort} @ 19200 baud`)
+      addLog('success', `Đã kết nối ${portName} @ 19200 baud (${(j as { mode?: string }).mode ?? 'serial'})`)
       await checkBridge()
     } else {
       addLog('error', `Lỗi kết nối: ${j.error}`)
@@ -235,19 +255,17 @@ export default function RFIDReaderTab() {
       {bridgeOnline === false && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
           <span className="text-2xl shrink-0">⚠️</span>
-          <div className="min-w-0">
-            <p className="font-semibold text-amber-800 text-sm mb-1">Bridge chưa chạy</p>
-            <p className="text-xs text-amber-700 mb-2">
-              Mở Terminal/CMD trên máy tính và chạy lệnh sau:
-            </p>
-            <code className="block bg-amber-100 border border-amber-200 rounded-lg px-3 py-2 text-xs font-mono text-amber-900 mb-2">
+          <div className="min-w-0 space-y-2">
+            <p className="font-semibold text-amber-800 text-sm">Bridge chưa chạy</p>
+            <p className="text-xs text-amber-700">Mở Terminal trên máy tính và chạy:</p>
+            <code className="block bg-amber-100 border border-amber-200 rounded-lg px-3 py-2 text-xs font-mono text-amber-900">
               python rfid_bridge.py
             </code>
-            <p className="text-xs text-amber-600">
-              ⚠️ Yêu cầu <strong>Python 32-bit</strong> (vì rf_Reader.dll là file x86).{' '}
-              <a href="https://www.python.org/downloads/" target="_blank" rel="noopener noreferrer"
-                 className="underline">Tải Python 32-bit</a>
-            </p>
+            <div className="text-xs text-amber-700 space-y-1">
+              <p><strong>Windows:</strong> Dùng rf_Reader.dll (cần Python 32-bit) hoặc pyserial</p>
+              <p><strong>Ubuntu/Linux:</strong> Dùng pyserial — cài bằng: <code className="bg-amber-100 px-1 rounded font-mono">pip install pyserial</code></p>
+              <p className="text-amber-500">Trên Ubuntu cũng cần thêm quyền: <code className="bg-amber-100 px-1 rounded font-mono">sudo usermod -aG dialout $USER</code></p>
+            </div>
           </div>
         </div>
       )}
@@ -277,22 +295,46 @@ export default function RFIDReaderTab() {
               <h3 className="text-sm font-semibold text-gray-800">
                 {bridgeOnline === null ? 'Đang kiểm tra...' :
                  !bridgeOnline         ? 'Bridge offline' :
-                 connected             ? `Đã kết nối COM${bridgeStatus?.port}` :
+                 connected             ? `Đã kết nối ${bridgeStatus?.port_name}` :
                                          'Bridge online'}
               </h3>
             </div>
 
             <div className="mb-3">
-              <label className="block text-xs text-gray-500 mb-1">Cổng COM</label>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500 font-mono">COM</span>
-                <input
-                  type="number" min="1" max="20"
-                  value={comPort}
-                  onChange={e => setComPort(e.target.value)}
-                  disabled={connected}
-                  className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-center font-mono focus:outline-none focus:border-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
-                />
+              <label className="block text-xs text-gray-500 mb-1">
+                Cổng serial
+                <span className="ml-1 text-gray-400">
+                  {bridgeStatus?.os === 'Windows' ? '(Windows: COM3, COM4...)' : '(Linux: /dev/ttyUSB0...)'}
+                </span>
+              </label>
+              <div className="flex gap-1.5">
+                {availPorts.length > 0 ? (
+                  <select
+                    value={portName}
+                    onChange={e => setPortName(e.target.value)}
+                    disabled={connected}
+                    className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                  >
+                    {availPorts.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={portName}
+                    onChange={e => setPortName(e.target.value)}
+                    disabled={connected}
+                    placeholder={bridgeStatus?.os === 'Windows' ? 'COM3' : '/dev/ttyUSB0'}
+                    className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                  />
+                )}
+                <button
+                  onClick={scanPorts}
+                  disabled={!bridgeOnline || connected || scanning}
+                  title="Quét cổng"
+                  className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-40"
+                >
+                  {scanning ? '⏳' : '🔍'}
+                </button>
               </div>
             </div>
 
