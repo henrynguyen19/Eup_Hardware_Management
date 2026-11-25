@@ -96,7 +96,7 @@ type LogEntry = { ts: string; msg: string; kind: 'info' | 'ok' | 'err' | 'warn' 
 //   Block startBlock+2: Họ tên (ASCII 16 bytes, null-padded)   — default block 4
 //   Block 7:           Sector 1 Trailer — SKIP
 // CardIssue.exe confirmed: Default Start Block = "02", Key A = "FFFFFFFFFFFF"
-const DEFAULT_START_BLOCK = 2
+const DEFAULT_START_BLOCK = 0
 const QCVN06_DEFAULT_KEY  = 'FFFFFFFFFFFF'
 
 // ── Component ─────────────────────────────────────────────────────────────────
