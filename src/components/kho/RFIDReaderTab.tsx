@@ -25,21 +25,26 @@ function xorBcc(bytes: number[]): number {
   return bytes.reduce((r, b) => r ^ b, 0)
 }
 
-function makeCmd(cmd: number, data: number[] = []): Uint8Array {
+/** Build a frame. stx defaults to [0xFB, 0xFD] — what the reader sends as heartbeat */
+function makeCmd(cmd: number, data: number[] = [], stx = [0xFB, 0xFD]): Uint8Array {
   const payload = [data.length + 1, cmd, ...data]
-  return new Uint8Array([0xAA, 0xBB, ...payload, xorBcc(payload)])
+  return new Uint8Array([...stx, ...payload, xorBcc(payload)])
 }
 
-/** Probe commands to try — different RFID reader protocol variants */
+/** Probe commands — reader sends FB FD heartbeat, so try FB FD as STX first */
 const PROBE_VARIANTS = [
-  { label: 'Variant A — AA BB, cmd=0x50, REQA',  bytes: [0xAA,0xBB,0x03,0x50,0x26,0x00,0x77] },
-  { label: 'Variant B — AA BB, cmd=0x50, WUPA',  bytes: [0xAA,0xBB,0x03,0x50,0x52,0x00,0x03] },
-  { label: 'Variant C — AA BB, cmd=0x01',         bytes: [0xAA,0xBB,0x01,0x01,0x00] },
-  { label: 'Variant D — AA BB, cmd=0x26 (raw)',   bytes: [0xAA,0xBB,0x01,0x26,0x27] },
-  { label: 'Variant E — raw REQA (0x26)',          bytes: [0x26] },
-  { label: 'Variant F — raw WUPA (0x52)',          bytes: [0x52] },
-  { label: 'Variant G — AB BA, cmd=0x50, REQA',  bytes: [0xAB,0xBA,0x03,0x50,0x26,0x00,0x77] },
-  { label: 'Variant H — FF 00 00 00 (init)',       bytes: [0xFF,0x00,0x00,0x00,0x00] },
+  // ── FB FD (reader's own heartbeat = most likely STX) ─────────────────────
+  { label: 'FB FD — cmd=0x50, REQA',    bytes: [0xFB,0xFD,0x03,0x50,0x26,0x00,0x77] },
+  { label: 'FB FD — cmd=0x50, WUPA',    bytes: [0xFB,0xFD,0x03,0x50,0x52,0x00,0x03] },
+  { label: 'FB FD — cmd=0x01 (detect)', bytes: [0xFB,0xFD,0x01,0x01,0x01] },
+  { label: 'FB FD — cmd=0x02 (UID)',    bytes: [0xFB,0xFD,0x01,0x02,0x03] },
+  { label: 'FB FD — cmd=0x20',          bytes: [0xFB,0xFD,0x01,0x20,0x21] },
+  // ── Other common STX values ──────────────────────────────────────────────
+  { label: 'AA BB — cmd=0x50, REQA',   bytes: [0xAA,0xBB,0x03,0x50,0x26,0x00,0x77] },
+  { label: 'AB BA — cmd=0x50, REQA',   bytes: [0xAB,0xBA,0x03,0x50,0x26,0x00,0x77] },
+  { label: 'Raw 0x26 (bare REQA)',      bytes: [0x26] },
+  { label: 'Raw 0x52 (bare WUPA)',      bytes: [0x52] },
+  { label: 'FF 00 (init/ping)',         bytes: [0xFF,0x00,0x00,0x00,0x00] },
 ]
 
 /** Decode hex string to number[]. Pads/trims to `len` bytes. */
@@ -125,25 +130,39 @@ export default function RFIDReaderTab() {
   }, [])
 
   // ── Frame parser (called from read loop) ──────────────────────────────────
+  // Supports both FB FD (reader's STX) and AA BB (legacy guess)
   function tryParseFrame() {
     const buf = rxBuf.current
     for (let i = 0; i < buf.length - 1; i++) {
-      if (buf[i] === 0xAA && buf[i + 1] === 0xBB) {
+      const isStx = (buf[i] === 0xFB && buf[i + 1] === 0xFD) ||
+                    (buf[i] === 0xAA && buf[i + 1] === 0xBB)
+      if (isStx) {
         if (buf.length < i + 3) return   // wait for LEN byte
         const len = buf[i + 2]
-        const need = i + 3 + len + 1     // AA BB LEN [payload:len] BCC
+        if (len === 0) {
+          // 2-byte heartbeat or minimal frame: FB FD 00 → resolve immediately
+          const frame = new Uint8Array(buf.slice(i, i + 3))
+          rxBuf.current = buf.slice(i + 3)
+          const resolve = frameWaiters.current.shift()
+          if (resolve) resolve(frame)
+          return
+        }
+        const need = i + 3 + len + 1     // STX STX LEN [payload:len] BCC
         if (buf.length < need) return     // wait for more bytes
-        const frame = new Uint8Array(buf.splice(0, need).slice(i))
-        rxBuf.current = buf.slice(need - i)  // remaining bytes after frame
+        const frame = new Uint8Array(buf.slice(i, need))
+        rxBuf.current = buf.slice(need)
         const resolve = frameWaiters.current.shift()
         if (resolve) resolve(frame)
         return
       }
     }
-    // Discard leading garbage (keep last byte in case it's 0xAA)
+    // Discard leading garbage (keep last byte — might be first STX byte)
     if (buf.length > 128) {
-      const aaIdx = buf.indexOf(0xAA)
-      rxBuf.current = aaIdx >= 0 ? buf.slice(aaIdx) : []
+      let keepIdx = -1
+      for (let i = buf.length - 1; i >= 0; i--) {
+        if (buf[i] === 0xFB || buf[i] === 0xAA) { keepIdx = i; break }
+      }
+      rxBuf.current = keepIdx >= 0 ? buf.slice(keepIdx) : []
     }
   }
 
@@ -199,8 +218,8 @@ export default function RFIDReaderTab() {
       try { await writer.write(new Uint8Array(v.bytes)) }
       finally { writer.releaseLock() }
 
-      // Wait 400ms for any response
-      await new Promise(r => setTimeout(r, 400))
+      // Wait 600ms for any response (reader may be slow)
+      await new Promise(r => setTimeout(r, 600))
       const received = rawRxBuf.current.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
       rawRxBuf.current = []
 
