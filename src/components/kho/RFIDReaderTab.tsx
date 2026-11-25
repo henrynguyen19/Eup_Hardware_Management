@@ -2,609 +2,575 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface BridgeStatus {
-  ok: boolean
-  os?: string            // 'Windows' | 'Linux' | 'Darwin'
-  dll_loaded: boolean
-  dll_error?: string | null
-  pyserial: boolean
-  connected: boolean
-  mode?: string | null   // 'dll' | 'serial'
-  port_name?: string | null
-  baud?: number
-  python_bits?: string
+// ── Web Serial API (Chrome/Edge only) ─────────────────────────────────────────
+interface WebSerialPort {
+  open(options: { baudRate: number }): Promise<void>
+  close(): Promise<void>
+  readable: ReadableStream<Uint8Array>
+  writable: WritableStream<Uint8Array>
+}
+declare global {
+  interface Navigator {
+    serial?: {
+      requestPort(options?: object): Promise<WebSerialPort>
+      getPorts(): Promise<WebSerialPort[]>
+    }
+  }
 }
 
+// ── RF Binary Protocol helpers ────────────────────────────────────────────────
+// Frame: AA BB [LEN] [CMD] [DATA...] [BCC]  (BCC = XOR from LEN to end of DATA)
+
+function xorBcc(bytes: number[]): number {
+  return bytes.reduce((r, b) => r ^ b, 0)
+}
+
+function makeCmd(cmd: number, data: number[] = []): Uint8Array {
+  const payload = [data.length + 1, cmd, ...data]
+  return new Uint8Array([0xAA, 0xBB, ...payload, xorBcc(payload)])
+}
+
+/** Decode hex string to number[]. Pads/trims to `len` bytes. */
+function hexDecode(hex: string, len: number): number[] {
+  const h = hex.replace(/\s/g, '').toLowerCase().padEnd(len * 2, '0').slice(0, len * 2)
+  return Array.from({ length: len }, (_, i) => parseInt(h.slice(i * 2, i * 2 + 2), 16) || 0)
+}
+
+/** Encode number[] to spaced uppercase hex string */
+function hexEncode(bytes: Iterable<number>): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ')
+}
+
+const CARD_TYPE_NAMES: Record<number, string> = {
+  0x08: 'Mifare Classic 1K',
+  0x18: 'Mifare Classic 4K',
+  0x28: 'Mifare Classic 2K',
+  0x44: 'Mifare UltraLight',
+  0x01: 'ISO 14443A',
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 interface CardInfo {
-  uid: string
-  uid_display: string
-  uid_bytes: number[]
-  card_type: number
-  card_type_name: string
+  uid: string          // raw hex e.g. "A1B2C3D4"
+  uidDisplay: string   // spaced e.g. "A1 B2 C3 D4"
+  cardType: number
+  cardTypeName: string
 }
 
 interface BlockData {
   block: number
-  data_hex: string
-  data_hex_raw: string
-  data_ascii: string
+  dataHex: string   // spaced hex
+  dataAscii: string
 }
 
-interface LogEntry {
-  id: number
-  time: string
-  type: 'info' | 'success' | 'error' | 'card'
-  msg: string
-}
+type LogEntry = { ts: string; msg: string; kind: 'info' | 'ok' | 'err' | 'warn' }
 
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const BRIDGE_URL = 'http://localhost:8765'
-const POLL_INTERVAL_MS = 900
-let logIdCounter = 0
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RFIDReaderTab() {
-  // Connection
-  const [bridgeOnline, setBridgeOnline]       = useState<boolean | null>(null)
-  const [bridgeStatus, setBridgeStatus]       = useState<BridgeStatus | null>(null)
-  const [portName, setPortName]               = useState('')
-  const [availPorts, setAvailPorts]           = useState<string[]>([])
-  const [scanning, setScanning]               = useState(false)
-  const [connecting, setConnecting]           = useState(false)
+  const [supported, setSupported]   = useState<boolean | null>(null)
+  const [connected, setConnected]   = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const [baudRate, setBaudRate]     = useState(19200)
 
-  // Card state
-  const [card, setCard]                       = useState<CardInfo | null>(null)
-  const [polling, setPolling]                 = useState(false)
-  const [reading, setReading]                 = useState(false)
+  const [card, setCard]           = useState<CardInfo | null>(null)
+  const [polling, setPolling]     = useState(false)
+  const [reading, setReading]     = useState(false)
 
-  // Block ops
-  const [blockNum, setBlockNum]               = useState('1')
-  const [blockKey, setBlockKey]               = useState('FFFFFFFFFFFF')
-  const [keyType, setKeyType]                 = useState('0')
-  const [blockData, setBlockData]             = useState<BlockData | null>(null)
-  const [writeData, setWriteData]             = useState('')
-  const [writing, setWriting]                 = useState(false)
+  const [blockNum,  setBlockNum]  = useState(1)
+  const [blockKey,  setBlockKey]  = useState('FFFFFFFFFFFF')
+  const [keyType,   setKeyType]   = useState(0)
+  const [blockData, setBlockData] = useState<BlockData | null>(null)
+  const [writeData, setWriteData] = useState('')
+  const [writing,   setWriting]   = useState(false)
 
-  // Log
-  const [log, setLog]                         = useState<LogEntry[]>([])
+  const [log, setLog] = useState<LogEntry[]>([])
 
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null)
-  const prevUidRef = useRef<string | null>(null)
+  // Refs (stable across renders, safe inside async loops)
+  const portRef        = useRef<WebSerialPort | null>(null)
+  const rxBuf          = useRef<number[]>([])
+  const frameWaiters   = useRef<Array<(f: Uint8Array | null) => void>>([])
+  const readLoopActive = useRef(false)
+  const pollTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastUid        = useRef<string | null>(null)
+  const cardRef        = useRef<CardInfo | null>(null)   // shadow of `card` for async access
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  const addLog = useCallback((type: LogEntry['type'], msg: string) => {
-    const time = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    setLog(prev => [{ id: ++logIdCounter, time, type, msg }, ...prev].slice(0, 80))
+  // ── Check browser support ─────────────────────────────────────────────────
+  useEffect(() => {
+    setSupported(typeof navigator !== 'undefined' && 'serial' in navigator)
   }, [])
 
-  async function bridgeFetch(path: string, body?: object): Promise<{ ok: boolean; [k: string]: unknown }> {
-    try {
-      const opts: RequestInit = body
-        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-        : { method: 'GET', signal: AbortSignal.timeout(3000) }
-      const r = await fetch(`${BRIDGE_URL}${path}`, opts)
-      return await r.json()
-    } catch {
-      return { ok: false, error: 'Không kết nối được bridge' }
-    }
-  }
+  // ── Logging ───────────────────────────────────────────────────────────────
+  const addLog = useCallback((msg: string, kind: LogEntry['kind'] = 'info') => {
+    const entry: LogEntry = { ts: new Date().toLocaleTimeString('vi-VN'), msg, kind }
+    setLog(prev => [entry, ...prev].slice(0, 60))
+  }, [])
 
-  // ── Bridge status polling ──────────────────────────────────────────────────
-
-  async function checkBridge() {
-    try {
-      const r = await fetch(`${BRIDGE_URL}/status`, { signal: AbortSignal.timeout(2000) })
-      const j: BridgeStatus = await r.json()
-      setBridgeOnline(true)
-      setBridgeStatus(j)
-      // Set default port hint based on OS
-      if (!portName) {
-        setPortName(j.os === 'Windows' ? 'COM3' : '/dev/ttyUSB0')
+  // ── Frame parser (called from read loop) ──────────────────────────────────
+  function tryParseFrame() {
+    const buf = rxBuf.current
+    for (let i = 0; i < buf.length - 1; i++) {
+      if (buf[i] === 0xAA && buf[i + 1] === 0xBB) {
+        if (buf.length < i + 3) return   // wait for LEN byte
+        const len = buf[i + 2]
+        const need = i + 3 + len + 1     // AA BB LEN [payload:len] BCC
+        if (buf.length < need) return     // wait for more bytes
+        const frame = new Uint8Array(buf.splice(0, need).slice(i))
+        rxBuf.current = buf.slice(need - i)  // remaining bytes after frame
+        const resolve = frameWaiters.current.shift()
+        if (resolve) resolve(frame)
+        return
       }
-    } catch {
-      setBridgeOnline(false)
-      setBridgeStatus(null)
+    }
+    // Discard leading garbage (keep last byte in case it's 0xAA)
+    if (buf.length > 128) {
+      const aaIdx = buf.indexOf(0xAA)
+      rxBuf.current = aaIdx >= 0 ? buf.slice(aaIdx) : []
     }
   }
 
-  async function scanPorts() {
-    setScanning(true)
+  function waitForFrame(timeoutMs = 1000): Promise<Uint8Array | null> {
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        const idx = frameWaiters.current.indexOf(resolve)
+        if (idx >= 0) frameWaiters.current.splice(idx, 1)
+        resolve(null)
+      }, timeoutMs)
+      frameWaiters.current.push(frame => {
+        clearTimeout(timer)
+        resolve(frame)
+      })
+    })
+  }
+
+  // ── Background read loop ──────────────────────────────────────────────────
+  async function startReadLoop(port: WebSerialPort) {
+    readLoopActive.current = true
+    const reader = port.readable.getReader()
     try {
-      const r = await fetch(`${BRIDGE_URL}/ports`, { signal: AbortSignal.timeout(3000) })
-      const j = await r.json()
-      setAvailPorts(j.ports ?? [])
-      if (j.ports?.length && !portName) setPortName(j.ports[0])
-    } catch {}
-    setScanning(false)
-  }
-
-  useEffect(() => {
-    checkBridge()
-    const t = setInterval(checkBridge, 5000)
-    return () => clearInterval(t)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Port connect / disconnect ──────────────────────────────────────────────
-
-  async function connectPort() {
-    setConnecting(true)
-    addLog('info', `Đang mở ${portName}...`)
-    const j = await bridgeFetch('/port/open', { port: portName, baud: 19200 })
-    if (j.ok) {
-      addLog('success', `Đã kết nối ${portName} @ 19200 baud (${(j as { mode?: string }).mode ?? 'serial'})`)
-      await checkBridge()
-    } else {
-      addLog('error', `Lỗi kết nối: ${j.error}`)
-    }
-    setConnecting(false)
-  }
-
-  async function disconnectPort() {
-    stopPolling()
-    await bridgeFetch('/port/close', {})
-    setCard(null)
-    setBlockData(null)
-    prevUidRef.current = null
-    addLog('info', 'Đã ngắt kết nối cổng COM')
-    await checkBridge()
-  }
-
-  // ── Read card ──────────────────────────────────────────────────────────────
-
-  async function readCard() {
-    setReading(true)
-    const j = await bridgeFetch('/card/read', {})
-    if (j.ok) {
-      const c = j as unknown as CardInfo
-      setCard(c)
-      prevUidRef.current = c.uid
-      addLog('card', `Thẻ: ${c.uid_display}  (${c.card_type_name})`)
-    } else if (!j.no_card) {
-      addLog('error', `Đọc thẻ: ${j.error || 'Không có phản hồi'}`)
-    }
-    setReading(false)
-  }
-
-  // ── Auto polling ───────────────────────────────────────────────────────────
-
-  function startPolling() {
-    setPolling(true)
-    addLog('info', 'Chế độ auto-read bật — đặt thẻ lên đầu đọc...')
-    pollTimer.current = setInterval(async () => {
-      const j = await bridgeFetch('/card/read', {})
-      if (j.ok) {
-        const c = j as unknown as CardInfo
-        setCard(c)
-        if (c.uid !== prevUidRef.current) {
-          prevUidRef.current = c.uid
-          addLog('card', `Thẻ mới: ${c.uid_display}  (${c.card_type_name})`)
+      while (readLoopActive.current) {
+        const { value, done } = await reader.read()
+        if (done) break
+        if (value) {
+          rxBuf.current.push(...Array.from(value))
+          tryParseFrame()
         }
       }
-    }, POLL_INTERVAL_MS)
+    } catch { /* port closed */ }
+    finally { reader.releaseLock() }
   }
 
-  function stopPolling() {
-    if (pollTimer.current) {
-      clearInterval(pollTimer.current)
-      pollTimer.current = null
+  // ── Send a command and wait for one frame response ────────────────────────
+  async function sendCmd(cmd: number, data: number[] = [], timeoutMs = 1200): Promise<Uint8Array | null> {
+    if (!portRef.current) return null
+    const writer = portRef.current.writable.getWriter()
+    try { await writer.write(makeCmd(cmd, data)) }
+    finally { writer.releaseLock() }
+    return waitForFrame(timeoutMs)
+  }
+
+  // ── Connect ───────────────────────────────────────────────────────────────
+  const handleConnect = useCallback(async () => {
+    if (!navigator.serial) return
+    setConnecting(true)
+    try {
+      const port = await navigator.serial.requestPort()
+      await port.open({ baudRate })
+      portRef.current = port
+      rxBuf.current = []
+      frameWaiters.current = []
+      startReadLoop(port)
+      setConnected(true)
+      addLog(`Đã kết nối @ ${baudRate} baud`, 'ok')
+    } catch (e) {
+      const msg = (e as Error).message ?? String(e)
+      if (!msg.includes('No port selected') && !msg.includes('cancelled'))
+        addLog(`Lỗi kết nối: ${msg}`, 'err')
+    } finally {
+      setConnecting(false)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baudRate, addLog])
+
+  // ── Disconnect ────────────────────────────────────────────────────────────
+  const handleDisconnect = useCallback(async () => {
+    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null }
     setPolling(false)
-  }
+    readLoopActive.current = false
+    frameWaiters.current.forEach(r => r(null))
+    frameWaiters.current = []
+    if (portRef.current) {
+      try { await portRef.current.close() } catch { /* ignore */ }
+      portRef.current = null
+    }
+    setConnected(false)
+    setCard(null); cardRef.current = null
+    setBlockData(null)
+    lastUid.current = null
+    addLog('Đã ngắt kết nối', 'warn')
+  }, [addLog])
 
-  useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current) }, [])
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      readLoopActive.current = false
+      if (pollTimer.current) clearInterval(pollTimer.current)
+      portRef.current?.close().catch(() => {})
+    }
+  }, [])
 
-  // ── Block read ─────────────────────────────────────────────────────────────
+  // ── Read card (internal) ──────────────────────────────────────────────────
+  // Response frame: AA BB LEN STATUS UID(4B) [optional extras] BCC
+  const doReadCard = useCallback(async (): Promise<CardInfo | null> => {
+    // REQA
+    let resp = await sendCmd(0x50, [0x26, 0x00], 600)
+    if (!resp || resp[3] !== 0) {
+      // WUPA (wake up halted card)
+      resp = await sendCmd(0x50, [0x52, 0x00], 600)
+    }
+    if (!resp || resp[3] !== 0) return null
+    // UID at frame[4..7] (4 bytes), card type at frame[8] if present
+    if (resp.length < 8) return null
+    const uidBytes = Array.from(resp.slice(4, 8))
+    const uidHex = uidBytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('')
+    const cardType = resp.length > 8 ? resp[8] : 0x08
+    return {
+      uid: uidHex,
+      uidDisplay: hexEncode(uidBytes),
+      cardType,
+      cardTypeName: CARD_TYPE_NAMES[cardType] ?? `0x${cardType.toString(16).toUpperCase()}`,
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function readBlock() {
+  // ── Polling ───────────────────────────────────────────────────────────────
+  const togglePolling = useCallback(() => {
+    if (polling) {
+      if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null }
+      setPolling(false)
+      addLog('Dừng quét', 'info')
+      return
+    }
+    setPolling(true)
+    addLog('Bắt đầu quét thẻ...', 'info')
+    pollTimer.current = setInterval(async () => {
+      const c = await doReadCard()
+      if (c) {
+        if (c.uid !== lastUid.current) {
+          lastUid.current = c.uid
+          cardRef.current = c
+          setCard(c)
+          addLog(`🔖 ${c.uidDisplay}  (${c.cardTypeName})`, 'ok')
+        }
+      } else {
+        if (lastUid.current) lastUid.current = null
+      }
+    }, 900)
+  }, [polling, doReadCard, addLog])
+
+  // ── Manual read card ──────────────────────────────────────────────────────
+  const handleReadCard = useCallback(async () => {
+    const c = await doReadCard()
+    if (c) {
+      lastUid.current = c.uid
+      cardRef.current = c
+      setCard(c)
+      addLog(`🔖 ${c.uidDisplay}  (${c.cardTypeName})`, 'ok')
+    } else {
+      addLog('Không có thẻ hoặc đọc thất bại', 'warn')
+    }
+  }, [doReadCard, addLog])
+
+  // ── Read block ────────────────────────────────────────────────────────────
+  const handleReadBlock = useCallback(async () => {
+    const currentCard = cardRef.current
+    if (!currentCard) { addLog('Đọc thẻ trước khi thao tác block', 'warn'); return }
     setReading(true)
-    addLog('info', `Đọc block ${blockNum} (Key ${keyType === '0' ? 'A' : 'B'}: ${blockKey})...`)
-    const j = await bridgeFetch('/card/block/read', {
-      block: parseInt(blockNum),
-      key: blockKey.replace(/\s/g, ''),
-      key_type: parseInt(keyType),
-    })
-    if (j.ok) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setBlockData(j as any)
-      addLog('success', `Block ${blockNum}: ${(j as unknown as BlockData).data_hex}`)
-    } else {
-      addLog('error', `Block ${blockNum}: ${j.error}`)
-    }
-    setReading(false)
-  }
+    try {
+      const uidBytes = hexDecode(currentCard.uid, 4)
+      const keyBytes = hexDecode(blockKey, 6)
+      // cmd=0x30 [block, key_type, key(6B), uid(4B)]
+      const resp = await sendCmd(0x30, [blockNum, keyType, ...keyBytes, ...uidBytes], 1500)
+      if (!resp || resp[3] !== 0 || resp.length < 20) {
+        addLog(`Đọc block ${blockNum} thất bại (status=${resp ? resp[3] : 'timeout'})`, 'err')
+        return
+      }
+      const raw = Array.from(resp.slice(4, 20))
+      setBlockData({
+        block: blockNum,
+        dataHex: hexEncode(raw),
+        dataAscii: raw.map(b => b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.').join(''),
+      })
+      addLog(`Block ${blockNum}: ${hexEncode(raw)}`, 'ok')
+    } catch (e) { addLog(`Lỗi: ${e}`, 'err') }
+    finally { setReading(false) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockNum, blockKey, keyType, addLog])
 
-  // ── Block write ────────────────────────────────────────────────────────────
-
-  async function writeBlock() {
+  // ── Write block ───────────────────────────────────────────────────────────
+  const handleWriteBlock = useCallback(async () => {
+    const currentCard = cardRef.current
+    if (!currentCard) { addLog('Đọc thẻ trước khi thao tác block', 'warn'); return }
     setWriting(true)
-    addLog('info', `Ghi block ${blockNum}...`)
-    const j = await bridgeFetch('/card/block/write', {
-      block: parseInt(blockNum),
-      data: writeData.replace(/\s/g, '').padEnd(32, '0').slice(0, 32),
-      key: blockKey.replace(/\s/g, ''),
-      key_type: parseInt(keyType),
-    })
-    if (j.ok) {
-      addLog('success', `Ghi block ${blockNum} thành công: ${(j as { written?: string }).written}`)
-    } else {
-      addLog('error', `Ghi block ${blockNum}: ${j.error}`)
-    }
-    setWriting(false)
+    try {
+      const uidBytes  = hexDecode(currentCard.uid, 4)
+      const keyBytes  = hexDecode(blockKey, 6)
+      const dataBytes = hexDecode(writeData, 16)
+      // cmd=0x31 [block, key_type, key(6B), uid(4B), data(16B)]
+      const resp = await sendCmd(0x31, [blockNum, keyType, ...keyBytes, ...uidBytes, ...dataBytes], 1500)
+      if (!resp || resp[3] !== 0) {
+        addLog(`Ghi block ${blockNum} thất bại (status=${resp ? resp[3] : 'timeout'})`, 'err')
+        return
+      }
+      addLog(`✅ Ghi block ${blockNum} thành công`, 'ok')
+    } catch (e) { addLog(`Lỗi: ${e}`, 'err') }
+    finally { setWriting(false) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockNum, blockKey, keyType, writeData, addLog])
+
+  // ── Log color ─────────────────────────────────────────────────────────────
+  const logColor = (k: LogEntry['kind']) =>
+    k === 'ok' ? '#16a34a' : k === 'err' ? '#dc2626' : k === 'warn' ? '#d97706' : '#6b7280'
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  // Not supported
+  if (supported === false) {
+    return (
+      <div className="p-6 flex items-start gap-3">
+        <span className="text-2xl">🌐</span>
+        <div>
+          <p className="font-semibold text-gray-800">Trình duyệt chưa hỗ trợ Web Serial API</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Tính năng RFID yêu cầu <strong>Google Chrome</strong> hoặc <strong>Microsoft Edge</strong> phiên bản 89+.
+          </p>
+          <a href="https://www.google.com/chrome/" target="_blank" rel="noreferrer"
+             className="inline-block mt-3 px-4 py-2 rounded-lg text-sm font-medium text-white no-underline"
+             style={{ background: '#4285f4' }}>
+            Tải Chrome
+          </a>
+        </div>
+      </div>
+    )
   }
-
-  // ── Derived state ──────────────────────────────────────────────────────────
-
-  const connected = bridgeStatus?.connected ?? false
-  const writeDataClean = writeData.replace(/\s/g, '')
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════════════════════
 
   return (
     <div className="p-4 space-y-4">
 
-      {/* ── Bridge offline banner ── */}
-      {bridgeOnline === false && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
-          <span className="text-2xl shrink-0">⚠️</span>
-          <div className="min-w-0 space-y-2">
-            <p className="font-semibold text-amber-800 text-sm">RFID Bridge chưa chạy trên máy này</p>
-            <p className="text-xs text-amber-700">Tải về và chạy bridge một lần — tự động cài đặt, không cần cấu hình.</p>
-            <div className="flex flex-wrap gap-2 pt-0.5">
-              <a
-                href="/rfid/start_rfid_bridge.bat"
-                download="start_rfid_bridge.bat"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white no-underline"
-                style={{ background: '#1d6fd1' }}
-              >
-                ⬇️ Tải về (Windows .bat)
-              </a>
-              <a
-                href="/rfid/start_rfid_bridge.sh"
-                download="start_rfid_bridge.sh"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white no-underline"
-                style={{ background: '#d97706' }}
-              >
-                ⬇️ Tải về (Linux .sh)
-              </a>
-              <a
-                href="/rfid/rfid_bridge.py"
-                download="rfid_bridge.py"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold no-underline"
-                style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}
-              >
-                🐍 rfid_bridge.py
-              </a>
-            </div>
-            <p className="text-[11px] text-amber-600">
-              Windows: double-click file .bat · Linux: <code className="bg-amber-100 px-1 rounded font-mono">bash start_rfid_bridge.sh</code> · Bridge chạy ở localhost:8765
-            </p>
-          </div>
-        </div>
-      )}
+      {/* ── Connection bar ─────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-3">
+        {!connected ? (
+          <>
+            <select
+              value={baudRate}
+              onChange={e => setBaudRate(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white"
+            >
+              {[9600, 19200, 38400, 115200].map(b => (
+                <option key={b} value={b}>{b} baud</option>
+              ))}
+            </select>
+            <button
+              onClick={handleConnect}
+              disabled={connecting || supported === null}
+              className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+              style={{ background: '#7c3aed' }}
+            >
+              {connecting ? '⏳ Đang kết nối...' : '🔌 Kết nối đầu đọc'}
+            </button>
+            <span className="text-xs text-gray-400">Trình duyệt sẽ hỏi chọn cổng COM</span>
+          </>
+        ) : (
+          <>
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700
+                             bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              Đã kết nối @ {baudRate} baud
+            </span>
+            <button
+              onClick={handleDisconnect}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-red-600 bg-red-50
+                         border border-red-200 hover:bg-red-100"
+            >
+              Ngắt kết nối
+            </button>
+          </>
+        )}
+      </div>
 
-      {/* ── 64-bit Python warning ── */}
-      {bridgeOnline && bridgeStatus && bridgeStatus.python_bits?.includes('64') && (
-        <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-xs text-orange-700 flex gap-2 items-center">
-          <span>⚠️</span>
-          <span>Bridge đang chạy Python 64-bit — rf_Reader.dll cần Python 32-bit. DLL có thể không load được.</span>
-        </div>
-      )}
+      {connected && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-      {/* ── Main grid ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* ── Left: Card reader ───────────────────────────────────────────── */}
+          <div className="space-y-3">
 
-        {/* ── Column 1: Connection + Card info ── */}
-        <div className="space-y-4">
-
-          {/* Connection card */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <div className="flex items-center gap-2 mb-4">
-              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                bridgeOnline === null ? 'bg-gray-300 animate-pulse' :
-                !bridgeOnline         ? 'bg-red-400' :
-                connected             ? 'bg-green-500' : 'bg-yellow-400'
-              }`} />
-              <h3 className="text-sm font-semibold text-gray-800">
-                {bridgeOnline === null ? 'Đang kiểm tra...' :
-                 !bridgeOnline         ? 'Bridge offline' :
-                 connected             ? `Đã kết nối ${bridgeStatus?.port_name}` :
-                                         'Bridge online'}
-              </h3>
-            </div>
-
-            <div className="mb-3">
-              <label className="block text-xs text-gray-500 mb-1">
-                Cổng serial
-                <span className="ml-1 text-gray-400">
-                  {bridgeStatus?.os === 'Windows' ? '(Windows: COM3, COM4...)' : '(Linux: /dev/ttyUSB0...)'}
-                </span>
-              </label>
-              <div className="flex gap-1.5">
-                {availPorts.length > 0 ? (
-                  <select
-                    value={portName}
-                    onChange={e => setPortName(e.target.value)}
-                    disabled={connected}
-                    className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
-                  >
-                    {availPorts.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={portName}
-                    onChange={e => setPortName(e.target.value)}
-                    disabled={connected}
-                    placeholder={bridgeStatus?.os === 'Windows' ? 'COM3' : '/dev/ttyUSB0'}
-                    className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
-                  />
-                )}
-                <button
-                  onClick={scanPorts}
-                  disabled={!bridgeOnline || connected || scanning}
-                  title="Quét cổng"
-                  className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-40"
-                >
-                  {scanning ? '⏳' : '🔍'}
-                </button>
-              </div>
-            </div>
-
-            {!connected ? (
-              <button
-                onClick={connectPort}
-                disabled={!bridgeOnline || connecting || bridgeOnline === null}
-                className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors"
-              >
-                {connecting ? '⏳ Đang kết nối...' : '🔌 Kết nối đầu đọc'}
-              </button>
-            ) : (
-              <button
-                onClick={disconnectPort}
-                className="w-full py-2 bg-gray-500 text-white rounded-lg text-sm font-semibold hover:bg-gray-600 transition-colors"
-              >
-                Ngắt kết nối
-              </button>
-            )}
-
-            {bridgeStatus?.dll_error && (
-              <p className="text-xs text-red-500 mt-2 bg-red-50 rounded p-2">{bridgeStatus.dll_error}</p>
-            )}
-          </div>
-
-          {/* Card info */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-800">🔖 Thông tin thẻ</h3>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={readCard}
-                  disabled={!connected || reading || polling}
-                  className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                >
-                  {reading && !polling ? '⏳' : '📡 Đọc'}
-                </button>
-                <button
-                  onClick={polling ? stopPolling : startPolling}
-                  disabled={!connected}
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 ${
-                    polling
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200'
-                  }`}
-                >
-                  {polling ? '⏹ Dừng' : '▶ Auto'}
-                </button>
-              </div>
-            </div>
-
-            {card ? (
-              <div className="space-y-2.5">
-                <div className="bg-green-50 rounded-xl p-3 border border-green-100">
-                  <p className="text-xs text-green-600 font-medium mb-1">Card UID</p>
-                  <p className="font-mono text-xl font-bold text-green-800 tracking-widest">
-                    {card.uid_display}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full text-xs font-medium border border-blue-100">
-                    {card.card_type_name}
-                  </span>
-                  <span className="bg-gray-50 text-gray-500 px-2.5 py-1 rounded-full text-xs font-mono border border-gray-200">
-                    0x{card.card_type.toString(16).toUpperCase().padStart(2, '0')}
-                  </span>
-                  {polling && (
-                    <span className="bg-green-50 text-green-600 px-2.5 py-1 rounded-full text-xs font-medium border border-green-100 animate-pulse">
-                      ● Live
-                    </span>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="py-8 text-center">
-                <div className="text-5xl opacity-20 mb-2">📡</div>
-                <p className="text-xs text-gray-400">Đặt thẻ lên đầu đọc</p>
-                <p className="text-xs text-gray-400">rồi nhấn <strong>Đọc</strong> hoặc bật <strong>Auto</strong></p>
-              </div>
-            )}
-          </div>
-
-        </div>
-
-        {/* ── Column 2: Block operations ── */}
-        <div className="space-y-4">
-
-          {/* Block settings */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3">⚙️ Cài đặt Block</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Số block <span className="text-gray-400">(Mifare 1K: 0–63)</span></label>
-                <input
-                  type="number" min="0" max="63"
-                  value={blockNum}
-                  onChange={e => setBlockNum(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-400"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Key (hex 6 bytes = 12 ký tự)</label>
-                <input
-                  type="text"
-                  value={blockKey}
-                  onChange={e => setBlockKey(e.target.value.toUpperCase().replace(/[^0-9A-F]/g, ''))}
-                  placeholder="FFFFFFFFFFFF"
-                  maxLength={12}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-400"
-                />
-                <p className="text-xs text-gray-400 mt-0.5">Default Mifare: FFFFFFFFFFFF</p>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Key type</label>
-                <div className="flex gap-2">
-                  {[['0', 'Key A'], ['1', 'Key B']] as const}
-                  {(['0', '1'] as const).map(v => (
-                    <button
-                      key={v}
-                      onClick={() => setKeyType(v)}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                        keyType === v
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      {v === '0' ? 'Key A' : 'Key B'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Read block */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-800">📖 Đọc Block</h3>
-              <button
-                onClick={readBlock}
-                disabled={!connected || !card || reading}
-                className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors"
-              >
-                {reading ? '⏳' : 'Đọc'}
-              </button>
-            </div>
-            {blockData ? (
-              <div className="space-y-2">
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Hex <span className="text-gray-300">(block {blockData.block})</span></p>
-                  <p className="font-mono text-xs bg-gray-50 border border-gray-100 p-2.5 rounded-lg break-all leading-relaxed">
-                    {blockData.data_hex}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">ASCII</p>
-                  <p className="font-mono text-xs bg-gray-50 border border-gray-100 p-2.5 rounded-lg">
-                    {blockData.data_ascii}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400 text-center py-4">Chưa đọc block nào</p>
-            )}
-          </div>
-
-          {/* Write block */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3">✏️ Ghi Block</h3>
-            <div className="space-y-2.5">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">
-                  Data hex (16 bytes = 32 ký tự)
-                  <span className={`ml-2 ${writeDataClean.length === 32 ? 'text-green-500' : 'text-gray-400'}`}>
-                    {writeDataClean.length}/32
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  value={writeData}
-                  onChange={e => setWriteData(e.target.value.toUpperCase().replace(/[^0-9A-F\s]/g, ''))}
-                  placeholder="00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-blue-400"
-                />
-              </div>
-              <button
-                onClick={writeBlock}
-                disabled={!connected || !card || writing || writeDataClean.length !== 32}
-                className="w-full py-2 bg-orange-600 text-white rounded-lg text-sm font-semibold hover:bg-orange-700 disabled:opacity-40 transition-colors"
-              >
-                {writing ? '⏳ Đang ghi...' : '⚠️ Ghi vào thẻ'}
-              </button>
-              <p className="text-xs text-gray-400 flex items-start gap-1">
-                <span>⚠️</span>
-                <span>Thao tác ghi không thể hoàn tác. Block 0 (Manufacturer), block sector trailer (3, 7, 11...) không ghi trực tiếp.</span>
-              </p>
-            </div>
-          </div>
-
-        </div>
-
-        {/* ── Column 3: Log ── */}
-        <div>
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-800">📋 Nhật ký thao tác</h3>
-              <button
-                onClick={() => setLog([])}
-                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                Xóa
-              </button>
-            </div>
-
-            <div className="space-y-1.5 max-h-[520px] overflow-y-auto pr-1">
-              {log.length === 0 ? (
-                <p className="text-xs text-gray-400 text-center py-8">Chưa có thao tác nào</p>
-              ) : (
-                log.map(entry => (
-                  <div
-                    key={entry.id}
-                    className={`flex gap-2 text-xs p-2 rounded-lg border ${
-                      entry.type === 'error'   ? 'bg-red-50 text-red-700 border-red-100' :
-                      entry.type === 'success' ? 'bg-green-50 text-green-700 border-green-100' :
-                      entry.type === 'card'    ? 'bg-blue-50 text-blue-700 border-blue-100' :
-                      'bg-gray-50 text-gray-600 border-gray-100'
-                    }`}
-                  >
-                    <span className="font-mono opacity-50 shrink-0 text-[10px] mt-0.5">{entry.time}</span>
-                    <span className="break-all">{entry.msg}</span>
+            {/* Card status */}
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+              {card ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">🃏</span>
+                    <span className="font-semibold text-gray-800">Thẻ đang đọc</span>
                   </div>
-                ))
+                  <div className="font-mono text-lg font-bold text-purple-700 tracking-widest">
+                    {card.uidDisplay}
+                  </div>
+                  <div className="text-xs text-gray-500">{card.cardTypeName}</div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-gray-400">
+                  <span className="text-2xl">📭</span>
+                  <span className="text-sm">Chưa có thẻ</span>
+                </div>
               )}
             </div>
+
+            {/* Buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleReadCard}
+                className="flex-1 py-2 rounded-lg text-sm font-semibold text-white"
+                style={{ background: '#7c3aed' }}
+              >
+                📡 Đọc thẻ
+              </button>
+              <button
+                onClick={togglePolling}
+                className="flex-1 py-2 rounded-lg text-sm font-semibold border"
+                style={polling
+                  ? { background: '#fef3c7', color: '#92400e', borderColor: '#fcd34d' }
+                  : { background: '#f9fafb', color: '#374151', borderColor: '#d1d5db' }}
+              >
+                {polling ? '⏸ Dừng quét' : '🔄 Tự động quét'}
+              </button>
+            </div>
+
+            {/* Block operations */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-700">Đọc / Ghi block</p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Block số</label>
+                  <input
+                    type="number" min={0} max={63} value={blockNum}
+                    onChange={e => setBlockNum(Number(e.target.value))}
+                    className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Key type</label>
+                  <select value={keyType} onChange={e => setKeyType(Number(e.target.value))}
+                    className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white">
+                    <option value={0}>Key A</option>
+                    <option value={1}>Key B</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Key (hex, 6 bytes)</label>
+                <input
+                  type="text" value={blockKey} onChange={e => setBlockKey(e.target.value)}
+                  placeholder="FFFFFFFFFFFF"
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono"
+                />
+              </div>
+
+              <button
+                onClick={handleReadBlock} disabled={reading || !card}
+                className="w-full py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: '#2563eb' }}
+              >
+                {reading ? '⏳ Đang đọc...' : '📖 Đọc block'}
+              </button>
+
+              {blockData && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1">
+                  <div className="text-xs text-gray-500">Block {blockData.block}</div>
+                  <div className="font-mono text-xs text-gray-800 break-all">{blockData.dataHex}</div>
+                  <div className="font-mono text-xs text-purple-700">{blockData.dataAscii}</div>
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Dữ liệu ghi (hex, 16 bytes)</label>
+                <input
+                  type="text" value={writeData} onChange={e => setWriteData(e.target.value)}
+                  placeholder="00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs font-mono"
+                />
+              </div>
+
+              <button
+                onClick={handleWriteBlock} disabled={writing || !card || !writeData}
+                className="w-full py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: '#dc2626' }}
+              >
+                {writing ? '⏳ Đang ghi...' : '✏️ Ghi block'}
+              </button>
+            </div>
           </div>
 
-          {/* Quick reference */}
-          <div className="mt-3 bg-gray-50 rounded-xl border border-gray-200 p-3">
-            <p className="text-xs font-semibold text-gray-600 mb-1.5">Mifare 1K — cấu trúc sector</p>
-            <div className="text-xs text-gray-500 space-y-0.5">
-              <p><span className="font-mono bg-white px-1.5 rounded border border-gray-200">Block 0</span> Manufacturer (chỉ đọc)</p>
-              <p><span className="font-mono bg-white px-1.5 rounded border border-gray-200">Block 1,2</span> Data (ghi được)</p>
-              <p><span className="font-mono bg-white px-1.5 rounded border border-gray-200">Block 3</span> Sector trailer (key + access)</p>
-              <p className="text-gray-400 mt-1">16 sectors × 4 blocks = 64 blocks tổng</p>
+          {/* ── Right: Log + block reference ────────────────────────────────── */}
+          <div className="space-y-3">
+
+            {/* Activity log */}
+            <div className="bg-gray-900 rounded-xl p-3 h-56 overflow-y-auto font-mono text-xs space-y-0.5">
+              {log.length === 0 && (
+                <div className="text-gray-500">Nhật ký hoạt động...</div>
+              )}
+              {log.map((e, i) => (
+                <div key={i} style={{ color: logColor(e.kind) }}>
+                  <span className="text-gray-600">{e.ts} </span>
+                  {e.msg}
+                </div>
+              ))}
+            </div>
+
+            {/* Mifare 1K sector reference */}
+            <div className="bg-white border border-gray-200 rounded-xl p-3">
+              <p className="text-xs font-semibold text-gray-600 mb-2">Mifare Classic 1K — cấu trúc sector</p>
+              <div className="overflow-x-auto">
+                <table className="text-[11px] w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="border border-gray-200 px-2 py-1 text-left">Sector</th>
+                      <th className="border border-gray-200 px-2 py-1 text-left">Block</th>
+                      <th className="border border-gray-200 px-2 py-1 text-left">Loại</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[0,1,2,3].map(s => (
+                      [0,1,2,3].map(b => {
+                        const blk = s * 4 + b
+                        const isTrailer = b === 3
+                        const isMfg = blk === 0
+                        return (
+                          <tr key={blk} className={blk === blockNum ? 'bg-purple-50' : ''}>
+                            <td className="border border-gray-200 px-2 py-0.5">{b === 0 ? s : ''}</td>
+                            <td className="border border-gray-200 px-2 py-0.5 font-mono font-semibold">{blk}</td>
+                            <td className="border border-gray-200 px-2 py-0.5"
+                                style={{ color: isMfg ? '#dc2626' : isTrailer ? '#d97706' : '#374151' }}>
+                              {isMfg ? 'Manufacturer (read-only)' : isTrailer ? 'Sector Trailer (key+AC)' : 'Data'}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    ))}
+                    <tr>
+                      <td colSpan={3} className="border border-gray-200 px-2 py-0.5 text-gray-400 italic">
+                        ... sector 4–15 (block 16–63) tương tự
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
-
-      </div>
+      )}
     </div>
   )
 }
