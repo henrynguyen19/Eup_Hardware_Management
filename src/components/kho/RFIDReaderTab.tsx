@@ -30,6 +30,18 @@ function makeCmd(cmd: number, data: number[] = []): Uint8Array {
   return new Uint8Array([0xAA, 0xBB, ...payload, xorBcc(payload)])
 }
 
+/** Probe commands to try — different RFID reader protocol variants */
+const PROBE_VARIANTS = [
+  { label: 'Variant A — AA BB, cmd=0x50, REQA',  bytes: [0xAA,0xBB,0x03,0x50,0x26,0x00,0x77] },
+  { label: 'Variant B — AA BB, cmd=0x50, WUPA',  bytes: [0xAA,0xBB,0x03,0x50,0x52,0x00,0x03] },
+  { label: 'Variant C — AA BB, cmd=0x01',         bytes: [0xAA,0xBB,0x01,0x01,0x00] },
+  { label: 'Variant D — AA BB, cmd=0x26 (raw)',   bytes: [0xAA,0xBB,0x01,0x26,0x27] },
+  { label: 'Variant E — raw REQA (0x26)',          bytes: [0x26] },
+  { label: 'Variant F — raw WUPA (0x52)',          bytes: [0x52] },
+  { label: 'Variant G — AB BA, cmd=0x50, REQA',  bytes: [0xAB,0xBA,0x03,0x50,0x26,0x00,0x77] },
+  { label: 'Variant H — FF 00 00 00 (init)',       bytes: [0xFF,0x00,0x00,0x00,0x00] },
+]
+
 /** Decode hex string to number[]. Pads/trims to `len` bytes. */
 function hexDecode(hex: string, len: number): number[] {
   const h = hex.replace(/\s/g, '').toLowerCase().padEnd(len * 2, '0').slice(0, len * 2)
@@ -85,11 +97,16 @@ export default function RFIDReaderTab() {
   const [writeData, setWriteData] = useState('')
   const [writing,   setWriting]   = useState(false)
 
-  const [log, setLog] = useState<LogEntry[]>([])
+  const [log, setLog]       = useState<LogEntry[]>([])
+  const [debugMode, setDebugMode] = useState(false)
+  const [rawRx, setRawRx]   = useState<string>('')   // last N raw bytes received (hex)
+  const [probing, setProbing] = useState(false)
+  const [probeLog, setProbeLog] = useState<string[]>([])
 
   // Refs (stable across renders, safe inside async loops)
   const portRef        = useRef<WebSerialPort | null>(null)
   const rxBuf          = useRef<number[]>([])
+  const rawRxBuf       = useRef<number[]>([])         // debug: all received bytes
   const frameWaiters   = useRef<Array<(f: Uint8Array | null) => void>>([])
   const readLoopActive = useRef(false)
   const pollTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -154,12 +171,52 @@ export default function RFIDReaderTab() {
         if (done) break
         if (value) {
           rxBuf.current.push(...Array.from(value))
+          // Debug: accumulate raw bytes
+          rawRxBuf.current.push(...Array.from(value))
+          if (rawRxBuf.current.length > 256) rawRxBuf.current = rawRxBuf.current.slice(-256)
+          setRawRx(rawRxBuf.current.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' '))
           tryParseFrame()
         }
       }
     } catch { /* port closed */ }
     finally { reader.releaseLock() }
   }
+
+  // ── Probe: try different protocol variants ────────────────────────────────
+  const handleProbe = useCallback(async () => {
+    if (!portRef.current) return
+    setProbing(true)
+    setProbeLog([])
+    rawRxBuf.current = []
+    setRawRx('')
+    const results: string[] = []
+
+    for (const v of PROBE_VARIANTS) {
+      // Clear buffer and send
+      rxBuf.current = []
+      const writer = portRef.current.writable.getWriter()
+      const sent = v.bytes.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
+      try { await writer.write(new Uint8Array(v.bytes)) }
+      finally { writer.releaseLock() }
+
+      // Wait 400ms for any response
+      await new Promise(r => setTimeout(r, 400))
+      const received = rawRxBuf.current.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
+      rawRxBuf.current = []
+
+      const result = `${v.label}\n  TX: ${sent}\n  RX: ${received || '(no response)'}`
+      results.push(result)
+      setProbeLog([...results])
+
+      if (received) {
+        results.push(`  ✅ Reader responded! Protocol might match.`)
+        setProbeLog([...results])
+        break
+      }
+    }
+
+    setProbing(false)
+  }, [])
 
   // ── Send a command and wait for one frame response ────────────────────────
   async function sendCmd(cmd: number, data: number[] = [], timeoutMs = 1200): Promise<Uint8Array | null> {
@@ -513,11 +570,25 @@ export default function RFIDReaderTab() {
             </div>
           </div>
 
-          {/* ── Right: Log + block reference ────────────────────────────────── */}
+          {/* ── Right: Log + debug + block reference ───────────────────────── */}
           <div className="space-y-3">
 
+            {/* Log header with debug toggle */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-500">Nhật ký</span>
+              <button
+                onClick={() => setDebugMode(d => !d)}
+                className="text-xs px-2 py-0.5 rounded border"
+                style={debugMode
+                  ? { background: '#fef3c7', color: '#92400e', borderColor: '#fcd34d' }
+                  : { background: '#f9fafb', color: '#6b7280', borderColor: '#d1d5db' }}
+              >
+                🔬 Debug {debugMode ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
             {/* Activity log */}
-            <div className="bg-gray-900 rounded-xl p-3 h-56 overflow-y-auto font-mono text-xs space-y-0.5">
+            <div className="bg-gray-900 rounded-xl p-3 h-40 overflow-y-auto font-mono text-xs space-y-0.5">
               {log.length === 0 && (
                 <div className="text-gray-500">Nhật ký hoạt động...</div>
               )}
@@ -528,6 +599,43 @@ export default function RFIDReaderTab() {
                 </div>
               ))}
             </div>
+
+            {/* Debug panel */}
+            {debugMode && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-indigo-800">🔬 Debug — Raw bytes (RX)</p>
+                  <button onClick={() => { rawRxBuf.current = []; setRawRx('') }}
+                    className="text-[11px] text-indigo-500 hover:text-indigo-700">Xoá</button>
+                </div>
+                <div className="bg-gray-900 rounded-lg p-2 font-mono text-[11px] text-green-400 min-h-[40px] break-all">
+                  {rawRx || <span className="text-gray-600">Đặt thẻ lên đầu đọc, nhấn &quot;Probe&quot; để xem reader trả về gì...</span>}
+                </div>
+
+                <button
+                  onClick={handleProbe} disabled={probing}
+                  className="w-full py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
+                  style={{ background: '#6366f1' }}
+                >
+                  {probing ? '⏳ Đang probe...' : '🧪 Probe — Thử tất cả protocol variants'}
+                </button>
+
+                {probeLog.length > 0 && (
+                  <div className="bg-gray-900 rounded-lg p-2 font-mono text-[11px] space-y-2 max-h-48 overflow-y-auto">
+                    {probeLog.map((line, i) => (
+                      <pre key={i} className="whitespace-pre-wrap"
+                           style={{ color: line.includes('✅') ? '#4ade80' : line.startsWith('  RX:') && !line.includes('no response') ? '#fbbf24' : '#9ca3af' }}>
+                        {line}
+                      </pre>
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-[11px] text-indigo-600">
+                  Nếu reader trả về bytes → gửi kết quả RX cho kỹ thuật để xác định đúng protocol.
+                </p>
+              </div>
+            )}
 
             {/* Mifare 1K sector reference */}
             <div className="bg-white border border-gray-200 rounded-xl p-3">
