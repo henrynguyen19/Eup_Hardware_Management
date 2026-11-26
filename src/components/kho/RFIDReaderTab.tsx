@@ -296,7 +296,7 @@ export default function RFIDReaderTab() {
     const writer = portRef.current.writable.getWriter()
     try { await writer.write(new Uint8Array(bytes)) }
     finally { writer.releaseLock() }
-    await new Promise(r => setTimeout(r, 1500))
+    await new Promise(r => setTimeout(r, 3000))
     const rx = rawRxBuf.current.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
     manualTxActive.current = false
     setManualTxResult(rx || '(no response)')
