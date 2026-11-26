@@ -304,6 +304,34 @@ export default function RFIDReaderTab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manualTx, addLog])
 
+  // ── Listen-only capture (no TX) ──────────────────────────────────────────
+  const [listenLog, setListenLog]       = useState<string[]>([])
+  const [listenSecs, setListenSecs]     = useState(0)
+  const [listening,  setListening]      = useState(false)
+
+  const handleListen = useCallback(async () => {
+    if (!portRef.current) return
+    setListening(true)
+    setListenLog([])
+    manualTxActive.current = true  // freeze polling
+    rxBuf.current = []
+    rawRxBuf.current = []
+    const DURATION = 10
+    const snapshots: string[] = []
+    for (let s = 1; s <= DURATION; s++) {
+      await new Promise(r => setTimeout(r, 1000))
+      setListenSecs(s)
+      const hex = rawRxBuf.current.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
+      if (hex) { snapshots.push(`t=${s}s: ${hex}`); rawRxBuf.current = [] }
+      setListenLog([...snapshots])
+    }
+    manualTxActive.current = false
+    setListening(false)
+    setListenSecs(0)
+    if (!snapshots.length) setListenLog(['(không nhận được byte nào trong 10s)'])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // ── Probe all protocol variants ───────────────────────────────────────────
   // Frame format candidates based on rf_Reader.dll disassembly:
   //   Internal buffer: [block_lo][block_hi][?][?][TYPE][CMD][key_type][key×6]
@@ -1203,6 +1231,22 @@ export default function RFIDReaderTab() {
                   <div>M1 Read blk0 Key A FFFFFF = <code className="bg-indigo-100 px-0.5">21 03 00 00 00 FF FF FF FF FF FF [xor]</code></div>
                 </div>
               </div>
+
+              {/* Listen */}
+              <button
+                onClick={handleListen} disabled={listening || !connected}
+                className={`${btnPrimary} w-full py-1.5 text-xs`}
+                style={{ background: '#0891b2' }}
+              >
+                {listening ? `🎧 Đang nghe... ${listenSecs}/10s` : '🎧 Listen 10s — nghe thụ động (đặt thẻ lên reader sau khi bấm)'}
+              </button>
+              {listenLog.length > 0 && (
+                <div className="bg-gray-900 rounded-lg p-2 font-mono text-[11px] max-h-32 overflow-y-auto">
+                  {listenLog.map((line, i) => (
+                    <div key={i} className="text-yellow-300">{line}</div>
+                  ))}
+                </div>
+              )}
 
               {/* Probe */}
               <button
