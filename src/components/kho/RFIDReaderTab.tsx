@@ -170,10 +170,11 @@ export default function RFIDReaderTab() {
   const rxBuf          = useRef<number[]>([])
   const rawRxBuf       = useRef<number[]>([])
   const frameWaiters   = useRef<Array<(f: Uint8Array | null) => void>>([])
-  const readLoopActive = useRef(false)
-  const pollTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lastUid        = useRef<string | null>(null)
-  const cardRef        = useRef<CardInfo | null>(null)
+  const readLoopActive  = useRef(false)
+  const pollTimer       = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastUid         = useRef<string | null>(null)
+  const cardRef         = useRef<CardInfo | null>(null)
+  const manualTxActive  = useRef(false)   // freeze flag: polling skips rawRxBuf clear
 
   // ── Browser support ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -287,13 +288,17 @@ export default function RFIDReaderTab() {
     if (!portRef.current || !manualTx.trim()) return
     const bytes = manualTx.trim().split(/[\s,]+/).map(h => parseInt(h, 16)).filter(n => !isNaN(n))
     if (!bytes.length) return
+    // Freeze polling so it doesn't clear rawRxBuf during wait
+    manualTxActive.current = true
+    rxBuf.current = []
     rawRxBuf.current = []
     setManualTxResult('⏳ Chờ...')
     const writer = portRef.current.writable.getWriter()
     try { await writer.write(new Uint8Array(bytes)) }
     finally { writer.releaseLock() }
-    await new Promise(r => setTimeout(r, 800))
+    await new Promise(r => setTimeout(r, 1500))
     const rx = rawRxBuf.current.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
+    manualTxActive.current = false
     setManualTxResult(rx || '(no response)')
     addLog(`TX: ${bytes.map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' ')} → RX: ${rx || 'none'}`, rx ? 'ok' : 'warn')
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -318,9 +323,13 @@ export default function RFIDReaderTab() {
     // ── DLL-derived: FB [LEN] [TYPE] [CMD] [XOR] ──────────────────────────
     { label: '[DLL] FB hdr: RF On',               bytes: [0xFB,0x02,0x10,0x01,0xE8] },
     { label: '[DLL] FB hdr: REQA',                bytes: [0xFB,0x02,0x20,0x11,0xC8] },
-    // ── AA BB format (original assumption) ────────────────────────────────
-    { label: '[AA BB] RF On',                     bytes: [0xAA,0xBB,0x02,0x10,0x01,0x13] },
-    { label: '[AA BB] REQA',                      bytes: [0xAA,0xBB,0x02,0x20,0x11,0x33] },
+    // ── AA BB no-DevID format (old assumption) ────────────────────────────
+    { label: '[AA BB no-DevID] RF On',             bytes: [0xAA,0xBB,0x02,0x10,0x01,0x13] },
+    { label: '[AA BB no-DevID] REQA',              bytes: [0xAA,0xBB,0x02,0x20,0x11,0x33] },
+    // ── AA BB + DeviceID=0000 format (M50D datasheet confirmed) ───────────
+    { label: '[M50D] Get Reader Info',             bytes: [0xAA,0xBB,0x05,0x00,0x00,0x00,0x04,0x01,0x05] },
+    { label: '[M50D] RF On  (DevID=0000)',         bytes: [0xAA,0xBB,0x05,0x00,0x00,0x00,0x10,0x01,0x11] },
+    { label: '[M50D] REQA   (DevID=0000)',         bytes: [0xAA,0xBB,0x05,0x00,0x00,0x00,0x20,0x11,0x31] },
     // ── ISO 14443 raw REQA ────────────────────────────────────────────────
     { label: 'Raw 0x26 (bare REQA)',               bytes: [0x26] },
     // ── CardIssue-style heartbeat mirror ──────────────────────────────────
@@ -332,6 +341,7 @@ export default function RFIDReaderTab() {
     if (!portRef.current) return
     setProbing(true)
     setProbeLog([])
+    manualTxActive.current = true   // freeze polling for entire probe sequence
     rawRxBuf.current = []
     setRawRx('')
     const results: string[] = []
@@ -342,20 +352,22 @@ export default function RFIDReaderTab() {
       const sent = v.bytes.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
       try { await writer.write(new Uint8Array(v.bytes)) }
       finally { writer.releaseLock() }
-      await new Promise(r => setTimeout(r, 700))
+      await new Promise(r => setTimeout(r, 1200))
       const received = rawRxBuf.current.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
       const result = `${v.label}\n  TX: ${sent}\n  RX: ${received || '(no response)'}`
       results.push(result)
-      if (received && received !== 'BB FD' && received !== 'FB FD') {
+      if (received && received !== 'BB FD' && received !== 'FB FD' &&
+          !received.startsWith('BB FD') && !received.startsWith('FB FD')) {
         results.push('  ✅ Có phản hồi khác heartbeat!'); setProbeLog([...results]); break
       }
       setProbeLog([...results])
     }
+    manualTxActive.current = false
     if (!results.some(r => r.includes('✅'))) {
-      results.push('--- Không tìm thấy protocol. Dùng Procmon để capture bytes ---\n' +
-        '  1. Chạy CardIssue.exe → bấm Kết nối\n' +
-        '  2. Mở Procmon → Filter → Process Name = CardIssue.exe, Op = WriteFile\n' +
-        '  3. Bấm Get trong CardIssue → xem bytes trong Event Detail > Detail tab')
+      results.push('--- Tất cả probe thất bại. Thử:\n' +
+        '  1. Chạy CardIssue.exe → Kết nối → Ngắt kết nối\n' +
+        '  2. Rồi kết nối lại từ web và thử probe\n' +
+        '  3. Hoặc đặt thẻ lên reader trước khi probe')
       setProbeLog([...results])
     }
     setProbing(false)
@@ -569,6 +581,9 @@ export default function RFIDReaderTab() {
     setPolling(true)
     addLog('Bắt đầu quét tự động...', 'info')
     pollTimer.current = setInterval(() => {
+      // Don't consume buffer while manual TX / probe is capturing raw bytes
+      if (manualTxActive.current) return
+
       const raw = rawRxBuf.current.slice()
       if (raw.length < 2) return
 
