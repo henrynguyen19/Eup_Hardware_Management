@@ -8,13 +8,13 @@ import {
 } from 'recharts'
 // ── Constants ─────────────────────────────────────────────────
 const DEVICE_TYPES = [
-  '4G', '4GH', 'GO', 'SBOX', 'MT99', 'Temp sensor',
+  '4G', '4GH', 'GO', 'SBOX', 'MT99', 'F6N', 'Temp sensor',
   'FS100', 'SOJI', 'SW sensor', 'SINET sensor', 'Collision sensor',
   'DVR88', 'C43', 'H5', 'Bewin', 'Camera'
 ]
 const DEVICE_COLORS: Record<string, string> = {
   '4G': '#A70A0A', '4GH': '#c0392b', 'GO': '#e67e22', 'SBOX': '#f39c12',
-  'MT99': '#27ae60', 'Temp sensor': '#16a085', 'FS100': '#2980b9',
+  'MT99': '#27ae60', 'F6N': '#0891b2', 'Temp sensor': '#16a085', 'FS100': '#2980b9',
   'SOJI': '#8e44ad', 'SW sensor': '#2c3e50', 'SINET sensor': '#7f8c8d',
   'Collision sensor': '#d35400', 'DVR88': '#1abc9c', 'C43': '#3498db',
   'H5': '#9b59b6', 'Bewin': '#e91e63', 'Camera': '#607d8b'

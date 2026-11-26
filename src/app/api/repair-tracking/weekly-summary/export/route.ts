@@ -26,6 +26,7 @@ function normalizeProduct(name: string): string {
   if (/go.?168|go-168|go168/i.test(n))       return 'GO'
   if (/c-?43|streamax.*c43|c43/i.test(n))    return 'C43'
   if (/vn88.*4g[h]|4gh/i.test(n))            return '4GH'
+  if (/f6n/i.test(n))                        return 'F6N'
   if (/dvr|mdvr|h5.*dvr/i.test(n))           return 'DVR88'
   if (/camera|cam(?!era)/i.test(n))           return 'Camera'
   if (/\bh5\b/i.test(n))                     return 'H5'
