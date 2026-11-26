@@ -280,13 +280,52 @@ export default function RFIDReaderTab() {
     return waitForFrame(timeoutMs)
   }
 
+  // ── Manual TX ─────────────────────────────────────────────────────────────
+  const [manualTx, setManualTx] = useState('')
+  const [manualTxResult, setManualTxResult] = useState('')
+  const handleManualTx = useCallback(async () => {
+    if (!portRef.current || !manualTx.trim()) return
+    const bytes = manualTx.trim().split(/[\s,]+/).map(h => parseInt(h, 16)).filter(n => !isNaN(n))
+    if (!bytes.length) return
+    rawRxBuf.current = []
+    setManualTxResult('⏳ Chờ...')
+    const writer = portRef.current.writable.getWriter()
+    try { await writer.write(new Uint8Array(bytes)) }
+    finally { writer.releaseLock() }
+    await new Promise(r => setTimeout(r, 800))
+    const rx = rawRxBuf.current.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
+    setManualTxResult(rx || '(no response)')
+    addLog(`TX: ${bytes.map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' ')} → RX: ${rx || 'none'}`, rx ? 'ok' : 'warn')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualTx, addLog])
+
   // ── Probe all protocol variants ───────────────────────────────────────────
+  // Frame format candidates based on rf_Reader.dll disassembly:
+  //   Internal buffer: [block_lo][block_hi][?][?][TYPE][CMD][key_type][key×6]
+  //   TYPE 0x10=RF, 0x20=ISO14443A, 0x21=Mifare M1
+  //   CMD  0x01=RFOn, 0x11=RequestAndSelect, 0x03=M1Read
+  // Push frames from reader: FB/BB F5 [cardType] → card present
+  //                          BB FD [xx]           → no card
   const PROBE_VARIANTS = [
-    { label: 'FB FD — cmd=0x50 REQA',  bytes: [0xFB,0xFD,0x03,0x50,0x26,0x00,0x77] },
-    { label: 'FB FD — cmd=0x01 detect',bytes: [0xFB,0xFD,0x01,0x01,0x01] },
-    { label: 'AA BB — cmd=0x50 REQA',  bytes: [0xAA,0xBB,0x03,0x50,0x26,0x00,0x77] },
-    { label: 'Raw 0x26 (bare REQA)',    bytes: [0x26] },
-    { label: 'FF 00 (init/ping)',       bytes: [0xFF,0x00,0x00,0x00,0x00] },
+    // ── DLL-derived: raw TYPE+CMD (no header) ─────────────────────────────
+    { label: '[DLL] RF On  → 10 01 (raw)',        bytes: [0x10,0x01] },
+    { label: '[DLL] RF On  → 10 01 11 (+XOR)',    bytes: [0x10,0x01,0x11] },
+    { label: '[DLL] REQA   → 20 11 (raw)',         bytes: [0x20,0x11] },
+    { label: '[DLL] REQA   → 20 11 31 (+XOR)',     bytes: [0x20,0x11,0x31] },
+    // ── DLL-derived: BB [LEN] [TYPE] [CMD] [XOR] ──────────────────────────
+    { label: '[DLL] BB hdr: RF On',               bytes: [0xBB,0x02,0x10,0x01,0x13] },
+    { label: '[DLL] BB hdr: REQA',                bytes: [0xBB,0x02,0x20,0x11,0x33] },
+    // ── DLL-derived: FB [LEN] [TYPE] [CMD] [XOR] ──────────────────────────
+    { label: '[DLL] FB hdr: RF On',               bytes: [0xFB,0x02,0x10,0x01,0xE8] },
+    { label: '[DLL] FB hdr: REQA',                bytes: [0xFB,0x02,0x20,0x11,0xC8] },
+    // ── AA BB format (original assumption) ────────────────────────────────
+    { label: '[AA BB] RF On',                     bytes: [0xAA,0xBB,0x02,0x10,0x01,0x13] },
+    { label: '[AA BB] REQA',                      bytes: [0xAA,0xBB,0x02,0x20,0x11,0x33] },
+    // ── ISO 14443 raw REQA ────────────────────────────────────────────────
+    { label: 'Raw 0x26 (bare REQA)',               bytes: [0x26] },
+    // ── CardIssue-style heartbeat mirror ──────────────────────────────────
+    { label: 'BB FD 00 (mirror no-card frame)',    bytes: [0xBB,0xFD,0x00] },
+    { label: 'FB FD 00 (mirror no-card frame)',    bytes: [0xFB,0xFD,0x00] },
   ]
 
   const handleProbe = useCallback(async () => {
@@ -298,16 +337,25 @@ export default function RFIDReaderTab() {
     const results: string[] = []
     for (const v of PROBE_VARIANTS) {
       rxBuf.current = []
+      rawRxBuf.current = []
       const writer = portRef.current.writable.getWriter()
       const sent = v.bytes.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
       try { await writer.write(new Uint8Array(v.bytes)) }
       finally { writer.releaseLock() }
-      await new Promise(r => setTimeout(r, 600))
+      await new Promise(r => setTimeout(r, 700))
       const received = rawRxBuf.current.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ')
-      rawRxBuf.current = []
       const result = `${v.label}\n  TX: ${sent}\n  RX: ${received || '(no response)'}`
       results.push(result)
-      if (received) { results.push('  ✅ Reader responded!'); setProbeLog([...results]); break }
+      if (received && received !== 'BB FD' && received !== 'FB FD') {
+        results.push('  ✅ Có phản hồi khác heartbeat!'); setProbeLog([...results]); break
+      }
+      setProbeLog([...results])
+    }
+    if (!results.some(r => r.includes('✅'))) {
+      results.push('--- Không tìm thấy protocol. Dùng Procmon để capture bytes ---\n' +
+        '  1. Chạy CardIssue.exe → bấm Kết nối\n' +
+        '  2. Mở Procmon → Filter → Process Name = CardIssue.exe, Op = WriteFile\n' +
+        '  3. Bấm Get trong CardIssue → xem bytes trong Event Detail > Detail tab')
       setProbeLog([...results])
     }
     setProbing(false)
@@ -1113,13 +1161,41 @@ export default function RFIDReaderTab() {
                 </div>
               </div>
 
+              {/* Manual TX */}
+              <div className="border border-indigo-200 rounded-lg p-2 space-y-1.5">
+                <p className="text-[11px] font-semibold text-indigo-800">📡 Gửi lệnh thủ công (hex)</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={manualTx}
+                    onChange={e => setManualTx(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleManualTx()}
+                    placeholder="BB 02 10 01 13"
+                    className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs font-mono"
+                  />
+                  <button onClick={handleManualTx} disabled={!manualTx.trim() || !connected}
+                    className={`${btnPrimary} px-3 py-1 text-xs`} style={{ background: '#7c3aed' }}>
+                    Gửi
+                  </button>
+                </div>
+                {manualTxResult && (
+                  <div className="bg-gray-900 rounded p-1.5 font-mono text-[11px] text-green-400 break-all">
+                    RX: {manualTxResult}
+                  </div>
+                )}
+                <div className="text-[10px] text-indigo-600 space-y-0.5">
+                  <div>Từ DLL analysis: RF On = <code className="bg-indigo-100 px-0.5">10 01 11</code> | REQA = <code className="bg-indigo-100 px-0.5">20 11 31</code></div>
+                  <div>M1 Read blk0 Key A FFFFFF = <code className="bg-indigo-100 px-0.5">21 03 00 00 00 FF FF FF FF FF FF [xor]</code></div>
+                </div>
+              </div>
+
               {/* Probe */}
               <button
                 onClick={handleProbe} disabled={probing}
                 className={`${btnPrimary} w-full py-1.5 text-xs`}
                 style={{ background: '#6366f1' }}
               >
-                {probing ? '⏳ Đang probe...' : '🧪 Probe — thử tất cả protocol variants'}
+                {probing ? '⏳ Đang probe...' : '🧪 Probe — thử tất cả protocol variants (DLL-based)'}
               </button>
               {probeLog.length > 0 && (
                 <div className="bg-gray-900 rounded-lg p-2 font-mono text-[11px] max-h-40 overflow-y-auto">
